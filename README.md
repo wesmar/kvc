@@ -52,36 +52,36 @@ This subtle but crucial distinction positions KVC not as a tool that breaks Wind
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                         KVC Ecosystem Architecture                           │
 ├────────────────────────────────┬─────────────────────────────────────────────┤
-│       Primary Framework        │     Browser Credential Extraction Suite    │
-│          (kvc.exe)             │          (BrowserDecryptor.exe)           │
+│       Primary Framework        │     Browser Credential Extraction Suite     │
+│          (kvc.exe)             │          (BrowserDecryptor.exe)             │
 ├────────────────────────────────┼─────────────────────────────────────────────┤
-│      CLI Parser & Router       │     Target Management & Injection          │
-│  (kvc.cpp, HelpSystem.cpp)     │      (BrowserOrchestrator.cpp)             │
+│      CLI Parser & Router       │     Target Management & Injection           │
+│  (kvc.cpp, HelpSystem.cpp)     │      (BrowserOrchestrator.cpp)              │
 ├────────────────────────────────┴─────────────────────────────────────────────┤
 │                 Controller Core (Controller.h)                               │
-│ ┌───────────────────────────────────────────────────────────────────────────┐ │
-│ │                 Atomic Operation Manager                                 │ │
-│ │  - PerformAtomicInit() / PerformAtomicCleanup()                          │ │
-│ └───────────────────────────────────────────────────────────────────────────┘ │
-├───────────────────────────────────────────────────────────────────────────────┤
+│ ┌───────────────────────────────────────────────────────────────────────────┐│
+│ │                 Atomic Operation Manager                                  ││
+│ │  - PerformAtomicInit() / PerformAtomicCleanup()                           ││
+│ └───────────────────────────────────────────────────────────────────────────┘│
+├──────────────────────────────────────────────────────────────────────────────┤
 │                   Low-Level System Integrators                               │
-├──────────────┬──────────────┬───────────────┬─────────────────────────────────┤
-│    kvcDrv    │ OffsetFinder │ Trusted       │    Injection                    │
-│(Kernel I/F)  │ (Offset Res) │ Installer     │     Manager                     │
-│ [kvcDrv.cpp] │[OffsetF...]  │ [TrustedI...] │[BrowserOrch...]                 │
-├──────────────┴──────────────┴───────────────┴─────────────────────────────────┤
+├──────────────┬──────────────┬───────────────┬────────────────────────────────┤
+│    kvcDrv    │ OffsetFinder │ Trusted       │    Injection                   │
+│(Kernel I/F)  │ (Offset Res) │ Installer     │     Manager                    │
+│ [kvcDrv.cpp] │[OffsetF...]  │ [TrustedI...] │[BrowserOrch...]                │
+├──────────────┴──────────────┴───────────────┴────────────────────────────────┤
 │           In-Process Security Module (BrowseCrypt.dll)                       │
 ├────────────────────────────────┬─────────────────────────────────────────────┤
-│   Self-Loader (PIC Entrypoint) │  SecurityOrchestrator (Main Logic)        │
+│   Self-Loader (PIC Entrypoint) │  SecurityOrchestrator (Main Logic)          │
 ├────────────────────────────────┼─────────────────────────────────────────────┤
-│      MasterKeyDecryptor        │      DataExtractor (SQLite)                │
-│  (COM Elevation Hijacking)     │ (AES-GCM Decryption)                       │
+│      MasterKeyDecryptor        │      DataExtractor (SQLite)                 │
+│  (COM Elevation Hijacking)     │ (AES-GCM Decryption)                        │
 ├────────────────────────────────┴─────────────────────────────────────────────┤
-│            Direct Syscall Engine (syscalls.cpp)                             │
+│            Direct Syscall Engine (syscalls.cpp)                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│             ABI Transition Trampoline (AbiTramp.asm)                        │
+│             ABI Transition Trampoline (AbiTramp.asm)                         │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│                 Embedded Kernel Mode Driver (kvc.sys)                       │
+│                 Embedded Kernel Mode Driver (kvc.sys)                        │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
