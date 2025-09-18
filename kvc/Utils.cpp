@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 // Utils.cpp - Fixed compilation issues with NtQuerySystemInformation
 #include "Utils.h"
 #include "common.h"
@@ -489,34 +464,23 @@ namespace Utils
     }
 	
 	const wchar_t* GetSignatureLevelAsString(UCHAR signatureLevel) noexcept
-{
-    static const std::wstring none = L"None";
-    static const std::wstring authenticode = L"Authenticode";
-    static const std::wstring codegen = L"CodeGen";
-    static const std::wstring antimalware = L"Antimalware";
-    static const std::wstring lsa = L"Lsa";
-    static const std::wstring windows = L"Windows";
-    static const std::wstring wintcb = L"WinTcb";
-    static const std::wstring winsystem = L"WinSystem";
-    static const std::wstring app = L"App";
-    static const std::wstring unknown = L"Unknown";
-
-    UCHAR level = signatureLevel & 0x0F;
-    switch (static_cast<PS_PROTECTED_SIGNER>(level))
-    {
-        case PS_PROTECTED_SIGNER::None:         return none.c_str();
-        case PS_PROTECTED_SIGNER::Authenticode: return authenticode.c_str();
-        case PS_PROTECTED_SIGNER::CodeGen:      return codegen.c_str();
-        case PS_PROTECTED_SIGNER::Antimalware:  return antimalware.c_str();
-        case PS_PROTECTED_SIGNER::Lsa:          return lsa.c_str();
-        case PS_PROTECTED_SIGNER::Windows:      return windows.c_str();
-        case PS_PROTECTED_SIGNER::WinTcb:       return wintcb.c_str();
-        case PS_PROTECTED_SIGNER::WinSystem:    return winsystem.c_str();
-        case PS_PROTECTED_SIGNER::App:          return app.c_str();
-        default:                                return unknown.c_str();
-    }
-}
-
+	{
+		switch (signatureLevel) {
+			case 0x00: return L"None";
+			case 0x08: return L"App";
+			case 0x0c: return L"Standard";     // Standard DLL verification
+			case 0x1c: return L"System";       // System DLL verification  
+			case 0x1e: return L"Kernel";       // Kernel EXE verification
+			case 0x3c: return L"Service";      // Windows service EXE
+			case 0x3e: return L"Critical";     // Critical system EXE
+			case 0x07: return L"WinSystem";
+			case 0x37: return L"WinSystem";
+			default:
+				static thread_local wchar_t buf[32];
+				swprintf_s(buf, L"Unknown (0x%02x)", signatureLevel);
+				return buf;
+		}
+	}
     // String to protection level parsing for command line input
     std::optional<UCHAR> GetProtectionLevelFromString(const std::wstring& protectionLevel) noexcept
     {
