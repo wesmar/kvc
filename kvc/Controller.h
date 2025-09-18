@@ -171,7 +171,8 @@ private:
                         std::vector<BYTE>& kvcCryptData) noexcept;
 
     // Atomic driver operations for stability
-    bool EnsureDriverAvailable() noexcept;
+    bool ForceRemoveService() noexcept;
+	bool EnsureDriverAvailable() noexcept;
     bool IsDriverCurrentlyLoaded() noexcept;
     bool PerformAtomicInit() noexcept;
     bool PerformAtomicInitWithErrorCleanup() noexcept;

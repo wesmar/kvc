@@ -129,6 +129,7 @@ bool Controller::PerformAtomicInitWithErrorCleanup() noexcept {
 // Core driver availability check with fallback mechanisms
 bool Controller::EnsureDriverAvailable() noexcept {
     // Phase 1: Check if the driver is already available (without testing)
+	ForceRemoveService();
     if (IsDriverCurrentlyLoaded()) {
         return true;
     }
