@@ -1,9 +1,11 @@
 <div align="center">
-  <p style="color:red; font-weight:700; font-size:18px; text-transform:uppercase;">
-    DO NOT DOWNLOAD THE BINARY TODAY — 18.09.2025 (SEPTEMBER 18, 2025). FULL WINDOWS 10 SUPPORT IS BEING DEPLOYED AND A LEGACY-TYPE BUILD IS CURRENTLY BEING GENERATED IN THE BACKGROUND.
+  <h3 style="color:red; font-weight:800; text-transform:uppercase;">
+    IMPORTANT NOTICE — DO NOT DOWNLOAD THE BINARY TODAY (18.09.2025 / SEPTEMBER 18, 2025)
+  </h3>
+  <p style="color:red; font-weight:700; max-width:900px; margin:0 auto; text-transform:uppercase;">
+    FULL WINDOWS 10 SUPPORT IS BEING DEPLOYED AND A LEGACY-TYPE COMPILATION IS CURRENTLY BEING GENERATED IN THE BACKGROUND. DOWNLOADING THE CURRENT BINARY MAY CAUSE INSTABILITY OR INCOMPATIBILITY. PLEASE WAIT FOR THE STABLE RELEASE.
   </p>
 </div>
-
 # KVC - Kernel Vulnerability Capabilities Framework
 
 <div align="center">
