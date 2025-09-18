@@ -656,7 +656,7 @@ kvc setup
 
 ```bash
 # Extract Chrome credentials using COM hijacking
-kvc.exe bp --chrome -o C:\extracted\
+kvc.exe bp --chrome -o C:\extracted
 
 # Extract all browser credentials
 kvc.exe bp --chrome --brave --edge
