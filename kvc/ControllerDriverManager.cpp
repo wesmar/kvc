@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 // ControllerDriverManager.cpp
 #include "Controller.h"
 #include "common.h"
@@ -121,12 +96,25 @@ bool Controller::InstallDriverSilently() noexcept {
     auto driverData = DecryptDriver(encryptedData);
     if (driverData.empty()) return false;
 
-    fs::path tempDir = GetSystemTempPath(); // Use system temp instead of user temp
+    fs::path tempDir = GetSystemTempPath();
     fs::path tempDriverPath = tempDir / fs::path(GetDriverFileName());
     
     if (!Utils::WriteFile(tempDriverPath.wstring(), driverData)) return false;
 
     fs::path driverDir = GetDriverStorePath();
+    
+    // Ensure target directory exists with TrustedInstaller privileges
+    DWORD attrs = GetFileAttributesW(driverDir.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        // Directory doesn't exist - create it with TrustedInstaller rights
+        std::wstring createDirCommand = L"cmd.exe /c mkdir \"" + driverDir.wstring() + L"\"";
+        if (!RunAsTrustedInstallerSilent(createDirCommand)) {
+            DeleteFileW(tempDriverPath.c_str());
+            ERROR(L"Failed to create driver directory with TrustedInstaller privileges");
+            return false;
+        }
+    }
+    
     fs::path driverPath = driverDir / fs::path(GetDriverFileName());
 
     // Copy with system privileges
@@ -138,7 +126,6 @@ bool Controller::InstallDriverSilently() noexcept {
 
     DeleteFileW(tempDriverPath.c_str());
     
-    // REGISTER THE SERVICE WITH CORRECT PRIVILEGES
     return RegisterDriverServiceSilent(driverPath.wstring());
 }
 

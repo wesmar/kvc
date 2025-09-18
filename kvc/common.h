@@ -196,14 +196,57 @@ bool IsServiceInstalled() noexcept;
 bool IsServiceRunning() noexcept;
 std::wstring GetCurrentExecutablePath() noexcept;
 
-// Driver path helper
+// Driver path helper with dynamic discovery and fallback mechanism
+// Searches for actual avc.inf_amd64_* directory in DriverStore FileRepository
+// Creates directory if needed, falls back to system32\drivers on failure
 inline std::wstring GetDriverStorePath() noexcept {
     wchar_t windowsDir[MAX_PATH];
     if (GetWindowsDirectoryW(windowsDir, MAX_PATH) == 0) {
         wcscpy_s(windowsDir, L"C:\\Windows");
     }
-    std::wstring result = windowsDir;
-    return result + L"\\System32\\DriverStore\\FileRepository\\avc.inf_amd64_12ca23d60da30d59";
+    
+    std::wstring baseResult = windowsDir;
+    std::wstring driverStoreBase = baseResult + L"\\System32\\DriverStore\\FileRepository\\";
+    
+    // Dynamic search for avc.inf_amd64_* pattern in FileRepository
+    WIN32_FIND_DATAW findData;
+    std::wstring searchPattern = driverStoreBase + L"avc.inf_amd64_*";
+    HANDLE hFind = FindFirstFileW(searchPattern.c_str(), &findData);
+    
+    if (hFind != INVALID_HANDLE_VALUE) {
+        // Found existing directory - use first match
+        do {
+            if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                FindClose(hFind);
+                return driverStoreBase + findData.cFileName;
+            }
+        } while (FindNextFileW(hFind, &findData));
+        FindClose(hFind);
+    }
+    
+    // No existing directory found - create with TrustedInstaller privileges
+    std::wstring targetPath = driverStoreBase + L"avc.inf_amd64_12ca23d60da30d59";
+    return targetPath;
+}
+
+// Enhanced version that ensures directory exists before returning path
+// Returns empty string on critical failure, valid path on success
+inline std::wstring GetDriverStorePathSafe() noexcept {
+    std::wstring driverPath = GetDriverStorePath();
+    
+    // Ensure directory exists - critical for driver operations
+    DWORD attrs = GetFileAttributesW(driverPath.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        // Try to create if it doesn't exist
+        if (!CreateDirectoryW(driverPath.c_str(), nullptr) && 
+            GetLastError() != ERROR_ALREADY_EXISTS) {
+            return L""; // Critical failure
+        }
+    } else if (!(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        return L""; // Path exists but is not a directory
+    }
+    
+    return driverPath;
 }
 
 // KVC combined binary processing constants
