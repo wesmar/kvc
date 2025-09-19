@@ -1,0 +1,25 @@
+# Skrypty lokalne
+git-push.sh
+pack-release.sh
+
+# Pliki środowiskowe
+.env
+.env.*
+
+# Release files
+releases/
+*.7z
+*.zip
+*.dat
+*.tar.gz
+
+# Binarki i build
+bin/
+obj/
+build/
+dist/
+*.exe
+*.dll
+
+# Katalogi z danymi
+data/
