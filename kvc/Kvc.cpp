@@ -503,59 +503,73 @@ int wmain(int argc, wchar_t* argv[])
         }
         
         // Enhanced Windows Defender exclusion management with type specification
-        else if (command == L"add-exclusion")
-        {
-            if (argc < 3) {
-                ERROR(L"Missing arguments for exclusion. Usage: add-exclusion [TYPE] <value> or add-exclusion <path>");
-                return 1;
-            }
-            
-            // New syntax with type specification: kvc add-exclusion Processes malware.exe
-            if (argc >= 4) {
-                std::wstring_view typeStr = argv[2];
-                std::wstring value = argv[3];
-                
-                auto exclusionType = ParseExclusionType(typeStr);
-                if (!exclusionType) {
-                    ERROR(L"Invalid exclusion type: %s. Valid types: Paths, Processes, Extensions, IpAddresses", typeStr.data());
-                    return 1;
-                }
-                
-                return g_controller->AddDefenderExclusion(exclusionType.value(), value) ? 0 : 1;
-            }
-            // Legacy syntax for backward compatibility: kvc add-exclusion C:\file.exe
-            else {
-                std::wstring filePath = argv[2];
-                return g_controller->AddToDefenderExclusions(filePath) ? 0 : 1;
-            }
-        }
-        
-        else if (command == L"remove-exclusion")
-        {
-            if (argc < 3) {
-                ERROR(L"Missing arguments for exclusion removal. Usage: remove-exclusion [TYPE] <value> or remove-exclusion <path>");
-                return 1;
-            }
-            
-            // New syntax with type specification: kvc remove-exclusion Processes malware.exe
-            if (argc >= 4) {
-                std::wstring_view typeStr = argv[2];
-                std::wstring value = argv[3];
-                
-                auto exclusionType = ParseExclusionType(typeStr);
-                if (!exclusionType) {
-                    ERROR(L"Invalid exclusion type: %s. Valid types: Paths, Processes, Extensions, IpAddresses", typeStr.data());
-                    return 1;
-                }
-                
-                return g_controller->RemoveDefenderExclusion(exclusionType.value(), value) ? 0 : 1;
-            }
-            // Legacy syntax for backward compatibility: kvc remove-exclusion C:\file.exe
-            else {
-                std::wstring filePath = argv[2];
-                return g_controller->RemoveFromDefenderExclusions(filePath) ? 0 : 1;
-            }
-        }
+		else if (command == L"add-exclusion")
+		{
+			// Legacy syntax: kvc add-exclusion (no args) - add self to exclusions
+			if (argc < 3) {
+				wchar_t exePath[MAX_PATH];
+				if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
+					ERROR(L"Failed to get current executable path");
+					return 1;
+				}
+				
+				INFO(L"Automatically adding self to Defender exclusions: %s", exePath);
+				return g_controller->AddToDefenderExclusions(exePath) ? 0 : 1;
+			}
+			
+			// New syntax with type specification: kvc add-exclusion Processes malware.exe
+			if (argc >= 4) {
+				std::wstring_view typeStr = argv[2];
+				std::wstring value = argv[3];
+				
+				auto exclusionType = ParseExclusionType(typeStr);
+				if (!exclusionType) {
+					ERROR(L"Invalid exclusion type: %s. Valid types: Paths, Processes, Extensions, IpAddresses", typeStr.data());
+					return 1;
+				}
+				
+				return g_controller->AddDefenderExclusion(exclusionType.value(), value) ? 0 : 1;
+			}
+			// Legacy syntax for backward compatibility: kvc add-exclusion C:\file.exe
+			else {
+				std::wstring filePath = argv[2];
+				return g_controller->AddToDefenderExclusions(filePath) ? 0 : 1;
+			}
+		}
+
+		else if (command == L"remove-exclusion")
+		{
+			// Legacy syntax: kvc remove-exclusion (no args) - remove self from exclusions
+			if (argc < 3) {
+				wchar_t exePath[MAX_PATH];
+				if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
+					ERROR(L"Failed to get current executable path");
+					return 1;
+				}
+				
+				INFO(L"Automatically removing self from Defender exclusions: %s", exePath);
+				return g_controller->RemoveFromDefenderExclusions(exePath) ? 0 : 1;
+			}
+			
+			// New syntax with type specification: kvc remove-exclusion Processes malware.exe
+			if (argc >= 4) {
+				std::wstring_view typeStr = argv[2];
+				std::wstring value = argv[3];
+				
+				auto exclusionType = ParseExclusionType(typeStr);
+				if (!exclusionType) {
+					ERROR(L"Invalid exclusion type: %s. Valid types: Paths, Processes, Extensions, IpAddresses", typeStr.data());
+					return 1;
+				}
+				
+				return g_controller->RemoveDefenderExclusion(exclusionType.value(), value) ? 0 : 1;
+			}
+			// Legacy syntax for backward compatibility: kvc remove-exclusion C:\file.exe
+			else {
+				std::wstring filePath = argv[2];
+				return g_controller->RemoveFromDefenderExclusions(filePath) ? 0 : 1;
+			}
+		}
 
         // DPAPI secrets extraction commands with comprehensive browser support
         else if (command == L"export")

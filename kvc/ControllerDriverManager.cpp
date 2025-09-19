@@ -32,6 +32,8 @@ that define these protections.
 
 namespace fs = std::filesystem;
 
+// Attempts to forcefully remove the driver service, ignoring most errors.
+// This is a cleanup utility to ensure a clean state before installation.
 bool Controller::ForceRemoveService() noexcept {
     if (!InitDynamicAPIs()) {
         return false;
@@ -41,7 +43,7 @@ bool Controller::ForceRemoveService() noexcept {
     if (!hSCM) {
         return false;
     }
-
+// Try to open the service with DELETE access.
     SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), DELETE);
     if (!hService) {
         DWORD err = GetLastError();
