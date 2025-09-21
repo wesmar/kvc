@@ -27,6 +27,7 @@ public:
     static void PrintPatternMatching() noexcept;
     static void PrintTechnicalFeatures() noexcept;
     static void PrintDefenderNotes() noexcept;
+	static void PrintSecurityEngineCommands() noexcept;
     static void PrintStickyKeysInfo() noexcept;
     static void PrintUndumpableProcesses() noexcept;
     static void PrintUsageExamples(std::wstring_view programName) noexcept;

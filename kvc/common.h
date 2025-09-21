@@ -29,6 +29,15 @@
 #undef ERROR
 #endif
 
+
+#ifndef SHTDN_REASON_MAJOR_SOFTWARE
+#define SHTDN_REASON_MAJOR_SOFTWARE 0x00030000
+#endif
+
+#ifndef SHTDN_REASON_MINOR_RECONFIGURE  
+#define SHTDN_REASON_MINOR_RECONFIGURE 0x00000004
+#endif
+
 // Smart module handle management
 struct ModuleDeleter {
     void operator()(HMODULE mod) const noexcept {

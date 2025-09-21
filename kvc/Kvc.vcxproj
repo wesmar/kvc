@@ -120,6 +120,7 @@
 	<ClCompile Include="Common.cpp" />
 	<ClCompile Include="ReportExporter.cpp" />
 	<ClCompile Include="ServiceManager.cpp" />
+	<ClCompile Include="DefenderManager.cpp" />
 	<ClCompile Include="KeyboardHook.cpp" />
 	<ClCompile Include="HelpSystem.cpp" />
   </ItemGroup>

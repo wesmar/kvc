@@ -38,8 +38,9 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintBasicCommands();
     PrintProtectionCommands();
     PrintSystemCommands();
-	PrintBrowserCommands();
+    PrintBrowserCommands();
     PrintDefenderCommands();
+    PrintSecurityEngineCommands();
     PrintDPAPICommands();
     PrintProtectionTypes();
     PrintExclusionTypes();
@@ -62,12 +63,12 @@ void HelpSystem::PrintHeader() noexcept
 
     const int width = 80;
 
-    // Blue header border
+    // Blue header border for visual appeal
     SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
     std::wcout << L"\n";
     std::wcout << L"================================================================================\n";
 
-    // Centered text printing with white color
+    // Centered text printing with white color for readability
     auto printCentered = [&](const std::wstring& text) {
         int textLen = static_cast<int>(text.length());
         int padding = (width - textLen) / 2;
@@ -93,7 +94,7 @@ void HelpSystem::PrintHeader() noexcept
 void HelpSystem::PrintServiceCommands() noexcept
 {
     PrintSectionHeader(L"Service Management Commands (Advanced Scenarios)");
-	PrintCommandLine(L"setup", L"Decrypt and deploy combined binary components from kvc.dat");
+    PrintCommandLine(L"setup", L"Decrypt and deploy combined binary components from kvc.dat");
     PrintCommandLine(L"install", L"Install as NT service with TrustedInstaller privileges");
     PrintCommandLine(L"uninstall", L"Uninstall NT service");
     PrintCommandLine(L"service start", L"Start the Kernel Vulnerability Capabilities Framework service");
@@ -135,7 +136,7 @@ void HelpSystem::PrintSystemCommands() noexcept
     PrintCommandLine(L"unshift", L"Remove sticky keys backdoor");
     PrintCommandLine(L"trusted <command>", L"Run command with elevated system privileges");
     PrintCommandLine(L"install-context", L"Add context menu entries for right-click access");
-	PrintCommandLine(L"evtclear", L"Clear all primary system event logs (Application, Security, Setup, System)");
+    PrintCommandLine(L"evtclear", L"Clear all primary system event logs (Application, Security, Setup, System)");
     std::wcout << L"\n";
 }
 
@@ -149,6 +150,32 @@ void HelpSystem::PrintDefenderCommands() noexcept
     PrintCommandLine(L"add-exclusion IpAddresses <ip>", L"Add IP address/CIDR to exclusions");
     PrintCommandLine(L"remove-exclusion [TYPE] <value>", L"Remove exclusion (same syntax as add)");
     PrintNote(L"When no path specified, adds current program to both Paths and Processes");
+    std::wcout << L"\n";
+}
+
+void HelpSystem::PrintSecurityEngineCommands() noexcept
+{
+    PrintSectionHeader(L"Security Engine Management");
+    PrintCommandLine(L"secengine disable", L"Disable Windows Defender security engine");
+    PrintCommandLine(L"secengine enable", L"Enable Windows Defender security engine"); 
+    PrintCommandLine(L"secengine status", L"Check current security engine status");
+    PrintCommandLine(L"secengine disable --restart", L"Disable and restart system immediately");
+    PrintNote(L"Registry-level manipulation - bypasses tamper protection");
+    PrintNote(L"System restart required for changes to take effect");
+    std::wcout << L"\n";
+}
+
+void HelpSystem::PrintBrowserCommands() noexcept
+{
+    PrintSectionHeader(L"Browser Password Extraction Commands");
+    PrintCommandLine(L"browser-passwords", L"Extract Chrome passwords (default)");
+    PrintCommandLine(L"bp --chrome", L"Extract Chrome passwords explicitly");
+    PrintCommandLine(L"bp --brave", L"Extract Brave browser passwords");  
+    PrintCommandLine(L"bp --edge", L"Extract Edge browser passwords");
+    PrintCommandLine(L"bp --output C:\\reports", L"Custom output directory");
+    PrintCommandLine(L"bp --edge -o C:\\data", L"Edge passwords to custom path");
+    PrintNote(L"Requires kvc_pass.exe in current directory");
+    PrintNote(L"Uses COM elevation for advanced browser encryption");
     std::wcout << L"\n";
 }
 
@@ -266,22 +293,31 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
                    << L"# " << description << L"\n";
     };
 
+    // Service and system management examples
     printLine(L"shift", L"Install sticky keys backdoor");
     printLine(L"unshift", L"Remove sticky keys backdoor");
     printLine(L"install", L"Install as NT service (advanced)");
     printLine(L"service start", L"Start the service");
     printLine(L"uninstall", L"Remove service");
+    
+    // Memory dumping examples
     printLine(L"dump lsass C:\\dumps", L"Dump LSASS to specific folder");
     printLine(L"dump 1044", L"Dump PID 1044 to Downloads folder");
+    
+    // Process information and protection examples
     printLine(L"list", L"Show all protected processes");
     printLine(L"info lsass", L"Detailed info with dumpability analysis");
     printLine(L"protect 1044 PPL Antimalware", L"Protect process with PPL-Antimalware");
     printLine(L"set 5678 PP Windows", L"Force set PP-Windows protection");
     printLine(L"unprotect lsass", L"Remove protection from LSASS");
     printLine(L"unprotect 1,2,3,lsass", L"Batch unprotect multiple targets");
+    
+    // TrustedInstaller examples
     printLine(L"trusted cmd", L"Run command as TrustedInstaller");
     printLine(L"trusted \"C:\\app.exe\" --arg", L"Run application with arguments");
     printLine(L"install-context", L"Add right-click menu entries");
+    
+    // Defender exclusion examples
     printLine(L"add-exclusion", L"Add current program to exclusions");
     printLine(L"add-exclusion C:\\malware.exe", L"Add specific file to exclusions");
     printLine(L"add-exclusion Paths C:\\temp", L"Add folder to path exclusions");
@@ -289,8 +325,17 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"add-exclusion Extensions .tmp", L"Add extension to exclusions");
     printLine(L"add-exclusion IpAddresses 1.1.1.1", L"Add IP to exclusions");
     printLine(L"remove-exclusion Processes cmd.exe", L"Remove process exclusion");
+    
+    // Security engine management examples
+    printLine(L"secengine status", L"Check Windows Defender status");
+    printLine(L"secengine disable", L"Disable Windows Defender engine");
+    printLine(L"secengine enable", L"Re-enable Windows Defender engine");
+    printLine(L"secengine disable --restart", L"Disable Defender and restart system");
+    
+    // Data extraction examples
     printLine(L"export secrets", L"Export secrets to Downloads folder");
     printLine(L"export secrets C:\\reports", L"Export secrets to specific folder");
+    
     std::wcout << L"\n";
 }
 
@@ -298,7 +343,7 @@ void HelpSystem::PrintSecurityNotice() noexcept
 {
     PrintSectionHeader(L"SECURITY & LEGAL NOTICE");
     
-    // Critical warning section with red highlighting
+    // Critical warning section with red highlighting for maximum visibility
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(hConsole, &csbi);
@@ -323,7 +368,7 @@ void HelpSystem::PrintSecurityNotice() noexcept
     std::wcout << L"  - Administrator privileges required for all security operations\n";
     std::wcout << L"  - Most operations leave no permanent traces except when explicitly requested\n";
     std::wcout << L"  - Some commands (shift, install, add-exclusion) make persistent changes\n";
-	std::wcout << L"  - These changes are reversible (via unshift, remove-exclusion, etc.)\n\n";
+    std::wcout << L"  - These changes are reversible (via unshift, remove-exclusion, etc.)\n\n";
     
     SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
     std::wcout << L"  LEGAL & ETHICAL RESPONSIBILITY:\n";
@@ -356,11 +401,11 @@ void HelpSystem::PrintFooter() noexcept
     
     const int width = 80;
 
-    // Top border with blue color
+    // Top border with blue color for professional appearance
     SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
     std::wcout << L"+" << std::wstring(width-2, L'-') << L"+\n";
 
-    // Centered footer content - split into multiple lines
+    // Centered footer content - split into multiple lines for readability
     std::wstring line1 = L"Support this project - a small donation is greatly appreciated";
     std::wstring line2 = L"and helps sustain private research builds.";
     std::wstring line3 = L"GitHub source code: https://github.com/wesmar/kvc/";
@@ -375,7 +420,7 @@ void HelpSystem::PrintFooter() noexcept
         SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
         std::wcout << L"|";
 
-        // Text in white
+        // Text in white for maximum readability
         SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
         std::wcout << std::wstring(padding, L' ') << text
                    << std::wstring(width - 2 - padding - textLen, L' ');
@@ -390,11 +435,11 @@ void HelpSystem::PrintFooter() noexcept
     printCenteredFooter(line3);
     printCenteredFooter(line4);
 
-    // Donation line with colored links
+    // Donation line with colored links for easy identification
     SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
     std::wcout << L"|";
     
-    // Calculate spacing for PayPal and Revolut
+    // Calculate spacing for PayPal and Revolut links
     std::wstring paypal = L"PayPal: ";
     std::wstring paypalLink = L"paypal.me/ext1";
     std::wstring middle = L"        ";
@@ -420,10 +465,10 @@ void HelpSystem::PrintFooter() noexcept
     SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
     std::wcout << L"|\n";
 
-    // Bottom border
+    // Bottom border to complete the frame
     std::wcout << L"+" << std::wstring(width-2, L'-') << L"+\n\n";
 
-    // Restore original color
+    // Restore original color for subsequent output
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
@@ -435,11 +480,11 @@ void HelpSystem::PrintSectionHeader(const wchar_t* title) noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Yellow color for section headers
+    // Yellow color for section headers to make them stand out
     SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
     std::wcout << L"=== " << title << L" ===\n";
     
-    // Restore original color
+    // Restore original color after header
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
@@ -457,11 +502,11 @@ void HelpSystem::PrintNote(const wchar_t* note) noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Gray color for informational notes
+    // Gray color for informational notes to differentiate from commands
     SetConsoleTextAttribute(hConsole, FOREGROUND_INTENSITY);
     std::wcout << L"  " << note << L"\n";
     
-    // Restore original color
+    // Restore original color after note
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
@@ -472,23 +517,10 @@ void HelpSystem::PrintWarning(const wchar_t* warning) noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Red color for warning messages
+    // Red color for warning messages to grab attention
     SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
     std::wcout << L"  " << warning << L"\n";
     
-    // Restore original color
+    // Restore original color after warning
     SetConsoleTextAttribute(hConsole, originalColor);
-}
-void HelpSystem::PrintBrowserCommands() noexcept
-{
-    PrintSectionHeader(L"Browser Password Extraction Commands");
-    PrintCommandLine(L"browser-passwords", L"Extract Chrome passwords (default)");
-    PrintCommandLine(L"bp --chrome", L"Extract Chrome passwords explicitly");
-    PrintCommandLine(L"bp --brave", L"Extract Brave browser passwords");  
-    PrintCommandLine(L"bp --edge", L"Extract Edge browser passwords");
-    PrintCommandLine(L"bp --output C:\\reports", L"Custom output directory");
-    PrintCommandLine(L"bp --edge -o C:\\data", L"Edge passwords to custom path");
-    PrintNote(L"Requires kvc_pass.exe in current directory");
-    PrintNote(L"Uses COM elevation for advanced browser encryption");
-    std::wcout << L"\n";
 }
