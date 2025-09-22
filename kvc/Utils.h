@@ -54,7 +54,7 @@ namespace Utils
         return sectionSignatureLevel & 0x0F;
     }
     
-    // String conversion functions with static caching
+    // String conversion functions with static caching for performance
     const wchar_t* GetProtectionLevelAsString(UCHAR protectionLevel) noexcept;
     const wchar_t* GetSignerTypeAsString(UCHAR signerType) noexcept;
     const wchar_t* GetSignatureLevelAsString(UCHAR signatureLevel) noexcept;
@@ -75,8 +75,8 @@ namespace Utils
     };
     
     ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName) noexcept;
-	
-	// Hex string processing utilities for kernel tools
+    
+    // Hex string processing utilities for kernel tools
     bool HexStringToBytes(const std::wstring& hexString, std::vector<BYTE>& bytes) noexcept;
     bool IsValidHexString(const std::wstring& hexString) noexcept;
 

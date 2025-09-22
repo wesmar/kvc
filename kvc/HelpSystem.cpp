@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 #include <windows.h>
 #include "HelpSystem.h"
 #include <iostream>
@@ -36,6 +11,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     
     PrintServiceCommands();
     PrintBasicCommands();
+    PrintProcessTerminationCommands();
     PrintProtectionCommands();
     PrintSystemCommands();
     PrintBrowserCommands();
@@ -118,6 +94,17 @@ void HelpSystem::PrintBasicCommands() noexcept
     std::wcout << L"\n";
 }
 
+void HelpSystem::PrintProcessTerminationCommands() noexcept
+{
+    PrintSectionHeader(L"Process Termination Commands");
+    PrintCommandLine(L"kill <PID|process_name>", L"Terminate process with automatic protection elevation");
+    PrintCommandLine(L"kill <PID1,PID2,name3>", L"Terminate multiple processes (comma-separated)");
+    PrintNote(L"Supports process names: 'kill total' terminates Total Commander");
+    PrintNote(L"Automatically matches target protection level for protected processes");
+    PrintNote(L"Case-insensitive partial matching: 'notepad' matches 'notepad.exe'");
+    std::wcout << L"\n";
+}
+
 void HelpSystem::PrintProtectionCommands() noexcept
 {
     PrintSectionHeader(L"Process Protection Commands");
@@ -160,6 +147,7 @@ void HelpSystem::PrintSecurityEngineCommands() noexcept
     PrintCommandLine(L"secengine enable", L"Enable Windows Defender security engine"); 
     PrintCommandLine(L"secengine status", L"Check current security engine status");
     PrintCommandLine(L"secengine disable --restart", L"Disable and restart system immediately");
+    PrintCommandLine(L"secengine enable --restart", L"Enable and restart system immediately");
     PrintNote(L"Registry-level manipulation - bypasses tamper protection");
     PrintNote(L"System restart required for changes to take effect");
     std::wcout << L"\n";
@@ -311,6 +299,12 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"set 5678 PP Windows", L"Force set PP-Windows protection");
     printLine(L"unprotect lsass", L"Remove protection from LSASS");
     printLine(L"unprotect 1,2,3,lsass", L"Batch unprotect multiple targets");
+	
+	// Process termination examples
+    printLine(L"kill 1234", L"Terminate process with PID 1234");
+    printLine(L"kill total", L"Terminate Total Commander by name");
+    printLine(L"kill 1234,5678,9012", L"Terminate multiple processes");
+    printLine(L"kill lsass", L"Terminate protected process (auto-elevation)");
     
     // TrustedInstaller examples
     printLine(L"trusted cmd", L"Run command as TrustedInstaller");
@@ -331,6 +325,7 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"secengine disable", L"Disable Windows Defender engine");
     printLine(L"secengine enable", L"Re-enable Windows Defender engine");
     printLine(L"secengine disable --restart", L"Disable Defender and restart system");
+    printLine(L"secengine enable --restart", L"Enable Defender and restart system");
     
     // Data extraction examples
     printLine(L"export secrets", L"Export secrets to Downloads folder");

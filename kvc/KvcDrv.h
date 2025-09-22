@@ -54,7 +54,7 @@ public:
     bool Write16(ULONG_PTR address, WORD value) noexcept;
     bool Write32(ULONG_PTR address, DWORD value) noexcept;
     bool Write64(ULONG_PTR address, DWORD64 value) noexcept;
-
+	
 private:
     // Smart handle wrapper for automatic cleanup
     struct HandleDeleter

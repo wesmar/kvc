@@ -10,10 +10,10 @@
 
 class ReportExporter;
 
-// Core kernel process structures
+// Core kernel process structures for EPROCESS manipulation
 struct ProcessEntry
 {
-    ULONG_PTR KernelAddress;        // EPROCESS structure address
+    ULONG_PTR KernelAddress;        // EPROCESS structure address in kernel space
     DWORD Pid;                      // Process identifier
     UCHAR ProtectionLevel;          // PP/PPL/None protection level
     UCHAR SignerType;               // Digital signature authority
@@ -43,7 +43,7 @@ struct SQLiteAPI
     int (*close_v2)(void*) = nullptr;
 };
 
-// Password extraction result structure
+// Password extraction result structure for DPAPI operations
 struct PasswordResult
 {
     std::wstring type;              // Chrome, Edge, WiFi credential type
@@ -104,6 +104,19 @@ public:
     bool UnprotectAllProcesses() noexcept;
     bool UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept;
 
+    // Process termination with driver support
+    bool KillProcess(DWORD pid) noexcept;
+    bool KillProcessByName(const std::wstring& processName) noexcept;
+
+    // Kernel process access for external operations (ProcessManager)
+    std::optional<ULONG_PTR> GetProcessKernelAddress(DWORD pid) noexcept;
+    std::optional<UCHAR> GetProcessProtection(ULONG_PTR kernelAddress) noexcept;
+    std::vector<ProcessEntry> GetProcessList() noexcept;
+
+    // Self-protection operations for privilege escalation
+    bool SelfProtect(const std::wstring& protectionLevel, const std::wstring& signerType) noexcept;
+    std::optional<ProcessMatch> ResolveNameWithoutDriver(const std::wstring& processName) noexcept;
+
     // DPAPI password extraction with TrustedInstaller
     bool ShowPasswords(const std::wstring& outputPath) noexcept;
     bool ExportBrowserData(const std::wstring& outputPath, const std::wstring& browserType) noexcept;
@@ -142,10 +155,6 @@ public:
     bool StartDriverServiceSilent() noexcept;
     std::vector<BYTE> ExtractEncryptedDriver() noexcept;
     std::vector<BYTE> DecryptDriver(const std::vector<BYTE>& encryptedData) noexcept;
-	
-	// Self-protection operations
-    bool SelfProtect(const std::wstring& protectionLevel, const std::wstring& signerType) noexcept;
-	std::optional<ProcessMatch> ResolveNameWithoutDriver(const std::wstring& processName) noexcept;
 
     // Sticky keys backdoor management
     bool InstallStickyKeysBackdoor() noexcept;
@@ -162,7 +171,7 @@ private:
     bool EnablePrivilege(LPCWSTR privilegeName) noexcept;
     bool EnableDebugPrivilege() noexcept;
 	
-	// Enhanced file writing with TrustedInstaller privileges
+    // Enhanced file writing with TrustedInstaller privileges
     bool WriteFileWithPrivileges(const std::wstring& filePath, const std::vector<BYTE>& data) noexcept;
 
     // PE splitting with enhanced validation
@@ -172,7 +181,7 @@ private:
 
     // Atomic driver operations for stability
     bool ForceRemoveService() noexcept;
-	bool EnsureDriverAvailable() noexcept;
+    bool EnsureDriverAvailable() noexcept;
     bool IsDriverCurrentlyLoaded() noexcept;
     bool PerformAtomicInit() noexcept;
     bool PerformAtomicInitWithErrorCleanup() noexcept;
@@ -181,11 +190,8 @@ private:
     bool InstallDriverSilently() noexcept;
     bool RegisterDriverServiceSilent(const std::wstring& driverPath) noexcept;
 
-    // Kernel process management
+    // Internal kernel process management (implementation details)
     std::optional<ULONG_PTR> GetInitialSystemProcessAddress() noexcept;
-    std::optional<ULONG_PTR> GetProcessKernelAddress(DWORD pid) noexcept;
-    std::vector<ProcessEntry> GetProcessList() noexcept;
-    std::optional<UCHAR> GetProcessProtection(ULONG_PTR addr) noexcept;
     bool SetProcessProtection(ULONG_PTR addr, UCHAR protection) noexcept;
 
     // Process pattern matching with regex support
@@ -234,5 +240,4 @@ private:
 
     // Emergency cleanup for atomic operations
     bool PerformAtomicCleanup() noexcept;
-	
 };

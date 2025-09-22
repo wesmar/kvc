@@ -113,6 +113,7 @@
     <ClCompile Include="ControllerSystemIntegration.cpp" />
 	<ClCompile Include="ControllerPasswordManager.cpp" />
 	<ClCompile Include="ControllerEventLogOperations.cpp" />
+	<ClCompile Include="ProcessManager.cpp" />
     <ClCompile Include="OffsetFinder.cpp" />
     <ClCompile Include="kvc.cpp" />
     <ClCompile Include="kvcDrv.cpp" />

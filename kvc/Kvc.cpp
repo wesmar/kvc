@@ -1,31 +1,7 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 #include "common.h"
 #include "Controller.h"
 #include "DefenderManager.h"
+#include "ProcessManager.h"
 #include "ServiceManager.h"
 #include "HelpSystem.h"
 #include <string_view>
@@ -392,6 +368,13 @@ int wmain(int argc, wchar_t* argv[])
                 std::wstring processName(target);
                 return g_controller->DumpProcessByName(processName, outputPath) ? 0 : 2;
             }
+        }
+		
+		// Process termination via kernel driver with batch support
+        else if (command == L"kill")
+        {
+            ProcessManager::HandleKillCommand(argc, argv, g_controller.get());
+            return 0;
         }
         
         // Process information commands with color-coded protection status output

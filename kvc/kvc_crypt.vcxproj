@@ -82,7 +82,7 @@
     <!-- Fixed: Added resource file for Microsoft Corporation version info -->
     <ResourceCompile Include="kvc_crypt.rc" />
   </ItemGroup>
-  <!-- DODAJ TARGET DO CZYSZCZENIA ZASOBÓW -->
+  <!-- ADD TARGET FOR RESOURCE CLEANING -->
   <Target Name="RemoveVCRuntimeResources" AfterTargets="Link">
     <Exec Command="if exist &quot;@(FinalOutputPath)&quot; echo Building minimal DLL..." />
   </Target>

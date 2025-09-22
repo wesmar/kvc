@@ -1,28 +1,4 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
+// ControllerProcessOperations.cpp
 #include "Controller.h"
 #include "common.h"
 #include "Utils.h"
@@ -32,6 +8,179 @@ that define these protections.
 #include <unordered_map>
 
 extern volatile bool g_interrupted;
+
+// Process termination with protection elevation and fallback mechanisms
+bool Controller::KillProcess(DWORD pid) noexcept
+{
+    // Try to get kernel address first - if driver already initialized, reuse it
+    auto kernelAddr = GetProcessKernelAddress(pid);
+    
+    bool needsCleanup = false;
+    
+    // Only initialize driver if not already loaded AND we couldn't get kernel address
+    if (!kernelAddr && !IsDriverCurrentlyLoaded()) {
+        if (!PerformAtomicInitWithErrorCleanup()) {
+            return false;
+        }
+        needsCleanup = true;
+        
+        // Try again after driver initialization
+        kernelAddr = GetProcessKernelAddress(pid);
+    }
+    
+    // If we still can't get kernel address, try direct termination without protection elevation
+    if (!kernelAddr) {
+        INFO(L"Could not get kernel address for target process, proceeding without self-protection");
+        
+        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if (!hProcess) {
+            DWORD error = GetLastError();
+            ERROR(L"Failed to open process for termination (error: %d)", error);
+            if (needsCleanup) PerformAtomicCleanup();
+            return false;
+        }
+        
+        BOOL terminated = TerminateProcess(hProcess, 1);
+        DWORD error = GetLastError();
+        CloseHandle(hProcess);
+        
+        if (terminated) {
+            SUCCESS(L"Successfully terminated PID: %d (direct method)", pid);
+            if (needsCleanup) PerformAtomicCleanup();
+            return true;
+        } else {
+            ERROR(L"Failed to terminate process directly (error: %d)", error);
+            if (needsCleanup) PerformAtomicCleanup();
+            return false;
+        }
+    }
+
+    // Get target process protection level for elevation
+    auto targetProtection = GetProcessProtection(kernelAddr.value());
+    if (targetProtection && targetProtection.value() > 0) {
+        UCHAR targetLevel = Utils::GetProtectionLevel(targetProtection.value());
+        UCHAR targetSigner = Utils::GetSignerType(targetProtection.value());
+        
+        std::wstring levelStr = (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected)) ? 
+                               L"PP" : L"PPL";
+        
+        INFO(L"Target process has %s-%s protection, elevating current process", 
+             levelStr.c_str(), 
+             Utils::GetSignerTypeAsString(targetSigner));
+
+        // Elevate current process protection to match or exceed target
+        UCHAR currentProcessProtection = Utils::GetProtection(targetLevel, targetSigner);
+        if (!SetCurrentProcessProtection(currentProcessProtection)) {
+            ERROR(L"Failed to elevate current process protection");
+            // Continue anyway - might still work
+        }
+    }
+
+    // Attempt standard process termination
+    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+    if (!hProcess) {
+        DWORD error = GetLastError();
+        ERROR(L"Failed to open process for termination (error: %d)", error);
+        
+        // Try with more privileges if available
+        hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+        if (!hProcess) {
+            ERROR(L"Failed to open process with extended privileges (error: %d)", GetLastError());
+            if (needsCleanup) PerformAtomicCleanup();
+            return false;
+        }
+    }
+
+    BOOL terminated = TerminateProcess(hProcess, 1);
+    DWORD terminationError = GetLastError();
+    CloseHandle(hProcess);
+
+    if (terminated) {
+        SUCCESS(L"Successfully terminated PID: %d", pid);
+        if (needsCleanup) PerformAtomicCleanup();
+        return true;
+    } else {
+        ERROR(L"Failed to terminate PID: %d (error: %d)", pid, terminationError);
+        if (needsCleanup) PerformAtomicCleanup();
+        return false;
+    }
+}
+
+// Optimized batch process termination with shared driver state
+bool Controller::KillProcessByName(const std::wstring& processName) noexcept
+{
+    if (!PerformAtomicInitWithErrorCleanup()) {
+        return false;
+    }
+    
+    auto matches = FindProcessesByName(processName);
+    
+    if (matches.empty()) {
+        ERROR(L"No process found matching pattern: %s", processName.c_str());
+        PerformAtomicCleanup();
+        return false;
+    }
+    
+    DWORD successCount = 0;
+    DWORD totalCount = static_cast<DWORD>(matches.size());
+    
+    INFO(L"Found %d processes matching '%s'", totalCount, processName.c_str());
+    
+    for (const auto& match : matches) {
+        INFO(L"Attempting to terminate process: %s (PID %d)", 
+             match.ProcessName.c_str(), match.Pid);
+        
+        // Use direct kernel address since we already have it from FindProcessesByName
+        auto targetProtection = GetProcessProtection(match.KernelAddress);
+        if (targetProtection && targetProtection.value() > 0) {
+            UCHAR targetLevel = Utils::GetProtectionLevel(targetProtection.value());
+            UCHAR targetSigner = Utils::GetSignerType(targetProtection.value());
+            
+            std::wstring levelStr = (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected)) ? 
+                                   L"PP" : L"PPL";
+            
+            INFO(L"Target process has %s-%s protection, elevating current process", 
+                 levelStr.c_str(), 
+                 Utils::GetSignerTypeAsString(targetSigner));
+
+            // Elevate current process protection to match or exceed target
+            UCHAR currentProcessProtection = Utils::GetProtection(targetLevel, targetSigner);
+            if (!SetCurrentProcessProtection(currentProcessProtection)) {
+                ERROR(L"Failed to elevate current process protection");
+                // Continue anyway - might still work
+            }
+        }
+
+        // Attempt termination with fallback approach
+        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, match.Pid);
+        if (!hProcess) {
+            DWORD error = GetLastError();
+            INFO(L"Failed to open with PROCESS_TERMINATE (error: %d), trying PROCESS_ALL_ACCESS", error);
+            
+            hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, match.Pid);
+            if (!hProcess) {
+                ERROR(L"Failed to open process with any privileges (error: %d)", GetLastError());
+                continue;
+            }
+        }
+
+        BOOL terminated = TerminateProcess(hProcess, 1);
+        DWORD terminationError = GetLastError();
+        CloseHandle(hProcess);
+
+        if (terminated) {
+            SUCCESS(L"Successfully terminated: %s (PID %d)", 
+                   match.ProcessName.c_str(), match.Pid);
+            successCount++;
+        } else {
+            ERROR(L"Failed to terminate PID: %d (error: %d)", match.Pid, terminationError);
+        }
+    }
+    
+    INFO(L"Kill operation completed: %d/%d processes terminated", successCount, totalCount);
+    PerformAtomicCleanup();
+    return successCount > 0;
+}
 
 // Kernel process operations with interruption handling
 std::optional<ULONG_PTR> Controller::GetInitialSystemProcessAddress() noexcept {
@@ -52,7 +201,7 @@ std::optional<ULONG_PTR> Controller::GetProcessKernelAddress(DWORD pid) noexcept
             return entry.KernelAddress;
     }
     
-    ERROR(L"Failed to find kernel address for PID %d", pid);
+    INFO(L"Kernel address not available for PID %d, initializing driver...", pid);
     return std::nullopt;
 }
 
@@ -443,7 +592,8 @@ bool Controller::ListProtectedProcesses() noexcept {
 }
 
 // Process protection manipulation with atomic operations
-bool Controller::UnprotectProcess(DWORD pid) noexcept {
+bool Controller::UnprotectProcess(DWORD pid) noexcept
+{
     if (!PerformAtomicInitWithErrorCleanup()) {
         return false;
     }

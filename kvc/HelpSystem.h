@@ -18,6 +18,7 @@ public:
     static void PrintBasicCommands() noexcept;
     static void PrintProtectionCommands() noexcept;
     static void PrintSystemCommands() noexcept;
+	static void PrintProcessTerminationCommands() noexcept;
     static void PrintDefenderCommands() noexcept;
     static void PrintDPAPICommands() noexcept;
 	static void PrintBrowserCommands() noexcept;
