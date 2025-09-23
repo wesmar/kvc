@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 // ProcessManager.cpp
 #include "ProcessManager.h"
 #include "Controller.h"
@@ -191,14 +166,25 @@ void ProcessManager::HandleKillCommand(int argc, wchar_t* argv[], Controller* co
 
     INFO(L"Starting process termination with automatic protection elevation...");
 
-    std::vector<DWORD> processIds;
-    if (!ParseProcessIds(argv[2], processIds)) {
-        ERROR(L"Failed to parse process ID/name list");
-        return;
+    // NEW: Parse comma-separated targets into string vector for advanced pattern matching
+    // This replaces the old PID-only parsing to support mixed PID/name patterns
+    std::wstring targets = argv[2];
+    std::vector<std::wstring> targetList;
+    
+    // Split input string by comma delimiter with whitespace trimming
+    std::wstring token;
+    std::wstringstream ss(targets);
+    while (std::getline(ss, token, L',')) {
+        // Trim leading and trailing whitespace from each token
+        size_t first = token.find_first_not_of(L" \t");
+        if (first != std::wstring::npos) {
+            size_t last = token.find_last_not_of(L" \t");
+            targetList.push_back(token.substr(first, (last - first + 1)));
+        }
     }
 
-    if (processIds.empty()) {
-        ERROR(L"No valid process IDs or names provided");
+    if (targetList.empty()) {
+        ERROR(L"No valid process targets provided");
         return;
     }
 
@@ -207,24 +193,15 @@ void ProcessManager::HandleKillCommand(int argc, wchar_t* argv[], Controller* co
         return;
     }
 
-    // Execute termination for each target process with protection elevation
-        int successCount = 0;
-		for (DWORD pid : processIds) {
-			if (g_interrupted) {
-				INFO(L"Operation cancelled by user during batch termination");
-				break;
-			}
-
-			if (controller->KillProcess(pid)) {
-				SUCCESS(L"Terminated PID: %u", pid);
-				successCount++;
-			} else {
-				ERROR(L"Failed to terminate PID: %u", pid);
-			}
-    }
+    // NEW: Use Controller's advanced pattern matching and batch processing
+    // This handles both PIDs and process name patterns with single driver session
+    bool result = controller->KillMultipleTargets(targetList);
     
-    INFO(L"Kill operation completed: %d/%zu processes terminated", 
-         successCount, processIds.size());
+    if (result) {
+        SUCCESS(L"Batch kill operation completed successfully");
+    } else {
+        ERROR(L"Batch kill operation failed or partially completed");
+    }
 }
 
 // Parse comma-separated process ID/name list with input validation

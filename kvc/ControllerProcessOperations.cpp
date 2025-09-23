@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 // ControllerProcessOperations.cpp
 #include "Controller.h"
 #include "common.h"
@@ -34,52 +9,209 @@ that define these protections.
 
 extern volatile bool g_interrupted;
 
-// Process termination with protection elevation and fallback mechanisms
-bool Controller::KillProcess(DWORD pid) noexcept
-{
-    // Try to get kernel address first - if driver already initialized, reuse it
-    auto kernelAddr = GetProcessKernelAddress(pid);
-    
-    bool needsCleanup = false;
-    
-    // Only initialize driver if not already loaded AND we couldn't get kernel address
-    if (!kernelAddr && !IsDriverCurrentlyLoaded()) {
-        if (!PerformAtomicInitWithErrorCleanup()) {
-            return false;
-        }
-        needsCleanup = true;
-        
-        // Try again after driver initialization
-        kernelAddr = GetProcessKernelAddress(pid);
-    }
-    
-    // If we still can't get kernel address, try direct termination without protection elevation
-    if (!kernelAddr) {
-        INFO(L"Could not get kernel address for target process, proceeding without self-protection");
-        
-        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-        if (!hProcess) {
-            DWORD error = GetLastError();
-            ERROR(L"Failed to open process for termination (error: %d)", error);
-            if (needsCleanup) PerformAtomicCleanup();
-            return false;
-        }
-        
-        BOOL terminated = TerminateProcess(hProcess, 1);
-        DWORD error = GetLastError();
-        CloseHandle(hProcess);
-        
-        if (terminated) {
-            SUCCESS(L"Successfully terminated PID: %d (direct method)", pid);
-            if (needsCleanup) PerformAtomicCleanup();
-            return true;
-        } else {
-            ERROR(L"Failed to terminate process directly (error: %d)", error);
-            if (needsCleanup) PerformAtomicCleanup();
-            return false;
-        }
-    }
+// ============================================================================
+// SESSION MANAGEMENT IMPLEMENTATION
+// ============================================================================
 
+bool Controller::BeginDriverSession() {
+    // If driver is already active and used recently, keep it active
+    if (m_driverSessionActive) {
+        auto timeSinceLastUse = std::chrono::steady_clock::now() - m_lastDriverUsage;
+        if (timeSinceLastUse < std::chrono::seconds(5)) {
+            UpdateDriverUsageTimestamp();
+            DEBUG(L"Reusing active driver session");
+            return true;
+        }
+    }
+    
+    // Initialize driver component
+    if (!EnsureDriverAvailable()) {
+        ERROR(L"Failed to load driver for session");
+        return false;
+    }
+    
+    m_driverSessionActive = true;
+    UpdateDriverUsageTimestamp();
+    DEBUG(L"Driver session started successfully");
+    return true;
+}
+
+void Controller::EndDriverSession(bool force) {
+    if (!m_driverSessionActive) return;
+    
+    // Don't end session immediately if not forced - keep it alive for potential reuse
+    if (!force) {
+        auto timeSinceLastUse = std::chrono::steady_clock::now() - m_lastDriverUsage;
+        if (timeSinceLastUse < std::chrono::seconds(10)) {
+            DEBUG(L"Keeping driver session active for potential reuse");
+            return; // Keep session alive
+        }
+    }
+    
+    // Force cleanup
+    DEBUG(L"Ending driver session (force: %s)", force ? L"true" : L"false");
+    PerformAtomicCleanup();
+    m_driverSessionActive = false;
+    m_kernelAddressCache.clear();
+    m_cachedProcessList.clear();
+}
+
+void Controller::UpdateDriverUsageTimestamp() {
+    m_lastDriverUsage = std::chrono::steady_clock::now();
+}
+
+void Controller::RefreshKernelAddressCache() {
+    DEBUG(L"Refreshing kernel address cache");
+    auto processes = GetProcessList();
+    m_kernelAddressCache.clear();
+    
+    for (const auto& entry : processes) {
+        m_kernelAddressCache[entry.Pid] = entry.KernelAddress;
+    }
+    
+    m_cacheTimestamp = std::chrono::steady_clock::now();
+    DEBUG(L"Kernel address cache refreshed with %d entries", m_kernelAddressCache.size());
+}
+
+std::optional<ULONG_PTR> Controller::GetCachedKernelAddress(DWORD pid) {
+    // Refresh cache if it's older than 30 seconds or empty
+    auto now = std::chrono::steady_clock::now();
+    if (m_kernelAddressCache.empty() || 
+        (now - m_cacheTimestamp) > std::chrono::seconds(30)) {
+        RefreshKernelAddressCache();
+    }
+    
+    auto it = m_kernelAddressCache.find(pid);
+    if (it != m_kernelAddressCache.end()) {
+        DEBUG(L"Found cached kernel address for PID %d: 0x%llx", pid, it->second);
+        return it->second;
+    }
+    
+    // PID not in cache, try to find it manually
+    DEBUG(L"PID %d not in cache, searching manually", pid);
+    auto processes = GetProcessList();
+    for (const auto& entry : processes) {
+        if (entry.Pid == pid) {
+            m_kernelAddressCache[pid] = entry.KernelAddress;
+            DEBUG(L"Added PID %d to kernel address cache: 0x%llx", pid, entry.KernelAddress);
+            return entry.KernelAddress;
+        }
+    }
+    
+    ERROR(L"PID %d not found in process list", pid);
+    return std::nullopt;
+}
+
+// ============================================================================
+// PROCESS TERMINATION OPERATIONS
+// ============================================================================
+
+bool Controller::KillProcess(DWORD pid) noexcept {
+    bool result = KillProcessInternal(pid, false);
+    EndDriverSession(true);  // Force cleanup for single operations
+    return result;
+}
+
+bool Controller::KillMultipleProcesses(const std::vector<DWORD>& pids) noexcept {
+    if (pids.empty()) {
+        ERROR(L"No PIDs provided for batch operation");
+        return false;
+    }
+    
+    if (!BeginDriverSession()) {
+        ERROR(L"Failed to start driver session for batch operation");
+        return false;
+    }
+    
+    INFO(L"Starting batch kill operation for %d processes", pids.size());
+    
+    DWORD successCount = 0;
+    for (DWORD pid : pids) {
+        INFO(L"Processing PID %d", pid);
+        
+        if (KillProcessInternal(pid, true)) {
+            successCount++;
+            SUCCESS(L"Successfully terminated PID %d", pid);
+        } else {
+            ERROR(L"Failed to terminate PID %d", pid);
+        }
+        
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
+        }
+    }
+    
+    EndDriverSession(false); // End session after batch operation
+    INFO(L"Batch operation completed: %d/%d processes terminated", successCount, pids.size());
+    
+    return successCount > 0;
+}
+
+bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) noexcept {
+    if (targets.empty()) return false;
+    
+    if (!BeginDriverSession()) return false;
+    
+    std::vector<DWORD> allPids;
+    
+    for (const auto& target : targets) {
+        if (Utils::IsNumeric(target)) {
+            auto pid = Utils::ParsePid(target);
+            if (pid) allPids.push_back(pid.value());
+        } else {
+            auto matches = FindProcessesByName(target);
+            for (const auto& match : matches) {
+                allPids.push_back(match.Pid);
+            }
+        }
+    }
+    
+    if (allPids.empty()) {
+        ERROR(L"No processes found matching the specified targets");
+        EndDriverSession(false);
+        return false;
+    }
+    
+    INFO(L"Starting batch kill operation for %d resolved processes", allPids.size());
+    
+    DWORD successCount = 0;
+    for (DWORD pid : allPids) {
+        INFO(L"Processing PID %d", pid);
+        
+        if (KillProcessInternal(pid, true)) {
+            successCount++;
+            SUCCESS(L"Successfully terminated PID %d", pid);
+        } else {
+            ERROR(L"Failed to terminate PID %d", pid);
+        }
+        
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
+        }
+    }
+    
+		// Always force cleanup for command-line operation
+		EndDriverSession(true);
+		INFO(L"Kill operation completed: %d/%d processes terminated", successCount, allPids.size());
+		return successCount > 0;
+		}
+
+bool Controller::KillProcessInternal(DWORD pid, bool batchOperation) noexcept {
+    // Only start session if not batch operation (batch already started session)
+    if (!batchOperation && !BeginDriverSession()) {
+        ERROR(L"Failed to start driver session for PID %d", pid);
+        return false;
+    }
+    
+    // Use cached kernel address if available
+    auto kernelAddr = GetCachedKernelAddress(pid);
+    if (!kernelAddr) {
+        ERROR(L"Failed to get kernel address for PID %d", pid);
+        return false;
+    }
+    
     // Get target process protection level for elevation
     auto targetProtection = GetProcessProtection(kernelAddr.value());
     if (targetProtection && targetProtection.value() > 0) {
@@ -111,7 +243,6 @@ bool Controller::KillProcess(DWORD pid) noexcept
         hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
         if (!hProcess) {
             ERROR(L"Failed to open process with extended privileges (error: %d)", GetLastError());
-            if (needsCleanup) PerformAtomicCleanup();
             return false;
         }
     }
@@ -122,19 +253,15 @@ bool Controller::KillProcess(DWORD pid) noexcept
 
     if (terminated) {
         SUCCESS(L"Successfully terminated PID: %d", pid);
-        if (needsCleanup) PerformAtomicCleanup();
         return true;
     } else {
         ERROR(L"Failed to terminate PID: %d (error: %d)", pid, terminationError);
-        if (needsCleanup) PerformAtomicCleanup();
         return false;
     }
 }
 
-// Optimized batch process termination with shared driver state
-bool Controller::KillProcessByName(const std::wstring& processName) noexcept
-{
-    if (!PerformAtomicInitWithErrorCleanup()) {
+bool Controller::KillProcessByName(const std::wstring& processName) noexcept {
+    if (!BeginDriverSession()) {
         return false;
     }
     
@@ -142,7 +269,7 @@ bool Controller::KillProcessByName(const std::wstring& processName) noexcept
     
     if (matches.empty()) {
         ERROR(L"No process found matching pattern: %s", processName.c_str());
-        PerformAtomicCleanup();
+        EndDriverSession(true);
         return false;
     }
     
@@ -155,59 +282,30 @@ bool Controller::KillProcessByName(const std::wstring& processName) noexcept
         INFO(L"Attempting to terminate process: %s (PID %d)", 
              match.ProcessName.c_str(), match.Pid);
         
-        // Use direct kernel address since we already have it from FindProcessesByName
-        auto targetProtection = GetProcessProtection(match.KernelAddress);
-        if (targetProtection && targetProtection.value() > 0) {
-            UCHAR targetLevel = Utils::GetProtectionLevel(targetProtection.value());
-            UCHAR targetSigner = Utils::GetSignerType(targetProtection.value());
-            
-            std::wstring levelStr = (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected)) ? 
-                                   L"PP" : L"PPL";
-            
-            INFO(L"Target process has %s-%s protection, elevating current process", 
-                 levelStr.c_str(), 
-                 Utils::GetSignerTypeAsString(targetSigner));
-
-            // Elevate current process protection to match or exceed target
-            UCHAR currentProcessProtection = Utils::GetProtection(targetLevel, targetSigner);
-            if (!SetCurrentProcessProtection(currentProcessProtection)) {
-                ERROR(L"Failed to elevate current process protection");
-                // Continue anyway - might still work
-            }
-        }
-
-        // Attempt termination with fallback approach
-        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, match.Pid);
-        if (!hProcess) {
-            DWORD error = GetLastError();
-            INFO(L"Failed to open with PROCESS_TERMINATE (error: %d), trying PROCESS_ALL_ACCESS", error);
-            
-            hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, match.Pid);
-            if (!hProcess) {
-                ERROR(L"Failed to open process with any privileges (error: %d)", GetLastError());
-                continue;
-            }
-        }
-
-        BOOL terminated = TerminateProcess(hProcess, 1);
-        DWORD terminationError = GetLastError();
-        CloseHandle(hProcess);
-
-        if (terminated) {
+        // Use the internal kill method with batch operation flag
+        if (KillProcessInternal(match.Pid, true)) {
             SUCCESS(L"Successfully terminated: %s (PID %d)", 
                    match.ProcessName.c_str(), match.Pid);
             successCount++;
         } else {
-            ERROR(L"Failed to terminate PID: %d (error: %d)", match.Pid, terminationError);
+            ERROR(L"Failed to terminate PID: %d", match.Pid);
+        }
+        
+        if (g_interrupted) {
+            INFO(L"Process termination interrupted by user");
+            break;
         }
     }
     
+    EndDriverSession(true);
     INFO(L"Kill operation completed: %d/%d processes terminated", successCount, totalCount);
-    PerformAtomicCleanup();
     return successCount > 0;
 }
 
-// Kernel process operations with interruption handling
+// ============================================================================
+// KERNEL PROCESS OPERATIONS
+// ============================================================================
+
 std::optional<ULONG_PTR> Controller::GetInitialSystemProcessAddress() noexcept {
     auto kernelBase = Utils::GetKernelBaseAddress();
     if (!kernelBase) return std::nullopt;
@@ -226,11 +324,10 @@ std::optional<ULONG_PTR> Controller::GetProcessKernelAddress(DWORD pid) noexcept
             return entry.KernelAddress;
     }
     
-    INFO(L"Kernel address not available for PID %d, initializing driver...", pid);
+    DEBUG(L"Kernel address not available for PID %d", pid);
     return std::nullopt;
 }
 
-// Process enumeration with comprehensive interruption support
 std::vector<ProcessEntry> Controller::GetProcessList() noexcept {
     std::vector<ProcessEntry> processes;
     
@@ -346,9 +443,12 @@ bool Controller::SetProcessProtection(ULONG_PTR addr, UCHAR protection) noexcept
     return m_rtc->Write8(addr + offset.value(), protection);
 }
 
-// Process name resolution with atomic driver operations
+// ============================================================================
+// PROCESS NAME RESOLUTION
+// ============================================================================
+
 std::optional<ProcessMatch> Controller::ResolveProcessName(const std::wstring& processName) noexcept {
-    if (!PerformAtomicInitWithErrorCleanup()) {
+    if (!BeginDriverSession()) {
         return std::nullopt;
     }
     
@@ -356,13 +456,13 @@ std::optional<ProcessMatch> Controller::ResolveProcessName(const std::wstring& p
     
     if (matches.empty()) {
         ERROR(L"No process found matching pattern: %s", processName.c_str());
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return std::nullopt;
     }
     
     if (matches.size() == 1) {
         INFO(L"Found process: %s (PID %d)", matches[0].ProcessName.c_str(), matches[0].Pid);
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return matches[0];
     }
     
@@ -371,7 +471,7 @@ std::optional<ProcessMatch> Controller::ResolveProcessName(const std::wstring& p
         std::wcout << L"  PID " << match.Pid << L": " << match.ProcessName << L"\n";
     }
     
-    PerformAtomicCleanup();
+    EndDriverSession(true);  // Force cleanup
     return std::nullopt;
 }
 
@@ -392,7 +492,10 @@ std::vector<ProcessMatch> Controller::FindProcessesByName(const std::wstring& pa
     return matches;
 }
 
-// Driver-free process name resolution for lightweight operations
+// ============================================================================
+// DRIVER-FREE PROCESS OPERATIONS
+// ============================================================================
+
 std::optional<ProcessMatch> Controller::ResolveNameWithoutDriver(const std::wstring& processName) noexcept {
     auto matches = FindProcessesByNameWithoutDriver(processName);
     
@@ -443,7 +546,10 @@ std::vector<ProcessMatch> Controller::FindProcessesByNameWithoutDriver(const std
     return matches;
 }
 
-// Advanced pattern matching with regex support
+// ============================================================================
+// PATTERN MATCHING
+// ============================================================================
+
 bool Controller::IsPatternMatch(const std::wstring& processName, const std::wstring& pattern) noexcept {
     std::wstring lowerProcessName = processName;
     std::wstring lowerPattern = pattern;
@@ -481,30 +587,26 @@ bool Controller::IsPatternMatch(const std::wstring& processName, const std::wstr
     }
 }
 
-// Process information retrieval with atomic operations
+// ============================================================================
+// PROCESS INFORMATION OPERATIONS
+// ============================================================================
+
 bool Controller::GetProcessProtection(DWORD pid) noexcept {
-    bool driverWasLoaded = IsDriverCurrentlyLoaded();
-    bool needsCleanup = false;
-    
-    // Only initialize driver if not already loaded
-    if (!driverWasLoaded) {
-        if (!PerformAtomicInitWithErrorCleanup()) {
-            return false;
-        }
-        needsCleanup = true;
+    if (!BeginDriverSession()) {
+        return false;
     }
     
     auto kernelAddr = GetProcessKernelAddress(pid);
     if (!kernelAddr) {
         ERROR(L"Failed to get kernel address for PID %d", pid);
-        if (needsCleanup) PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
     
     auto currentProtection = GetProcessProtection(kernelAddr.value());
     if (!currentProtection) {
         ERROR(L"Failed to read protection for PID %d", pid);
-        if (needsCleanup) PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
     
@@ -522,10 +624,7 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept {
              currentProtection.value());
     }
     
-    if (needsCleanup) {
-        PerformAtomicCleanup();
-    }
-    
+    EndDriverSession(true);  // Force cleanup
     return true;
 }
 
@@ -538,9 +637,12 @@ bool Controller::GetProcessProtectionByName(const std::wstring& processName) noe
     return GetProcessProtection(match->Pid);
 }
 
-// Enhanced protected process listing with color visualization
+// ============================================================================
+// PROTECTED PROCESS LISTING
+// ============================================================================
+
 bool Controller::ListProtectedProcesses() noexcept {
-    if (!PerformAtomicInitWithErrorCleanup()) {
+    if (!BeginDriverSession()) {
         return false;
     }
     
@@ -611,69 +713,68 @@ bool Controller::ListProtectedProcesses() noexcept {
 
     SUCCESS(L"Enumerated %d protected processes", count);
     
-    PerformAtomicCleanup();
-    
+    EndDriverSession(true);  // Force cleanup
     return true;
 }
 
-// Process protection manipulation with atomic operations
-bool Controller::UnprotectProcess(DWORD pid) noexcept
-{
-    if (!PerformAtomicInitWithErrorCleanup()) {
+// ============================================================================
+// PROCESS PROTECTION MANIPULATION
+// ============================================================================
+
+bool Controller::UnprotectProcess(DWORD pid) noexcept {
+    if (!BeginDriverSession()) {
         return false;
     }
     
-    auto kernelAddr = GetProcessKernelAddress(pid);
+    auto kernelAddr = GetCachedKernelAddress(pid);
     if (!kernelAddr) {
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     auto currentProtection = GetProcessProtection(kernelAddr.value());
     if (!currentProtection) {
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     if (currentProtection.value() == 0) {
         ERROR(L"PID %d is not protected", pid);
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     if (!SetProcessProtection(kernelAddr.value(), 0)) {
         ERROR(L"Failed to remove protection from PID %d", pid);
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     SUCCESS(L"Removed protection from PID %d", pid);
-    
-    PerformAtomicCleanup();
-    
+    EndDriverSession(true);  // Force cleanup
     return true;
 }
 
 bool Controller::ProtectProcess(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
-    if (!PerformAtomicInitWithErrorCleanup()) {
+    if (!BeginDriverSession()) {
         return false;
     }
     
-    auto kernelAddr = GetProcessKernelAddress(pid);
+    auto kernelAddr = GetCachedKernelAddress(pid);
     if (!kernelAddr) {
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     auto currentProtection = GetProcessProtection(kernelAddr.value());
     if (!currentProtection) {
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     if (currentProtection.value() > 0) {
         ERROR(L"PID %d is already protected", pid);
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
@@ -682,26 +783,24 @@ bool Controller::ProtectProcess(DWORD pid, const std::wstring& protectionLevel, 
     
     if (!level || !signer) {
         ERROR(L"Invalid protection level or signer type");
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     UCHAR newProtection = Utils::GetProtection(level.value(), signer.value());
     if (!SetProcessProtection(kernelAddr.value(), newProtection)) {
         ERROR(L"Failed to protect PID %d", pid);
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     SUCCESS(L"Protected PID %d with %s-%s", pid, protectionLevel.c_str(), signerType.c_str());
-    
-    PerformAtomicCleanup();
-    
+    EndDriverSession(true);  // Force cleanup
     return true;
 }
 
 bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
-    if (!PerformAtomicInitWithErrorCleanup()) {
+    if (!BeginDriverSession()) {
         return false;
     }
     
@@ -710,13 +809,13 @@ bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionL
     
     if (!level || !signer) {
         ERROR(L"Invalid protection level or signer type");
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
-    auto kernelAddr = GetProcessKernelAddress(pid);
+    auto kernelAddr = GetCachedKernelAddress(pid);
     if (!kernelAddr) {
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
@@ -724,20 +823,21 @@ bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionL
     
     if (!SetProcessProtection(kernelAddr.value(), newProtection)) {
         ERROR(L"Failed to set protection on PID %d", pid);
-        PerformAtomicCleanup();
+        EndDriverSession(true);  // Force cleanup
         return false;
     }
 
     SUCCESS(L"Set protection %s-%s on PID %d", protectionLevel.c_str(), signerType.c_str(), pid);
-    
-    PerformAtomicCleanup();
-    
+    EndDriverSession(true);  // Force cleanup
     return true;
 }
 
-// Mass protection removal operations
+// ============================================================================
+// MASS PROTECTION OPERATIONS
+// ============================================================================
+
 bool Controller::UnprotectAllProcesses() noexcept {
-    if (!PerformAtomicInitWithErrorCleanup()) {
+    if (!BeginDriverSession()) {
         return false;
     }
     
@@ -757,6 +857,11 @@ bool Controller::UnprotectAllProcesses() noexcept {
             } else {
                 ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
             }
+            
+            if (g_interrupted) {
+                INFO(L"Mass unprotection interrupted by user");
+                break;
+            }
         }
     }
     
@@ -766,8 +871,7 @@ bool Controller::UnprotectAllProcesses() noexcept {
         INFO(L"Mass unprotection completed: %d/%d processes successfully unprotected", successCount, totalCount);
     }
     
-    PerformAtomicCleanup();
-    
+    EndDriverSession(false);
     return successCount == totalCount;
 }
 
@@ -777,7 +881,7 @@ bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& tar
         return false;
     }
     
-    if (!PerformAtomicInitWithErrorCleanup()) {
+    if (!BeginDriverSession()) {
         return false;
     }
     
@@ -793,7 +897,7 @@ bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& tar
         if (Utils::IsNumeric(target)) {
             auto pid = Utils::ParsePid(target);
             if (pid) {
-                auto kernelAddr = GetProcessKernelAddress(pid.value());
+                auto kernelAddr = GetCachedKernelAddress(pid.value());
                 if (kernelAddr) {
                     auto currentProtection = GetProcessProtection(kernelAddr.value());
                     if (currentProtection && currentProtection.value() > 0) {
@@ -838,12 +942,15 @@ bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& tar
     
     INFO(L"Batch unprotection completed: %d/%d targets successfully processed", successCount, totalCount);
     
-    PerformAtomicCleanup();
+    EndDriverSession(false);
     
     return successCount == totalCount;
 }
 
-// Process name-based operations using composite pattern
+// ============================================================================
+// PROCESS NAME-BASED OPERATIONS
+// ============================================================================
+
 bool Controller::ProtectProcessByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
     auto match = ResolveNameWithoutDriver(processName);
     if (!match) {

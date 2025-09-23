@@ -7,6 +7,8 @@
 #include <vector>
 #include <memory>
 #include <optional>
+#include <chrono>
+#include <unordered_map>
 
 class ReportExporter;
 
@@ -103,6 +105,9 @@ public:
 
     bool UnprotectAllProcesses() noexcept;
     bool UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept;
+	
+    bool KillMultipleProcesses(const std::vector<DWORD>& pids) noexcept;
+	bool KillMultipleTargets(const std::vector<std::wstring>& targets) noexcept;
 
     // Process termination with driver support
     bool KillProcess(DWORD pid) noexcept;
@@ -189,6 +194,29 @@ private:
     // Silent driver installation
     bool InstallDriverSilently() noexcept;
     bool RegisterDriverServiceSilent(const std::wstring& driverPath) noexcept;
+	
+	// Driver session management
+    bool m_driverSessionActive = false;
+    std::chrono::steady_clock::time_point m_lastDriverUsage;
+    
+    // Session management
+    bool BeginDriverSession();
+    void EndDriverSession(bool force = false);
+    void UpdateDriverUsageTimestamp();
+    
+    // Cache management
+    void RefreshKernelAddressCache();
+    std::optional<ULONG_PTR> GetCachedKernelAddress(DWORD pid);
+    
+    // Internal kill method for batch operations
+    bool KillProcessInternal(DWORD pid, bool batchOperation = false) noexcept;
+	
+    // Kernel address cache for processes
+    std::unordered_map<DWORD, ULONG_PTR> m_kernelAddressCache;
+    std::chrono::steady_clock::time_point m_cacheTimestamp;
+    
+    // Process list cache
+    std::vector<ProcessEntry> m_cachedProcessList;
 
     // Internal kernel process management (implementation details)
     std::optional<ULONG_PTR> GetInitialSystemProcessAddress() noexcept;
