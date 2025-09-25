@@ -87,4 +87,16 @@ namespace Utils
                          std::vector<BYTE>& second) noexcept;
     std::vector<BYTE> DecryptXOR(const std::vector<BYTE>& encryptedData, 
                                 const std::array<BYTE, 7>& key) noexcept;
+
+    // Console coloring utilities for process display
+    struct ProcessColors {
+        static constexpr const wchar_t* GREEN = L"\033[92m";
+        static constexpr const wchar_t* YELLOW = L"\033[93m"; 
+        static constexpr const wchar_t* BLUE = L"\033[94m";
+        static constexpr const wchar_t* HEADER = L"\033[97;44m";
+        static constexpr const wchar_t* RESET = L"\033[0m";
+    };
+
+    bool EnableConsoleVirtualTerminal() noexcept;
+    const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel, UCHAR sectionSignatureLevel) noexcept;
 }

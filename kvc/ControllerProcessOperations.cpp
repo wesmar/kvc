@@ -671,79 +671,58 @@ bool Controller::GetProcessProtectionByName(const std::wstring& processName) noe
 
 bool Controller::ListProtectedProcesses() noexcept {
     if (!BeginDriverSession()) {
-		EndDriverSession(true);
+        EndDriverSession(true);
         return false;
     }
     
     auto processes = GetProcessList();
     DWORD count = 0;
 
-    // Enable console virtual terminal processing for color output
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD consoleMode = 0;
-    GetConsoleMode(hConsole, &consoleMode);
-    SetConsoleMode(hConsole, consoleMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    // Enable ANSI colors using Utils function
+    if (!Utils::EnableConsoleVirtualTerminal()) {
+        ERROR(L"Failed to enable console colors");
+    }
 
-    // ANSI color codes
-    auto GREEN = L"\033[92m";
-    auto YELLOW = L"\033[93m";
-    auto BLUE = L"\033[94m";
-    auto HEADER = L"\033[97;44m";
-    auto RESET = L"\033[0m";
-
-    std::wcout << GREEN;
+    std::wcout << Utils::ProcessColors::GREEN;
     std::wcout << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << HEADER;
+    std::wcout << Utils::ProcessColors::HEADER;
     std::wcout << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    ";
-    std::wcout << RESET << L"\n";
-    std::wcout << GREEN;
+    std::wcout << Utils::ProcessColors::RESET << L"\n";
+    std::wcout << Utils::ProcessColors::GREEN;
     std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
 
     for (const auto& entry : processes) {
         if (entry.ProtectionLevel > 0) {
-            const wchar_t* processColor = GREEN;
-            
-            // Color coding based on signature levels
-            bool hasUncheckedSignatures = (entry.SignatureLevel == 0x00 || entry.SectionSignatureLevel == 0x00);
+            // Use centralized color logic instead of duplicated code
+            const wchar_t* processColor = Utils::GetProcessDisplayColor(
+                entry.SignerType, 
+                entry.SignatureLevel, 
+                entry.SectionSignatureLevel
+            );
 
-            if (hasUncheckedSignatures) {
-                processColor = BLUE; // Blue for processes with unchecked signatures
-            } else {
-                // Check if it's a user process (non-system signer)
-                bool isUserProcess = (entry.SignerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows) &&
-                                      entry.SignerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) &&
-                                      entry.SignerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) &&
-                                      entry.SignerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa));
-                processColor = isUserProcess ? YELLOW : GREEN;
-            }
-
-            std::wcout << processColor;
             wchar_t buffer[512];
             swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
-                       entry.Pid,
-                       entry.ProcessName.c_str(),
-                       Utils::GetProtectionLevelAsString(entry.ProtectionLevel),
-                       entry.ProtectionLevel,
-                       Utils::GetSignerTypeAsString(entry.SignerType),
-                       entry.SignerType,
-                       Utils::GetSignatureLevelAsString(entry.SignatureLevel),
-                       entry.SignatureLevel,
-                       Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel),
-                       entry.SectionSignatureLevel,
-                       entry.KernelAddress);
-            std::wcout << buffer;
+                entry.Pid,
+                entry.ProcessName.length() > 28 ? 
+                    (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
+                Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
+                Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
+                Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
+                Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
+                entry.KernelAddress);
+
+            std::wcout << processColor << buffer << Utils::ProcessColors::RESET;
             count++;
         }
     }
 
-    std::wcout << GREEN;
+    std::wcout << Utils::ProcessColors::GREEN;
     std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << RESET << L"\n";
+    std::wcout << Utils::ProcessColors::RESET;
 
-    SUCCESS(L"Enumerated %d protected processes", count);
-    
-    EndDriverSession(true);  // Force cleanup
-    return true;
+    SUCCESS(L"Listed %d protected processes", count);
+    EndDriverSession(true);
+    return count > 0;
 }
 
 // ============================================================================
@@ -1022,12 +1001,18 @@ bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept {
     } else {
         INFO(L"Batch unprotection completed: %d/%d processes successfully unprotected", successCount, totalCount);
     }
-
-    // ZMIANA: Użyj force cleanup tak jak w ListProcessesBySigner
     EndDriverSession(true); 
     return successCount > 0;
 }
 
+/**
+ * Lists all processes that have the specified signer type.
+ * Displays process information in a formatted table including PID, name, protection level,
+ * signer type, signature levels, and kernel address.
+ * 
+ * @param signerName The name of the signer type to filter by (e.g., "Windows", "Antimalware", "WinTcb")
+ * @return true if processes were found and displayed, false if signer type is invalid or no processes match
+ */
 bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept {
     auto signerType = Utils::GetSignerTypeFromString(signerName);
     if (!signerType) {
@@ -1035,63 +1020,76 @@ bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept 
         return false;
     }
 
-    // Pobierz dane PRZED operacjami konsoli
     std::vector<ProcessEntry> processes;
     
     if (!BeginDriverSession()) {
         return false;
     }
     
-    processes = GetProcessList(); // Pobierz dane gdy sterownik aktywny
-    EndDriverSession(true); // Natychmiast zamknij sterownik
+    processes = GetProcessList(); // Collect data while driver is active
+    EndDriverSession(true); // Close driver session immediately
     
-    // Reszta operacji BEZ sterownika
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-    GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
-    WORD originalColor = consoleInfo.wAttributes;
+    // Enable ANSI colors - same as ListProtectedProcesses
+    if (!Utils::EnableConsoleVirtualTerminal()) {
+        ERROR(L"Failed to enable console colors");
+        // Continue anyway, just without colors
+    }
     
     bool foundAny = false;
     
     INFO(L"Processes with signer: %s", signerName.c_str());
+    
+    // Use same table formatting as ListProtectedProcesses
+    std::wcout << Utils::ProcessColors::GREEN;
+    std::wcout << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
+    std::wcout << Utils::ProcessColors::HEADER;
+    std::wcout << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    ";
+    std::wcout << Utils::ProcessColors::RESET << L"\n";
+    std::wcout << Utils::ProcessColors::GREEN;
     std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.\n";
-    std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
+    std::wcout << Utils::ProcessColors::RESET;
     
     for (const auto& entry : processes) {
         if (entry.SignerType == signerType.value()) {
             foundAny = true;
             
-            if (entry.ProtectionLevel > 0) {
-                SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-            }
+            // Use centralized color logic
+            const wchar_t* processColor = Utils::GetProcessDisplayColor(
+                entry.SignerType, 
+                entry.SignatureLevel, 
+                entry.SectionSignatureLevel
+            );
             
             wchar_t buffer[512];
-            swprintf_s(buffer, L" %6d | %-28s | %s (%d) | %s (%d) | %s (0x%02x) | %s (0x%02x) | 0x%016llx\n",
+            
+            std::wcout << processColor; // Apply color
+            
+            // Use consistent column widths and formatting
+            swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
                 entry.Pid,
-                entry.ProcessName.length() > 28 ? (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
+                entry.ProcessName.length() > 28 ? 
+                    (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
                 Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
                 Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
                 Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
                 Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
-                entry.KernelAddress
-            );
+                entry.KernelAddress);
+                
             std::wcout << buffer;
-            
-            SetConsoleTextAttribute(hConsole, originalColor);
+            std::wcout << Utils::ProcessColors::RESET; // Reset color after each line
         }
     }
     
-    std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    
     if (!foundAny) {
-        INFO(L"No processes found with signer: %s", signerName.c_str());
+        std::wcout << L"\nNo processes found with signer type: " << signerName << L"\n";
+        return false;
     }
     
-    SetConsoleTextAttribute(hConsole, originalColor);
-    std::wcout << std::flush;
+    std::wcout << Utils::ProcessColors::GREEN;
+    std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
+    std::wcout << Utils::ProcessColors::RESET;
     
-    return foundAny;
+    return true;
 }
 // ============================================================================
 // PROCESS NAME-BASED OPERATIONS

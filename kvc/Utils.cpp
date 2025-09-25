@@ -888,4 +888,30 @@ namespace Utils
             return {};
         }
     }
+	// Color Functions Implementation
+	bool Utils::EnableConsoleVirtualTerminal() noexcept
+	{
+		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+		if (hConsole == INVALID_HANDLE_VALUE) return false;
+		
+		DWORD consoleMode = 0;
+		if (!GetConsoleMode(hConsole, &consoleMode)) return false;
+		
+		return SetConsoleMode(hConsole, consoleMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+	}
+
+	const wchar_t* Utils::GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel, UCHAR sectionSignatureLevel) noexcept
+	{
+		bool hasUncheckedSignatures = (signatureLevel == 0x00 || sectionSignatureLevel == 0x00);
+		if (hasUncheckedSignatures) {
+			return ProcessColors::BLUE;
+		}
+
+		bool isUserProcess = (signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows) &&
+							  signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) &&
+							  signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) &&
+							  signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa));
+		
+		return isUserProcess ? ProcessColors::YELLOW : ProcessColors::GREEN;
+	}
 }
