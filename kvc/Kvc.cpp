@@ -72,7 +72,7 @@ void SignalHandler(int signal)
         {
             try
             {
-                g_controller->StopDriverService();
+                g_controller->PerformAtomicCleanup();
                 std::wcout << L"[+] Emergency cleanup completed successfully" << std::endl;
             }
             catch (...)
@@ -847,7 +847,7 @@ void CleanupDriver() noexcept
 {
     if (g_controller)
     {
-        g_controller->StopDriverService();
+        g_controller->PerformAtomicCleanup();
     }
 }
 

