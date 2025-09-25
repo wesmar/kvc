@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 // ControllerCore.cpp
 #include "Controller.h"
 #include "common.h"
@@ -52,7 +27,7 @@ bool Controller::PerformAtomicCleanup() noexcept {
     }
     
     // 2. Wait for resources to be released
-    Sleep(200);
+    Sleep(100);
     
     // 3. Stop the service (if it exists)
     DEBUG(L"Stopping driver service...");
@@ -93,7 +68,7 @@ bool Controller::PerformAtomicCleanup() noexcept {
     }
     
     // 5. Wait again for safety
-    Sleep(300);
+    Sleep(100);
     
     // 6. Only uninstall if the service is confirmed to be stopped
     if (serviceVerified) {
@@ -104,7 +79,7 @@ bool Controller::PerformAtomicCleanup() noexcept {
     }
     
     // 7. Reinitialize for subsequent operations
-    Sleep(500);
+    Sleep(100);
     m_rtc = std::make_unique<kvc>();
     
     SUCCESS(L"Atomic cleanup completed successfully");
@@ -131,7 +106,7 @@ bool Controller::PerformAtomicInitWithErrorCleanup() noexcept {
 bool Controller::EnsureDriverAvailable() noexcept {
     // Phase 1: Check if the driver is already available (without testing)
 	ForceRemoveService();
-	Sleep(200);
+	Sleep(100);
     if (IsDriverCurrentlyLoaded()) {
         return true;
     }
@@ -154,7 +129,7 @@ bool Controller::EnsureDriverAvailable() noexcept {
         CloseServiceHandle(hSCM);
         
         // Give it time to start
-        Sleep(500);
+        Sleep(100);
         
         // Check if it's running now (without a test read)
         if (m_rtc->Initialize() && m_rtc->IsConnected()) {
