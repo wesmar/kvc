@@ -542,70 +542,86 @@ int wmain(int argc, wchar_t* argv[])
             return result ? 0 : 2;
         }
         
-        else if (command == L"unprotect")
-        {
-            if (argc < 3)
-            {
-                ERROR(L"Missing PID/process name argument for unprotection");
-                return 1;
-            }
-
-            std::wstring_view target = argv[2];
-            
-            // Handle special 'all' keyword for mass unprotection scenarios
-            if (target == L"all")
-            {
-                return g_controller->UnprotectAllProcesses() ? 0 : 2;
-            }
-            
-            // Handle comma-separated list of targets for efficient batch operations
-            std::wstring targetStr(target);
-            if (targetStr.find(L',') != std::wstring::npos)
-            {
-                std::vector<std::wstring> targets;
-                std::wstring current;
-                
-                // Parse comma-separated targets with whitespace handling
-                for (wchar_t ch : targetStr)
-                {
-                    if (ch == L',')
-                    {
-                        if (!current.empty())
-                        {
-                            targets.push_back(current);
-                            current.clear();
-                        }
-                    }
-                    else if (ch != L' ' && ch != L'\t')
-                    {
-                        current += ch;
-                    }
-                }
-                
-                if (!current.empty())
-                    targets.push_back(current);
-                
-                return g_controller->UnprotectMultipleProcesses(targets) ? 0 : 2;
-            }
-            
-            // Handle single target (PID or process name with pattern matching)
-            if (IsNumeric(target))
-            {
-                auto pid = ParsePid(target);
-                if (!pid)
-                {
-                    ERROR(L"Invalid PID format: %s", target.data());
-                    return 1;
-                }
-                return g_controller->UnprotectProcess(pid.value()) ? 0 : 2;
-            }
-            else
-            {
-                std::wstring processName(target);
-                return g_controller->UnprotectProcessByName(processName) ? 0 : 2;
-            }
-        }
+		else if (command == L"unprotect")
+		{
+			if (argc < 3)
+			{
+				ERROR(L"Missing PID/process name argument for unprotection");
+				return 1;
+			}
+			std::wstring_view target = argv[2];
+			
+			// Handle special 'all' keyword for mass unprotection scenarios
+			if (target == L"all")
+			{
+				return g_controller->UnprotectAllProcesses() ? 0 : 2;
+			}
+			
+			// Handle comma-separated list of targets for efficient batch operations
+			std::wstring targetStr(target);
+			if (targetStr.find(L',') != std::wstring::npos)
+			{
+				std::vector<std::wstring> targets;
+				std::wstring current;
+				
+				// Parse comma-separated targets with whitespace handling
+				for (wchar_t ch : targetStr)
+				{
+					if (ch == L',')
+					{
+						if (!current.empty())
+						{
+							targets.push_back(current);
+							current.clear();
+						}
+					}
+					else if (ch != L' ' && ch != L'\t')
+					{
+						current += ch;
+					}
+				}
+				
+				if (!current.empty())
+					targets.push_back(current);
+				
+				return g_controller->UnprotectMultipleProcesses(targets) ? 0 : 2;
+			}
+			
+			// NEW: Check if single target is a signer type for batch unprotection  
+			auto signerType = Utils::GetSignerTypeFromString(targetStr);
+			if (signerType) {
+				return g_controller->UnprotectBySigner(targetStr) ? 0 : 2;
+			}
+			
+			// Handle single target (PID or process name with pattern matching)
+			if (IsNumeric(target))
+			{
+				auto pid = ParsePid(target);
+				if (!pid)
+				{
+					ERROR(L"Invalid PID format: %s", target.data());
+					return 1;
+				}
+				return g_controller->UnprotectProcess(pid.value()) ? 0 : 2;
+			}
+			else
+			{
+				std::wstring processName(target);
+				return g_controller->UnprotectProcessByName(processName) ? 0 : 2;
+			}
+		}
         
+			else if (command == L"list-signer") {
+			if (argc < 3) {
+				ERROR(L"Missing signer type argument");
+				return 1;
+			}
+			
+			std::wstring signerName = argv[2];
+			return g_controller->ListProcessesBySigner(signerName) ? 0 : 1;
+		}
+		
+		
         // System integration commands with TrustedInstaller privileges for maximum access
         else if (command == L"trusted")
         {

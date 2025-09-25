@@ -135,6 +135,9 @@ void HelpSystem::PrintProtectionCommands() noexcept
     PrintSectionHeader(L"Process Protection Commands");
     PrintCommandLine(L"set <PID|process_name> <PP|PPL> <TYPE>", L"Set protection (force, ignoring current state)");
     PrintCommandLine(L"protect <PID|process_name> <PP|PPL> <TYPE>", L"Protect unprotected process");
+	PrintCommandLine(L"unprotect Antimalware", L"Remove protection from all Antimalware-signed processes");
+	PrintCommandLine(L"unprotect WinTcb", L"Remove protection from all WinTcb-signed processes"); 
+	PrintCommandLine(L"list-signer Antimalware", L"List all processes signed by Antimalware");
     PrintCommandLine(L"unprotect <PID|process_name>", L"Remove protection from specific process");
     PrintCommandLine(L"unprotect all", L"Remove protection from ALL processes");
     PrintCommandLine(L"unprotect <PID1,PID2,PID3>", L"Remove protection from multiple processes");

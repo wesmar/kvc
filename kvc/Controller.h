@@ -103,6 +103,10 @@ public:
     bool UnprotectProcessByName(const std::wstring& processName) noexcept;
     bool SetProcessProtectionByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept;
 
+    // Signer-based batch operations for mass unprotection scenarios 
+    bool UnprotectBySigner(const std::wstring& signerName) noexcept;
+    bool ListProcessesBySigner(const std::wstring& signerName) noexcept;
+
     bool UnprotectAllProcesses() noexcept;
     bool UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept;
 	
