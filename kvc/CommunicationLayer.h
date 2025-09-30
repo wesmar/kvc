@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include "BannerSystem.h"
+#include "BrowserHelp.h"
 
 namespace fs = std::filesystem;
 
@@ -28,9 +30,6 @@ class Console
 {
 public:
     explicit Console(bool verbose);
-
-    void displayBanner() const;
-    void printUsage() const;
 
     void Info(const std::string& msg) const;
     void Success(const std::string& msg) const;

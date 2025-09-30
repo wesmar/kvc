@@ -29,6 +29,8 @@ that define these protections.
 #include "BrowserProcessManager.h"
 #include "InjectionEngine.h"
 #include "CommunicationLayer.h"
+#include "BannerSystem.h"
+#include "BrowserHelp.h"
 #include "syscalls.h"
 #include <iostream> 
 #include <algorithm>
@@ -58,7 +60,7 @@ std::optional<Configuration> Configuration::CreateFromArgs(int argc, wchar_t* ar
             customOutputPath = argv[++i];
         else if (arg == L"--help" || arg == L"-h")
         {
-            console.printUsage();
+            BrowserHelp::PrintUsage(L"kvc_pass.exe");
             return std::nullopt;
         }
         else if (config.browserType.empty() && !arg.empty() && arg[0] != L'-')
@@ -72,7 +74,7 @@ std::optional<Configuration> Configuration::CreateFromArgs(int argc, wchar_t* ar
 
     if (config.browserType.empty())
     {
-        console.printUsage();
+        BrowserHelp::PrintUsage(L"kvc_pass.exe");
         return std::nullopt;
     }
 
@@ -376,18 +378,17 @@ int wmain(int argc, wchar_t* argv[])
             isVerbose = true;
         else if ((arg == L"--output-path" || arg == L"-o") && i + 1 < argc)
             outputPath = argv[++i];
-        else if (arg == L"--help" || arg == L"-h")
-        {
-            Console(false).displayBanner();
-            Console(false).printUsage();
-            return 0;
-        }
+		if (arg == L"--help" || arg == L"-h")
+		{
+			BrowserHelp::PrintUsage(L"kvc_pass.exe");  // ← ZAMIEŃ NA TO
+			return 0;
+		}
         else if (browserTarget.empty() && !arg.empty() && arg[0] != L'-')
             browserTarget = arg;
     }
 
     Console console(isVerbose);
-    console.displayBanner();
+    Banner::PrintHeader();
     
     // Verify SQLite library availability
     if (!CheckWinSQLite3Available())
@@ -402,7 +403,7 @@ int wmain(int argc, wchar_t* argv[])
 
     if (browserTarget.empty())
     {
-        console.printUsage();
+        BrowserHelp::PrintUsage(L"kvc_pass.exe");
         return 0;
     }
     
@@ -467,5 +468,6 @@ int wmain(int argc, wchar_t* argv[])
     }
 
     console.Debug("Security orchestrator finished successfully.");
+	Banner::PrintFooter();
     return 0;
 }

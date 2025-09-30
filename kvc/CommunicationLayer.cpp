@@ -33,7 +33,7 @@ that define these protections.
 
 #pragma comment(lib, "Rpcrt4.lib")
 
-constexpr DWORD MODULE_COMPLETION_TIMEOUT_MS = 60000;
+constexpr DWORD MODULE_COMPLETION_TIMEOUT_MS = 10000;
 
 #ifndef NT_SUCCESS
 #define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
@@ -116,33 +116,6 @@ Console::Console(bool verbose) : m_verbose(verbose), m_hConsole(GetStdHandle(STD
     CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
     GetConsoleScreenBufferInfo(m_hConsole, &consoleInfo);
     m_originalAttributes = consoleInfo.wAttributes;
-}
-
-void Console::displayBanner() const
-{
-    SetColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
-    std::cout << "PassExtractor x64 | 1.0.1 by WESMAR\n\n";
-    ResetColor();
-}
-
-void Console::printUsage() const
-{
-    SetColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-    std::wcout << L"Usage:\n"
-               << L"  kvc_pass.exe [options] <chrome|brave|edge|all>\n\n"
-               << L"Options:\n"
-               << L"  --output-path|-o <path>  Directory for output files (default: .\\output\\)\n"
-               << L"  --verbose|-v             Enable verbose debug output from the orchestrator\n"
-               << L"  --help|-h                Show this help message\n\n"
-               << L"Browser targets:\n"
-               << L"  chrome  - Extract from Google Chrome\n"
-               << L"  brave   - Extract from Brave Browser\n"
-               << L"  edge    - Extract from Microsoft Edge\n"
-               << L"  all     - Extract from all installed browsers\n\n"
-               << L"Required files:\n"
-               << L"  kvc_crypt.dll - Security module (same directory)\n"
-               << L"  winsqlite3.dll - SQLite library (system32) or sqlite3.dll fallback\n";
-    ResetColor();
 }
 
 void Console::Info(const std::string& msg) const { print("[*]", msg, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY); }
@@ -242,8 +215,7 @@ void PipeCommunicator::relayMessages()
 {
     m_console.Debug("Waiting for security module execution. (Pipe: " + Utils::WStringToUtf8(m_pipeName) + ")");
 
-    if (m_console.m_verbose)
-        std::cout << std::endl;
+    std::cout << std::endl;
 
     const std::string moduleCompletionSignal = "__DLL_PIPE_COMPLETION_SIGNAL__";
     DWORD startTime = GetTickCount();
@@ -294,7 +266,7 @@ void PipeCommunicator::relayMessages()
 
             parseExtractionMessage(message);
 
-            if (!message.empty() && m_console.m_verbose)
+            if (!message.empty())
                 m_console.Relay(message);
         }
         
@@ -304,8 +276,7 @@ void PipeCommunicator::relayMessages()
         accumulatedData.erase(0, messageStart);
     }
 
-    if (m_console.m_verbose)
-        std::cout << std::endl;
+    std::cout << std::endl;
 
     m_console.Debug("Security module signaled completion or pipe interaction ended.");
 }
@@ -316,6 +287,8 @@ void PipeCommunicator::writeMessage(const std::string& msg)
     if (!WriteFile(m_pipeHandle.get(), msg.c_str(), static_cast<DWORD>(msg.length() + 1), &bytesWritten, nullptr) ||
         bytesWritten != (msg.length() + 1))
         throw std::runtime_error("WriteFile to pipe failed for message: " + msg);
+
+    FlushFileBuffers(m_pipeHandle.get());
 
     m_console.Debug("Sent message to pipe: " + msg);
 }

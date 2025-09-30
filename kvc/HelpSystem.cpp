@@ -188,10 +188,12 @@ void HelpSystem::PrintBrowserCommands() noexcept
     PrintCommandLine(L"bp --chrome", L"Extract Chrome passwords explicitly");
     PrintCommandLine(L"bp --brave", L"Extract Brave browser passwords");  
     PrintCommandLine(L"bp --edge", L"Extract Edge browser passwords");
+    PrintCommandLine(L"bp --all", L"Extract from all installed browsers");
     PrintCommandLine(L"bp --output C:\\reports", L"Custom output directory");
     PrintCommandLine(L"bp --edge -o C:\\data", L"Edge passwords to custom path");
-    PrintNote(L"Requires kvc_pass.exe in current directory");
-    PrintNote(L"Uses COM elevation for advanced browser encryption");
+    PrintNote(L"Requires kvc_pass.exe for Chrome/Brave/All");
+    PrintNote(L"Edge with kvc_pass: JSON + cookies + HTML/TXT reports (full extraction)");
+    PrintNote(L"Edge without kvc_pass: HTML/TXT reports only (built-in DPAPI fallback)");
     std::wcout << L"\n";
 }
 

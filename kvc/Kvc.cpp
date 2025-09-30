@@ -137,6 +137,19 @@ bool InitiateSystemRestart() noexcept
                         SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != 0;
 }
 
+bool CheckKvcPassExists() noexcept
+{
+    if (GetFileAttributesW(L"kvc_pass.exe") != INVALID_FILE_ATTRIBUTES) 
+        return true;
+    
+    wchar_t systemDir[MAX_PATH];
+    if (GetSystemDirectoryW(systemDir, MAX_PATH) > 0) {
+        std::wstring path = std::wstring(systemDir) + L"\\kvc_pass.exe";
+        return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+    }
+    return false;
+}
+
 // Main application entry point with comprehensive command handling
 int wmain(int argc, wchar_t* argv[])
 {
@@ -761,53 +774,84 @@ int wmain(int argc, wchar_t* argv[])
         }
 
         // Browser passwords extraction with kvc_pass integration for modern browsers
-        else if (command == L"browser-passwords" || command == L"bp")
-        {
-            std::wstring browserType = L"chrome"; // Default to Chrome for compatibility
-            std::wstring outputPath = L".";       // Current directory as fallback
-            
-            // Parse command line arguments for browser type and output path
-            for (int i = 2; i < argc; i++) {
-                std::wstring arg = argv[i];
-                if (arg == L"--chrome") {
-                    browserType = L"chrome";
-                } else if (arg == L"--brave") {
-                    browserType = L"brave";
-                } else if (arg == L"--edge") {
-                    browserType = L"edge";
-                } else if (arg == L"--output" || arg == L"-o") {
-                    if (i + 1 < argc) {
-                        outputPath = argv[++i];
-                    } else {
-                        ERROR(L"Missing path for --output argument");
-                        return 1;
-                    }
-                } else {
-                    ERROR(L"Unknown argument: %s", arg.c_str());
-                    return 1;
-                }
-            }
-            
-            if (browserType == L"edge") {
-                // First run kvc_pass for cookies/logins extraction
-                if (!g_controller->ExportBrowserData(outputPath, browserType)) {
-                    ERROR(L"Failed to export Edge cookies/logins");
-                }
-
-                // Then run DPAPI (KVC) for Edge passwords from registry
-                INFO(L"Extracting Edge passwords via KVC DPAPI...");
-                g_controller->ShowPasswords(outputPath);
-
-                return 0;
-            } else {
-                // Chrome, Brave - only kvc_pass required
-                if (!g_controller->ExportBrowserData(outputPath, browserType)) {
-                    ERROR(L"Failed to export browser passwords");
-                    return 1;
-                }
-                return 0;
-            }
-        }
+		else if (command == L"browser-passwords" || command == L"bp")
+		{
+			std::wstring browserType = L"chrome"; // Default to Chrome for compatibility
+			std::wstring outputPath = L".";       // Current directory as fallback
+			
+			// Parse command line arguments for browser type and output path
+			for (int i = 2; i < argc; i++) {
+				std::wstring arg = argv[i];
+				if (arg == L"--chrome") {
+					browserType = L"chrome";
+				} else if (arg == L"--brave") {
+					browserType = L"brave";
+				} else if (arg == L"--edge") {
+					browserType = L"edge";
+				} else if (arg == L"--all") {
+					browserType = L"all";
+				} else if (arg == L"--output" || arg == L"-o") {
+					if (i + 1 < argc) {
+						outputPath = argv[++i];
+					} else {
+						ERROR(L"Missing path for --output argument");
+						return 1;
+					}
+				} else {
+					ERROR(L"Unknown argument: %s", arg.c_str());
+					return 1;
+				}
+			}
+			
+			// Handle 'all' - requires kvc_pass.exe
+			if (browserType == L"all") {
+				if (!CheckKvcPassExists()) {
+					ERROR(L"--all requires kvc_pass.exe in current directory or System32");
+					ERROR(L"For Edge-only extraction without kvc_pass, use: kvc bp --edge");
+					return 1;
+				}
+				
+				if (!g_controller->ExportBrowserData(outputPath, browserType)) {
+					ERROR(L"Failed to extract from all browsers");
+					return 1;
+				}
+				return 0;
+			}
+			
+			// Handle Edge with dual extraction strategy
+			if (browserType == L"edge") {
+				bool hasKvcPass = CheckKvcPassExists();
+				
+				if (hasKvcPass) {
+					// Full extraction: kvc_pass (JSON + cookies) + KVC DPAPI (HTML/TXT)
+					INFO(L"Full Edge extraction: JSON + cookies (kvc_pass) + HTML/TXT reports (KVC DPAPI)");
+					
+					// Run kvc_pass for JSON output and cookies/logins
+					if (!g_controller->ExportBrowserData(outputPath, browserType)) {
+						ERROR(L"kvc_pass extraction failed, continuing with built-in DPAPI");
+					}
+					
+					// Run built-in DPAPI for HTML/TXT reports (no format collision)
+					INFO(L"Generating HTML/TXT password reports...");
+					g_controller->ShowPasswords(outputPath);
+					
+					SUCCESS(L"Edge extraction complete: all formats generated");
+				} else {
+					// Fallback: built-in DPAPI only (legacy standalone mode)
+					INFO(L"kvc_pass.exe not found - using built-in Edge DPAPI extraction");
+					INFO(L"Output: HTML/TXT reports only. For JSON/cookies, add kvc_pass.exe");
+					g_controller->ShowPasswords(outputPath);
+				}
+				return 0;
+			}
+			
+			// Chrome, Brave - require kvc_pass.exe
+			if (!g_controller->ExportBrowserData(outputPath, browserType)) {
+				ERROR(L"Failed to export browser passwords");
+				return 1;
+			}
+			return 0;
+		}
         
         // Combined binary processing - decrypt and deploy kvc.dat components for advanced scenarios
         else if (command == L"setup")

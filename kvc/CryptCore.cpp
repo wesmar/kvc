@@ -224,6 +224,7 @@ DWORD WINAPI SecurityModuleWorker(LPVOID lpParam)
             if (errorLogger.isValid())
             {
                 errorLogger.Log("[-] CRITICAL SECURITY MODULE ERROR: " + std::string(e.what()));
+				errorLogger.Log("__DLL_PIPE_COMPLETION_SIGNAL__");
             }
         }
         catch (...) {}

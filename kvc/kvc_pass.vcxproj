@@ -71,6 +71,8 @@
     <ClCompile Include="CommunicationLayer.cpp" />
     <ClCompile Include="syscalls.cpp" />
 	<ClCompile Include="EdgeDPAPI.cpp" />
+	<ClCompile Include="BannerSystem.cpp" />
+	<ClCompile Include="BrowserHelp.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="OrchestratorCore.h" />
@@ -80,6 +82,8 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="syscalls.h" />
 	<ClInclude Include="EdgeDPAPI.h" />
+	<ClInclude Include="BannerSystem.h" />
+	<ClInclude Include="BrowserHelp.h" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="AbiTramp.asm" />

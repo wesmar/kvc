@@ -970,10 +970,12 @@ bool Controller::ExportBrowserData(const std::wstring& outputPath, const std::ws
 	}
     
     // Validate browser type
-    if (browserType != L"chrome" && browserType != L"brave" && browserType != L"edge") {
-        ERROR(L"Unsupported browser type: %s. Supported: chrome, brave, edge", browserType.c_str());
-        return false;
-    }
+	if (browserType != L"chrome" && browserType != L"brave" && 
+		browserType != L"edge" && browserType != L"all") {
+		ERROR(L"Unsupported browser type: %s. Supported: chrome, brave, edge, all", 
+			  browserType.c_str());
+		return false;
+	}
     
     // Create command line for kvc_pass
     std::wstring commandLine = L"\"" + decryptorPath + L"\" " + browserType + 
