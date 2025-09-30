@@ -6,13 +6,17 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>16.0</VCProjectVersion>
-    <ProjectGuid>{12345678-1234-1234-1234-123456789ABC}</ProjectGuid>
-    <RootNamespace>kvc_pass</RootNamespace>
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{a905154d-f1ec-4821-9717-9f6d35f69f3f}</ProjectGuid>
+    <RootNamespace>KvcXor</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
@@ -21,20 +25,27 @@
     <CharacterSet>Unicode</CharacterSet>
     <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
   </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
-  </ImportGroup>
+
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <Import Project="$(VCTargetsPath)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(VCTargetsPath)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" 
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" 
+            Label="LocalAppDataPlatform" />
   </ImportGroup>
+
   <PropertyGroup Label="UserMacros" />
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)bin\x64\Release\</OutDir>
     <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
-    <TargetName>kvc_pass</TargetName>
+    <TargetName>KvcXor</TargetName>
   </PropertyGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -47,51 +58,38 @@
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>MaxSpeed</Optimization>
-      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Brepro %(AdditionalOptions)</AdditionalOptions>
+      <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /GL /Brepro %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
-      <AdditionalDependencies>Rpcrt4.lib;version.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalOptions>/OPT:REF /OPT:ICF /MERGE:.rdata=.text /NXCOMPAT /Brepro %(AdditionalOptions)</AdditionalOptions>
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <AdditionalOptions>/OPT:REF /OPT:ICF=5 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /INCREMENTAL:NO /Brepro %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
       <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
     </PostBuildEvent>
-    <ResourceCompile>
-      <Culture>0x0409</Culture>
-    </ResourceCompile>
   </ItemDefinitionGroup>
+
   <ItemGroup>
-    <ClCompile Include="OrchestratorCore.cpp" />
-    <ClCompile Include="BrowserProcessManager.cpp" />
-    <ClCompile Include="InjectionEngine.cpp" />
-    <ClCompile Include="CommunicationLayer.cpp" />
-    <ClCompile Include="syscalls.cpp" />
-	<ClCompile Include="EdgeDPAPI.cpp" />
+    <ClCompile Include="KvcXor.cpp" />
   </ItemGroup>
+
   <ItemGroup>
-    <ClInclude Include="OrchestratorCore.h" />
-    <ClInclude Include="BrowserProcessManager.h" />
-    <ClInclude Include="InjectionEngine.h" />
-    <ClInclude Include="CommunicationLayer.h" />
     <ClInclude Include="resource.h" />
-    <ClInclude Include="syscalls.h" />
-	<ClInclude Include="EdgeDPAPI.h" />
   </ItemGroup>
+
   <ItemGroup>
-    <MASM Include="AbiTramp.asm" />
+    <ResourceCompile Include="KvcXor.rc" />
   </ItemGroup>
+
   <ItemGroup>
     <Image Include="ICON\kvc.ico" />
   </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="kvc_pass.rc" />
-  </ItemGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
-  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets" />
 </Project>

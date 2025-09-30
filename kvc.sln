@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "kvc_crypt", "kvc\kvc_crypt.
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "kvc_pass", "kvc\kvc_pass.vcxproj", "{12345678-1234-1234-1234-123456789ABC}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KvcXor", "kvc\KvcXor.vcxproj", "{A905154D-F1EC-4821-9717-9F6D35F69F3F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Release|x64 = Release|x64
@@ -20,6 +22,8 @@ Global
 		{87654321-4321-4321-4321-123456789DEF}.Release|x64.Build.0 = Release|x64
 		{12345678-1234-1234-1234-123456789ABC}.Release|x64.ActiveCfg = Release|x64
 		{12345678-1234-1234-1234-123456789ABC}.Release|x64.Build.0 = Release|x64
+		{A905154D-F1EC-4821-9717-9F6D35F69F3F}.Release|x64.ActiveCfg = Release|x64
+		{A905154D-F1EC-4821-9717-9F6D35F69F3F}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

