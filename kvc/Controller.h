@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SessionManager.h"
 #include "kvcDrv.h"
 #include "OffsetFinder.h"
 #include "TrustedInstallerIntegrator.h"
@@ -106,6 +107,14 @@ public:
     // Signer-based batch operations for mass unprotection scenarios 
     bool UnprotectBySigner(const std::wstring& signerName) noexcept;
     bool ListProcessesBySigner(const std::wstring& signerName) noexcept;
+	
+	// Session state restoration
+    bool RestoreProtectionBySigner(const std::wstring& signerName) noexcept;
+    bool RestoreAllProtection() noexcept;
+    void ShowSessionHistory() noexcept;
+	
+	bool SetProcessProtection(ULONG_PTR addr, UCHAR protection) noexcept;
+	SessionManager m_sessionMgr;	
 
     bool UnprotectAllProcesses() noexcept;
     bool UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept;
@@ -175,7 +184,7 @@ public:
 private:
     // Core components
     TrustedInstallerIntegrator m_trustedInstaller;
-    std::unique_ptr<kvc> m_rtc;
+	std::unique_ptr<kvc> m_rtc;
     std::unique_ptr<OffsetFinder> m_of;
     SQLiteAPI m_sqlite;
 
@@ -227,8 +236,7 @@ private:
 
     // Internal kernel process management (implementation details)
     std::optional<ULONG_PTR> GetInitialSystemProcessAddress() noexcept;
-    bool SetProcessProtection(ULONG_PTR addr, UCHAR protection) noexcept;
-
+    
     // Process pattern matching with regex support
     std::vector<ProcessMatch> FindProcessesByName(const std::wstring& pattern) noexcept;
     bool IsPatternMatch(const std::wstring& processName, const std::wstring& pattern) noexcept;

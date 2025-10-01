@@ -38,6 +38,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintBasicCommands();
     PrintProcessTerminationCommands();
     PrintProtectionCommands();
+	PrintSessionManagement();
     PrintSystemCommands();
     PrintBrowserCommands();
     PrintDefenderCommands();
@@ -141,6 +142,10 @@ void HelpSystem::PrintProtectionCommands() noexcept
     PrintCommandLine(L"unprotect <PID|process_name>", L"Remove protection from specific process");
     PrintCommandLine(L"unprotect all", L"Remove protection from ALL processes");
     PrintCommandLine(L"unprotect <PID1,PID2,PID3>", L"Remove protection from multiple processes");
+	PrintCommandLine(L"restore <signer_name>", L"Restore protection for specific signer group");
+    PrintCommandLine(L"restore all", L"Restore all saved protection states");
+    PrintCommandLine(L"history", L"Show saved session history (max 16 sessions)");
+    PrintCommandLine(L"cleanup-sessions", L"Delete all sessions except current");
     std::wcout << L"\n";
 }
 
@@ -179,6 +184,18 @@ void HelpSystem::PrintSecurityEngineCommands() noexcept
     PrintNote(L"Registry-level manipulation - bypasses tamper protection");
     PrintNote(L"System restart required for changes to take effect");
     std::wcout << L"\n";
+}
+
+void HelpSystem::PrintSessionManagement() noexcept
+{
+    PrintSectionHeader(L"Session Management System");
+    std::wcout << L"  - Automatic boot detection and session tracking (max 16 sessions)\n";
+    std::wcout << L"  - Each 'unprotect' operation saves process states grouped by signer\n";
+    std::wcout << L"  - 'restore' commands reapply protection from saved session state\n";
+    std::wcout << L"  - Session history persists across reboots until limit reached\n";
+    std::wcout << L"  - Oldest sessions auto-deleted when exceeding 16 session limit\n";
+    std::wcout << L"  - Manual cleanup available via 'cleanup-sessions' command\n";
+    std::wcout << L"  - Status tracking: UNPROTECTED (after unprotect) -> RESTORED (after restore)\n\n";
 }
 
 void HelpSystem::PrintBrowserCommands() noexcept
@@ -329,6 +346,14 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"set 5678 PP Windows", L"Force set PP-Windows protection");
     printLine(L"unprotect lsass", L"Remove protection from LSASS");
     printLine(L"unprotect 1,2,3,lsass", L"Batch unprotect multiple targets");
+	
+	// Session restoration examples
+	printLine(L"unprotect Antimalware", L"Remove protection from all Antimalware processes");
+	printLine(L"unprotect all", L"Remove protection from ALL processes (grouped by signer)");
+	printLine(L"history", L"Show saved sessions (max 16, with status tracking)");
+	printLine(L"restore Antimalware", L"Restore protection for Antimalware group");
+	printLine(L"restore all", L"Restore all saved protection states from current session");
+	printLine(L"cleanup-sessions", L"Delete all old sessions (keep only current)");
 	
 	// Process termination examples
     printLine(L"kill 1234", L"Terminate process with PID 1234");

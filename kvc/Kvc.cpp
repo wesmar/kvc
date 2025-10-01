@@ -200,12 +200,31 @@ int wmain(int argc, wchar_t* argv[])
             return success ? 0 : 1;
         }
         
-        else if (command == L"uninstall") 
-        {
-            INFO(L"Uninstalling Kernel Vulnerability Capabilities Framework service...");
-            bool success = ServiceManager::UninstallService();
-            return success ? 0 : 1;
-        }
+		else if (command == L"uninstall") 
+		{
+			INFO(L"Uninstalling Kernel Vulnerability Capabilities Framework service...");
+			bool success = ServiceManager::UninstallService();
+			
+			// Wyczyść całą konfigurację z rejestru
+			INFO(L"Cleaning up registry configuration...");
+			HKEY hKey;
+			if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS)
+			{
+				LONG result = RegDeleteTreeW(hKey, L"kvc");
+				if (result == ERROR_SUCCESS) {
+					SUCCESS(L"Registry configuration cleaned successfully");
+				}
+				else if (result == ERROR_FILE_NOT_FOUND) {
+					INFO(L"No registry configuration found to clean");
+				}
+				else {
+					ERROR(L"Failed to clean registry configuration: %d", result);
+				}
+				RegCloseKey(hKey);
+			}
+			
+			return success ? 0 : 1;
+		}
         
         else if (command == L"service")
         {
@@ -415,10 +434,12 @@ int wmain(int argc, wchar_t* argv[])
 		}
         
         // Process information commands with color-coded protection status output
-        else if (command == L"list")
-        {
-            return g_controller->ListProtectedProcesses() ? 0 : 2;
-        }
+		else if (command == L"list")
+		{
+			// Detect reboot and enforce session limit on first list after boot
+            g_controller->m_sessionMgr.DetectAndHandleReboot();
+            return g_controller->ListProtectedProcesses() ? 0 : 2;;
+		}
         
         else if (command == L"get")
         {
@@ -515,45 +536,105 @@ int wmain(int argc, wchar_t* argv[])
         }
         
         // Process protection commands with atomic driver operations
-        else if (command == L"set" || command == L"protect")
-        {
-            if (argc < 5)
-            {
-                ERROR(L"Missing arguments: <PID/process_name> <PP|PPL> <SIGNER_TYPE>");
-                return 1;
-            }
+		// Process protection commands with atomic driver operations
+		else if (command == L"set" || command == L"protect")
+		{
+			if (argc < 5)
+			{
+				ERROR(L"Missing arguments: <PID/process_name> <PP|PPL> <SIGNER_TYPE>");
+				return 1;
+			}
 
-            std::wstring_view target = argv[2];
-            std::wstring level = argv[3];
-            std::wstring signer = argv[4];
+			std::wstring_view target = argv[2];
+			std::wstring level = argv[3];
+			std::wstring signer = argv[4];
 
-            bool result = false;
-            
-            if (IsNumeric(target))
-            {
-                auto pid = ParsePid(target);
-                if (!pid)
-                {
-                    ERROR(L"Invalid PID format: %s", target.data());
-                    return 1;
-                }
-                
-                // 'set' forces protection regardless of current state, 'protect' only protects unprotected processes
-                result = (command == L"set") ?
-                    g_controller->SetProcessProtection(pid.value(), level, signer) :
-                    g_controller->ProtectProcess(pid.value(), level, signer);
-            }
-            else
-            {
-                std::wstring processName(target);
-                
-                result = (command == L"set") ?
-                    g_controller->SetProcessProtectionByName(processName, level, signer) :
-                    g_controller->ProtectProcessByName(processName, level, signer);
-            }
+			// Handle comma-separated list of PIDs for batch operations
+			std::wstring targetStr(target);
+			if (targetStr.find(L',') != std::wstring::npos)
+			{
+				std::vector<DWORD> pids;
+				std::wstring current;
+				
+				// Parse comma-separated PIDs with whitespace handling
+				for (wchar_t ch : targetStr)
+				{
+					if (ch == L',')
+					{
+						if (!current.empty())
+						{
+							if (IsNumeric(current))
+							{
+								auto pid = ParsePid(current);
+								if (pid) pids.push_back(pid.value());
+							}
+							current.clear();
+						}
+					}
+					else if (ch != L' ' && ch != L'\t')
+					{
+						current += ch;
+					}
+				}
+				
+				// Last token
+				if (!current.empty() && IsNumeric(current))
+				{
+					auto pid = ParsePid(current);
+					if (pid) pids.push_back(pid.value());
+				}
+				
+				if (pids.empty())
+				{
+					ERROR(L"No valid PIDs found in comma-separated list");
+					return 1;
+				}
+				
+				// Batch operation
+				INFO(L"Batch %s operation: %zu processes", command.data(), pids.size());
+				int successCount = 0;
+				
+				for (DWORD pid : pids)
+				{
+					bool result = (command == L"set") ?
+						g_controller->SetProcessProtection(pid, level, signer) :
+						g_controller->ProtectProcess(pid, level, signer);
+					
+					if (result) successCount++;
+				}
+				
+				INFO(L"Batch %s completed: %d/%zu processes", command.data(), successCount, pids.size());
+				return successCount == pids.size() ? 0 : 2;
+			}
 
-            return result ? 0 : 2;
-        }
+			// Single target (PID or name)
+			bool result = false;
+			
+			if (IsNumeric(target))
+			{
+				auto pid = ParsePid(target);
+				if (!pid)
+				{
+					ERROR(L"Invalid PID format: %s", target.data());
+					return 1;
+				}
+				
+				// 'set' forces protection regardless of current state, 'protect' only protects unprotected processes
+				result = (command == L"set") ?
+					g_controller->SetProcessProtection(pid.value(), level, signer) :
+					g_controller->ProtectProcess(pid.value(), level, signer);
+			}
+			else
+			{
+				std::wstring processName(target);
+				
+				result = (command == L"set") ?
+					g_controller->SetProcessProtectionByName(processName, level, signer) :
+					g_controller->ProtectProcessByName(processName, level, signer);
+			}
+
+			return result ? 0 : 2;
+		}
         
 		else if (command == L"unprotect")
 		{
@@ -624,6 +705,42 @@ int wmain(int argc, wchar_t* argv[])
 			}
 		}
         
+			// Restore process protection from saved session state
+			else if (command == L"restore")
+			{
+				if (argc < 3)
+				{
+					ERROR(L"Missing argument: <signer_name|all>");
+					return 1;
+				}
+				
+				std::wstring_view target = argv[2];
+				
+				if (target == L"all")
+				{
+					return g_controller->RestoreAllProtection() ? 0 : 2;
+				}
+				else
+				{
+					std::wstring signerName(target);
+					return g_controller->RestoreProtectionBySigner(signerName) ? 0 : 2;
+				}
+			}
+
+			// Display session history
+			else if (command == L"history")
+			{
+				g_controller->ShowSessionHistory();
+				return 0;
+			}
+		
+			// Cleanup all sessions except current
+			else if (command == L"cleanup-sessions")
+			{
+				g_controller->m_sessionMgr.CleanupAllSessionsExceptCurrent();
+				return 0;
+			}
+			
 			else if (command == L"list-signer") {
 			if (argc < 3) {
 				ERROR(L"Missing signer type argument");

@@ -15,6 +15,9 @@
 #include <chrono>
 #include <memory>
 
+// Session management constants
+inline constexpr int MAX_SESSIONS = 16;
+
 #ifdef BUILD_DATE
     #define __DATE__ BUILD_DATE
 #endif
@@ -28,7 +31,6 @@
 #ifdef ERROR
 #undef ERROR
 #endif
-
 
 #ifndef SHTDN_REASON_MAJOR_SOFTWARE
 #define SHTDN_REASON_MAJOR_SOFTWARE 0x00030000
@@ -56,7 +58,7 @@ struct SystemModuleDeleter {
 using ModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, ModuleDeleter>;
 using SystemModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, SystemModuleDeleter>;
 
-// Logging system with message formatting
+// Fixed logging system with proper buffer size and variadic handling
 template<typename... Args>
 void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
 {
@@ -70,7 +72,7 @@ void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
     else
     {
         wchar_t buffer[1024];
-        swprintf_s(buffer, format, std::forward<Args>(args)...);
+        swprintf_s(buffer, 1024, format, std::forward<Args>(args)...);
         ss << buffer;
     }
     
@@ -79,19 +81,19 @@ void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
 }
 
 #if kvc_DEBUG_ENABLED
-    #define DEBUG(format, ...) PrintMessage(L"[DEBUG] ", format, __VA_ARGS__)
+    #define DEBUG(format, ...) PrintMessage(L"[DEBUG] ", format, ##__VA_ARGS__)
 #else
     #define DEBUG(format, ...) do {} while(0)
 #endif
 
-#define ERROR(format, ...) PrintMessage(L"[-] ", format, __VA_ARGS__)
-#define INFO(format, ...) PrintMessage(L"[*] ", format, __VA_ARGS__)
-#define SUCCESS(format, ...) PrintMessage(L"[+] ", format, __VA_ARGS__)
+#define ERROR(format, ...) PrintMessage(L"[-] ", format, ##__VA_ARGS__)
+#define INFO(format, ...) PrintMessage(L"[*] ", format, ##__VA_ARGS__)
+#define SUCCESS(format, ...) PrintMessage(L"[+] ", format, ##__VA_ARGS__)
 
 #define LASTERROR(f) \
     do { \
         wchar_t buf[256]; \
-        swprintf_s(buf, L"[-] The function '%s' failed with error code 0x%08x.\r\n", L##f, GetLastError()); \
+        swprintf_s(buf, 256, L"[-] The function '%s' failed with error code 0x%08x.\r\n", L##f, GetLastError()); \
         std::wcout << buf; \
     } while(0)
 
@@ -119,22 +121,22 @@ enum class PS_PROTECTED_SIGNER : UCHAR
 
 // Service-related constants
 namespace ServiceConstants {
-    constexpr const wchar_t* SERVICE_NAME = L"KernelVulnerabilityControl";
-    constexpr const wchar_t* SERVICE_DISPLAY_NAME = L"Kernel Vulnerability Capabilities Framework";
-    constexpr const wchar_t* SERVICE_PARAM = L"--service";
+    inline constexpr wchar_t SERVICE_NAME[] = L"KernelVulnerabilityControl";
+    inline constexpr wchar_t SERVICE_DISPLAY_NAME[] = L"Kernel Vulnerability Capabilities Framework";
+    inline constexpr wchar_t SERVICE_PARAM[] = L"--service";
     
     // Keyboard hook settings
-    constexpr int CTRL_SEQUENCE_LENGTH = 5;
-    constexpr DWORD CTRL_SEQUENCE_TIMEOUT_MS = 2000;
-    constexpr DWORD CTRL_DEBOUNCE_MS = 50;
+    inline constexpr int CTRL_SEQUENCE_LENGTH = 5;
+    inline constexpr DWORD CTRL_SEQUENCE_TIMEOUT_MS = 2000;
+    inline constexpr DWORD CTRL_DEBOUNCE_MS = 50;
 }
 
 // DPAPI constants for password extraction
 namespace DPAPIConstants {
-    constexpr int SQLITE_OK = 0;
-    constexpr int SQLITE_ROW = 100;
-    constexpr int SQLITE_DONE = 101;
-    constexpr int SQLITE_OPEN_READONLY = 0x00000001;
+    inline constexpr int SQLITE_OK = 0;
+    inline constexpr int SQLITE_ROW = 100;
+    inline constexpr int SQLITE_DONE = 101;
+    inline constexpr int SQLITE_OPEN_READONLY = 0x00000001;
     
     inline std::string GetChromeV10Prefix() { return "v10"; }
     inline std::string GetChromeDPAPIPrefix() { return "DPAPI"; }
@@ -259,7 +261,7 @@ inline std::wstring GetDriverStorePathSafe() noexcept {
 }
 
 // KVC combined binary processing constants
-constexpr std::array<BYTE, 7> KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };
-constexpr wchar_t KVC_DATA_FILE[]  = L"kvc.dat";
-constexpr wchar_t KVC_PASS_FILE[]  = L"kvc_pass.exe";
-constexpr wchar_t KVC_CRYPT_FILE[] = L"kvc_crypt.dll";
+inline constexpr std::array<BYTE, 7> KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };
+inline constexpr wchar_t KVC_DATA_FILE[]  = L"kvc.dat";
+inline constexpr wchar_t KVC_PASS_FILE[]  = L"kvc_pass.exe";
+inline constexpr wchar_t KVC_CRYPT_FILE[] = L"kvc_crypt.dll";

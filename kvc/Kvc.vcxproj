@@ -121,6 +121,7 @@
     <ClCompile Include="Utils.cpp" />
 	<ClCompile Include="Common.cpp" />
 	<ClCompile Include="ReportExporter.cpp" />
+	<ClCompile Include="SessionManager.cpp" />
 	<ClCompile Include="ServiceManager.cpp" />
 	<ClCompile Include="DefenderManager.cpp" />
 	<ClCompile Include="KeyboardHook.cpp" />
@@ -137,6 +138,7 @@
     <ClInclude Include="kvcDrv.h" />
     <ClInclude Include="Utils.h" />
 	<ClInclude Include="ReportExporter.h" />
+	<ClCompile Include="SessionManager.h" />
 	<ClInclude Include="ServiceManager.h" />
 	<ClInclude Include="KeyboardHook.h" />
 	<ClInclude Include="HelpSystem.h" />

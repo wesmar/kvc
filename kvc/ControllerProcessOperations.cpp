@@ -847,116 +847,130 @@ bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionL
 // MASS PROTECTION OPERATIONS
 // ============================================================================
 
-bool Controller::UnprotectAllProcesses() noexcept {
+bool Controller::UnprotectAllProcesses() noexcept
+{
     if (!BeginDriverSession()) {
-		EndDriverSession(true);
+        EndDriverSession(true);
+        return false;
+    }
+
+    auto processes = GetProcessList();
+    
+    // Group processes by signer type
+    std::unordered_map<std::wstring, std::vector<ProcessEntry>> groupedProcesses;
+    
+    for (const auto& entry : processes)
+    {
+        if (entry.ProtectionLevel > 0)
+        {
+            std::wstring signerName = Utils::GetSignerTypeAsString(entry.SignerType);
+            groupedProcesses[signerName].push_back(entry);
+        }
+    }
+    
+    if (groupedProcesses.empty())
+    {
+        INFO(L"No protected processes found");
+        EndDriverSession(true);
         return false;
     }
     
-    auto processes = GetProcessList();
-    DWORD totalCount = 0;
-    DWORD successCount = 0;
+    INFO(L"Starting mass unprotection (%zu signer groups)", groupedProcesses.size());
     
-    INFO(L"Starting mass unprotection of all protected processes...");
+    DWORD totalSuccess = 0;
+    DWORD totalProcessed = 0;
     
-    for (const auto& entry : processes) {
-        if (entry.ProtectionLevel > 0) {
-            totalCount++;
+    // Process each signer group
+    for (const auto& [signerName, processes] : groupedProcesses)
+    {
+        INFO(L"Processing signer group: %s (%zu processes)", signerName.c_str(), processes.size());
+        
+        // Save state before modification
+        m_sessionMgr.SaveUnprotectOperation(signerName, processes);
+        
+        // Unprotect all in this group
+        for (const auto& entry : processes)
+        {
+            totalProcessed++;
             
-            if (SetProcessProtection(entry.KernelAddress, 0)) {
-                successCount++;
+            if (SetProcessProtection(entry.KernelAddress, 0))
+            {
+                totalSuccess++;
                 SUCCESS(L"Removed protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
-            } else {
+            }
+            else
+            {
                 ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
             }
             
-            if (g_interrupted) {
+            if (g_interrupted)
+            {
                 INFO(L"Mass unprotection interrupted by user");
+                EndDriverSession(true);
+                return false;
+            }
+        }
+    }
+    
+    INFO(L"Mass unprotection completed: %d/%d processes successfully unprotected", totalSuccess, totalProcessed);
+    
+    EndDriverSession(true);
+    return totalSuccess > 0;
+}
+
+// ControllerProcessOperations.cpp
+// DODAJ tę funkcję (po funkcji UnprotectAllProcesses, przed końcem pliku):
+
+bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept
+{
+    if (targets.empty())
+        return false;
+
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+
+    DWORD successCount = 0;
+    DWORD totalCount = static_cast<DWORD>(targets.size());
+
+    for (const auto& target : targets)
+    {
+        bool result = false;
+
+        // Check if target is numeric (PID)
+        bool isNumeric = true;
+        for (wchar_t ch : target)
+        {
+            if (!iswdigit(ch))
+            {
+                isNumeric = false;
                 break;
             }
         }
-    }
-    
-    if (totalCount == 0) {
-        INFO(L"No protected processes found");
-    } else {
-        INFO(L"Mass unprotection completed: %d/%d processes successfully unprotected", successCount, totalCount);
-    }
-    
-    EndDriverSession(true);
-    return successCount == totalCount;
-}
 
-bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept {
-    if (targets.empty()) {
-        ERROR(L"No targets specified for batch unprotection");
-		EndDriverSession(true);
-        return false;
-    }
-    
-    if (!BeginDriverSession()) {
-        return false;
-    }
-    
-    DWORD successCount = 0;
-    DWORD totalCount = static_cast<DWORD>(targets.size());
-    
-    INFO(L"Starting batch unprotection of %d targets...", totalCount);
-    
-    for (const auto& target : targets) {
-        bool result = false;
-        
-        // Check if target is numeric (PID)
-        if (Utils::IsNumeric(target)) {
-            auto pid = Utils::ParsePid(target);
-            if (pid) {
-                auto kernelAddr = GetCachedKernelAddress(pid.value());
-                if (kernelAddr) {
-                    auto currentProtection = GetProcessProtection(kernelAddr.value());
-                    if (currentProtection && currentProtection.value() > 0) {
-                        if (SetProcessProtection(kernelAddr.value(), 0)) {
-                            SUCCESS(L"Removed protection from PID %d", pid.value());
-                            result = true;
-                        } else {
-                            ERROR(L"Failed to remove protection from PID %d", pid.value());
-                        }
-                    } else {
-                        INFO(L"PID %d is not protected", pid.value());
-                        result = true; // Consider this a success
-                    }
-                }
-            } else {
-                ERROR(L"Invalid PID format: %s", target.c_str());
+        if (isNumeric)
+        {
+            try {
+                DWORD pid = std::stoul(target);
+                result = UnprotectProcess(pid);
             }
-        } else {
-            // Target is process name
-            auto matches = FindProcessesByName(target);
-            if (matches.size() == 1) {
-                auto match = matches[0];
-                auto currentProtection = GetProcessProtection(match.KernelAddress);
-                if (currentProtection && currentProtection.value() > 0) {
-                    if (SetProcessProtection(match.KernelAddress, 0)) {
-                        SUCCESS(L"Removed protection from %s (PID %d)", match.ProcessName.c_str(), match.Pid);
-                        result = true;
-                    } else {
-                        ERROR(L"Failed to remove protection from %s (PID %d)", match.ProcessName.c_str(), match.Pid);
-                    }
-                } else {
-                    INFO(L"%s (PID %d) is not protected", match.ProcessName.c_str(), match.Pid);
-                    result = true; // Consider this a success
-                }
-            } else {
-                ERROR(L"Could not resolve process name: %s", target.c_str());
+            catch (...) {
+                ERROR(L"Invalid PID: %s", target.c_str());
             }
         }
-        
+        else
+        {
+            result = UnprotectProcessByName(target);
+        }
+
         if (result) successCount++;
     }
-    
+
     INFO(L"Batch unprotection completed: %d/%d targets successfully processed", successCount, totalCount);
-    
+
     EndDriverSession(true);
-    
+
     return successCount == totalCount;
 }
 
@@ -968,31 +982,42 @@ bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept {
     }
 
     if (!BeginDriverSession()) {
-		EndDriverSession(true);
+        EndDriverSession(true);
         return false;
     }
 
     auto processes = GetProcessList();
+    std::vector<ProcessEntry> affectedProcesses;
     DWORD totalCount = 0;
     DWORD successCount = 0;
 
     INFO(L"Starting batch unprotection of processes signed by: %s", signerName.c_str());
 
+    // Collect processes that will be affected
     for (const auto& entry : processes) {
         if (entry.ProtectionLevel > 0 && entry.SignerType == signerType.value()) {
+            affectedProcesses.push_back(entry);
             totalCount++;
+        }
+    }
+    
+    // Save state before modification
+    if (!affectedProcesses.empty()) {
+        m_sessionMgr.SaveUnprotectOperation(signerName, affectedProcesses);
+    }
 
-            if (SetProcessProtection(entry.KernelAddress, 0)) {
-                successCount++;
-                SUCCESS(L"Removed protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
-            } else {
-                ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
-            }
+    // POPRAWIONE: Usunięte błędne zagnieżdżenie
+    for (const auto& entry : affectedProcesses) {
+        if (SetProcessProtection(entry.KernelAddress, 0)) {
+            successCount++;
+            SUCCESS(L"Removed protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
+        } else {
+            ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
+        }
 
-            if (g_interrupted) {
-                INFO(L"Batch operation interrupted by user");
-                break;
-            }
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
         }
     }
 
@@ -1001,6 +1026,7 @@ bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept {
     } else {
         INFO(L"Batch unprotection completed: %d/%d processes successfully unprotected", successCount, totalCount);
     }
+    
     EndDriverSession(true); 
     return successCount > 0;
 }
@@ -1120,4 +1146,36 @@ bool Controller::SetProcessProtectionByName(const std::wstring& processName, con
     }
     
     return SetProcessProtection(match->Pid, protectionLevel, signerType);
+}
+
+// Session state restoration operations
+bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexcept
+{
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    bool result = m_sessionMgr.RestoreBySigner(signerName, this);
+    
+    EndDriverSession(true);
+    return result;
+}
+
+bool Controller::RestoreAllProtection() noexcept
+{
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    bool result = m_sessionMgr.RestoreAll(this);
+    
+    EndDriverSession(true);
+    return result;
+}
+
+void Controller::ShowSessionHistory() noexcept
+{
+    m_sessionMgr.ShowHistory();
 }
