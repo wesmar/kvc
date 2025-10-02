@@ -46,6 +46,16 @@ irm https://github.com/wesmar/kvc/releases/download/v1.0.1/run | iex
 irm https://kvc.pl/run | iex
 ```
 
+<div align="center">
+<strong>— OR —</strong>
+</div>
+
+### 📦 Manual Download
+
+Download: [kvc.7z](https://github.com/wesmar/kvc/releases/download/v1.0.1/kvc.7z)  
+Archive password: `github.com`
+
+---
 ---
 
 ## 🚀 Executive Summary
