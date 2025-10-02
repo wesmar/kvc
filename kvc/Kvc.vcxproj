@@ -121,6 +121,7 @@
     <ClCompile Include="kvcDrv.cpp" />
     <ClCompile Include="Utils.cpp" />
 	<ClCompile Include="Common.cpp" />
+	<ClCompile Include="HiveManager.cpp" />
 	<ClCompile Include="ReportExporter.cpp" />
 	<ClCompile Include="SessionManager.cpp" />
 	<ClCompile Include="ServiceManager.cpp" />
@@ -138,6 +139,7 @@
     <ClInclude Include="OffsetFinder.h" />
     <ClInclude Include="kvcDrv.h" />
     <ClInclude Include="Utils.h" />
+	<ClCompile Include="HiveManager.h" />
 	<ClInclude Include="ReportExporter.h" />
 	<ClCompile Include="SessionManager.h" />
 	<ClInclude Include="ServiceManager.h" />

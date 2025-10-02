@@ -28,6 +28,7 @@ public:
     static void PrintPatternMatching() noexcept;
     static void PrintTechnicalFeatures() noexcept;
     static void PrintDefenderNotes() noexcept;
+	static void PrintRegistryCommands() noexcept;
 	static void PrintSecurityEngineCommands() noexcept;
     static void PrintSessionManagement() noexcept;
 	static void PrintStickyKeysInfo() noexcept;

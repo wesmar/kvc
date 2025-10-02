@@ -28,6 +28,7 @@ that define these protections.
 #include "DefenderManager.h"
 #include "ProcessManager.h"
 #include "ServiceManager.h"
+#include "HiveManager.h"
 #include "HelpSystem.h"
 #include <string_view>
 #include <charconv>
@@ -976,7 +977,53 @@ int wmain(int argc, wchar_t* argv[])
             INFO(L"Loading and processing kvc.dat combined binary...");
             return g_controller->LoadAndSplitCombinedBinaries() ? 0 : 2;
         }
-        
+		
+		// Registry backup and defragmentation operations
+		else if (command == L"registry")
+		{
+			if (argc < 3)
+			{
+				ERROR(L"Missing registry subcommand: backup, restore, or defrag");
+				return 1;
+			}
+			
+			std::wstring_view subcommand = argv[2];
+			HiveManager hiveManager;
+			
+			if (subcommand == L"backup")
+			{
+				std::wstring targetPath;
+				if (argc >= 4)
+					targetPath = argv[3];
+				
+				return hiveManager.Backup(targetPath) ? 0 : 2;
+			}
+			else if (subcommand == L"restore")
+			{
+				if (argc < 4)
+				{
+					ERROR(L"Missing source path for restore operation");
+					return 1;
+				}
+				
+				std::wstring sourcePath = argv[3];
+				return hiveManager.Restore(sourcePath) ? 0 : 2;
+			}
+			else if (subcommand == L"defrag")
+			{
+				std::wstring tempPath;
+				if (argc >= 4)
+					tempPath = argv[3];
+				
+				return hiveManager.Defrag(tempPath) ? 0 : 2;
+			}
+			else
+			{
+				ERROR(L"Unknown registry subcommand: %s", subcommand.data());
+				return 1;
+			}
+		}
+		
         else
         {
             ERROR(L"Unknown command: %s", command.data());

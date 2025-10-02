@@ -40,6 +40,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintProtectionCommands();
 	PrintSessionManagement();
     PrintSystemCommands();
+	PrintRegistryCommands();
     PrintBrowserCommands();
     PrintDefenderCommands();
     PrintSecurityEngineCommands();
@@ -157,6 +158,19 @@ void HelpSystem::PrintSystemCommands() noexcept
     PrintCommandLine(L"trusted <command>", L"Run command with elevated system privileges");
     PrintCommandLine(L"install-context", L"Add context menu entries for right-click access");
     PrintCommandLine(L"evtclear", L"Clear all primary system event logs (Application, Security, Setup, System)");
+    std::wcout << L"\n";
+}
+
+void HelpSystem::PrintRegistryCommands() noexcept
+{
+    PrintSectionHeader(L"Registry Backup & Defragmentation");
+    PrintCommandLine(L"registry backup", L"Backup all registry hives to Downloads");
+    PrintCommandLine(L"registry backup C:\\backup", L"Backup to custom directory");
+    PrintCommandLine(L"registry restore C:\\backup", L"Restore hives from backup");
+    PrintCommandLine(L"registry defrag", L"Defragment registry (backup+compact)");
+    PrintNote(L"Backs up: BCD, SAM, SECURITY, SOFTWARE, SYSTEM, NTUSER, etc.");
+    PrintNote(L"Default path: Downloads\\Registry_Backup_YYYYMMDD_HHMMSS");
+    PrintNote(L"Defrag compacts hives through RegSaveKeyEx (no fragmentation)");
     std::wcout << L"\n";
 }
 
@@ -320,71 +334,86 @@ void HelpSystem::PrintUndumpableProcesses() noexcept
 void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
 {
     PrintSectionHeader(L"Usage Examples");
-    const int commandWidth = 50;
     
-    auto printLine = [&](const std::wstring& command, const std::wstring& description) {
-        std::wcout << L"  " << std::left << std::setw(commandWidth)
-                   << (std::wstring(programName) + L" " + command)
-                   << L"# " << description << L"\n";
+    const int commandWidth = 60;
+    
+    auto printLine = [commandWidth](const std::wstring& command, const std::wstring& description) {
+        std::wcout << L"  " << std::left << std::setw(commandWidth) 
+                   << command << L"# " << description << L"\n";
     };
-
-    // Service and system management examples
-    printLine(L"shift", L"Install sticky keys backdoor");
-    printLine(L"unshift", L"Remove sticky keys backdoor");
-    printLine(L"install", L"Install as NT service (advanced)");
-    printLine(L"service start", L"Start the service");
-    printLine(L"uninstall", L"Remove service");
     
-    // Memory dumping examples
-    printLine(L"dump lsass C:\\dumps", L"Dump LSASS to specific folder");
-    printLine(L"dump 1044", L"Dump PID 1044 to Downloads folder");
+    // Process inspection and monitoring
+    printLine(L"kvc list", L"Show all protected processes");
+    printLine(L"kvc info lsass", L"Detailed info with dumpability analysis");
     
-    // Process information and protection examples
-    printLine(L"list", L"Show all protected processes");
-    printLine(L"info lsass", L"Detailed info with dumpability analysis");
-    printLine(L"protect 1044 PPL Antimalware", L"Protect process with PPL-Antimalware");
-    printLine(L"set 5678 PP Windows", L"Force set PP-Windows protection");
-    printLine(L"unprotect lsass", L"Remove protection from LSASS");
-    printLine(L"unprotect 1,2,3,lsass", L"Batch unprotect multiple targets");
-	
-	// Session restoration examples
-	printLine(L"unprotect Antimalware", L"Remove protection from all Antimalware processes");
-	printLine(L"unprotect all", L"Remove protection from ALL processes (grouped by signer)");
-	printLine(L"history", L"Show saved sessions (max 16, with status tracking)");
-	printLine(L"restore Antimalware", L"Restore protection for Antimalware group");
-	printLine(L"restore all", L"Restore all saved protection states from current session");
-	printLine(L"cleanup-sessions", L"Delete all old sessions (keep only current)");
-	
-	// Process termination examples
-    printLine(L"kill 1234", L"Terminate process with PID 1234");
-    printLine(L"kill total", L"Terminate Total Commander by name");
-    printLine(L"kill 1234,5678,9012", L"Terminate multiple processes");
-    printLine(L"kill lsass", L"Terminate protected process (auto-elevation)");
+    // Process protection management
+    printLine(L"kvc protect 1044 PPL Antimalware", L"Protect process with PPL-Antimalware");
+    printLine(L"kvc set 5678 PP Windows", L"Force set PP-Windows protection");
+    printLine(L"kvc unprotect lsass", L"Remove protection from LSASS");
+    printLine(L"kvc unprotect 1,2,3,lsass", L"Batch unprotect multiple targets");
+    printLine(L"kvc unprotect Antimalware", L"Remove protection from all Antimalware processes");
+    printLine(L"kvc unprotect all", L"Remove protection from ALL processes (grouped by signer)");
     
-    // TrustedInstaller examples
-    printLine(L"trusted cmd", L"Run command as TrustedInstaller");
-    printLine(L"trusted \"C:\\app.exe\" --arg", L"Run application with arguments");
-    printLine(L"install-context", L"Add right-click menu entries");
+    // Session state management
+    printLine(L"kvc history", L"Show saved sessions (max 16, with status tracking)");
+    printLine(L"kvc restore Antimalware", L"Restore protection for Antimalware group");
+    printLine(L"kvc restore all", L"Restore all saved protection states from current session");
+    printLine(L"kvc cleanup-sessions", L"Delete all old sessions (keep only current)");
     
-    // Defender exclusion examples
-    printLine(L"add-exclusion", L"Add current program to exclusions");
-    printLine(L"add-exclusion C:\\malware.exe", L"Add specific file to exclusions");
-    printLine(L"add-exclusion Paths C:\\temp", L"Add folder to path exclusions");
-    printLine(L"add-exclusion Processes cmd.exe", L"Add process to exclusions");
-    printLine(L"add-exclusion Extensions .tmp", L"Add extension to exclusions");
-    printLine(L"add-exclusion IpAddresses 1.1.1.1", L"Add IP to exclusions");
-    printLine(L"remove-exclusion Processes cmd.exe", L"Remove process exclusion");
+    // Process termination
+    printLine(L"kvc kill 1234", L"Terminate process with PID 1234");
+    printLine(L"kvc kill total", L"Terminate Total Commander by name");
+    printLine(L"kvc kill 1234,5678,9012", L"Terminate multiple processes");
+    printLine(L"kvc kill lsass", L"Terminate protected process (auto-elevation)");
     
-    // Security engine management examples
-    printLine(L"secengine status", L"Check Windows Defender status");
-    printLine(L"secengine disable", L"Disable Windows Defender engine");
-    printLine(L"secengine enable", L"Re-enable Windows Defender engine");
-    printLine(L"secengine disable --restart", L"Disable Defender and restart system");
-    printLine(L"secengine enable --restart", L"Enable Defender and restart system");
+    // Memory dumping
+    printLine(L"kvc dump lsass C:\\dumps", L"Dump LSASS to specific folder");
+    printLine(L"kvc dump 1044", L"Dump PID 1044 to Downloads folder");
     
-    // Data extraction examples
-    printLine(L"export secrets", L"Export secrets to Downloads folder");
-    printLine(L"export secrets C:\\reports", L"Export secrets to specific folder");
+    // Service installation and management
+    printLine(L"kvc install", L"Install as NT service (advanced)");
+    printLine(L"kvc service start", L"Start the service");
+    printLine(L"kvc uninstall", L"Remove service");
+    
+    // System backdoors
+    printLine(L"kvc shift", L"Install sticky keys backdoor");
+    printLine(L"kvc unshift", L"Remove sticky keys backdoor");
+    
+    // TrustedInstaller elevation
+    printLine(L"kvc trusted cmd", L"Run command as TrustedInstaller");
+    printLine(L"kvc trusted \"C:\\app.exe\" --arg", L"Run application with arguments");
+    printLine(L"kvc install-context", L"Add right-click menu entries");
+    
+    // Windows Defender exclusions
+    printLine(L"kvc add-exclusion", L"Add current program to exclusions");
+    printLine(L"kvc add-exclusion C:\\malware.exe", L"Add specific file to exclusions");
+    printLine(L"kvc add-exclusion Paths C:\\temp", L"Add folder to path exclusions");
+    printLine(L"kvc add-exclusion Processes cmd.exe", L"Add process to exclusions");
+    printLine(L"kvc add-exclusion Extensions .tmp", L"Add extension to exclusions");
+    printLine(L"kvc add-exclusion IpAddresses 1.1.1.1", L"Add IP to exclusions");
+    printLine(L"kvc remove-exclusion Processes cmd.exe", L"Remove process exclusion");
+    
+    // Security engine control
+    printLine(L"kvc secengine status", L"Check Windows Defender status");
+    printLine(L"kvc secengine disable", L"Disable Windows Defender engine");
+    printLine(L"kvc secengine enable", L"Re-enable Windows Defender engine");
+    printLine(L"kvc secengine disable --restart", L"Disable Defender and restart system");
+    printLine(L"kvc secengine enable --restart", L"Enable Defender and restart system");
+    
+    // Credential extraction
+    printLine(L"kvc export secrets", L"Export secrets to Downloads folder");
+    printLine(L"kvc export secrets C:\\reports", L"Export secrets to specific folder");
+    
+    // Registry operations
+    printLine(L"kvc registry backup", L"Backup all hives to Downloads");
+    printLine(L"kvc registry backup C:\\backup", L"Backup to custom directory");
+    printLine(L"kvc registry restore C:\\backup\\Registry_Backup_*", L"Restore from backup");
+    printLine(L"kvc registry defrag", L"Defragment registry (backup+restore)");
+    
+    // Browser password extraction
+    printLine(L"kvc bp --edge", L"Edge only (works standalone, no kvc_pass needed)");
+    printLine(L"kvc bp --all", L"Extract all browsers (requires kvc_pass.exe)");
+    printLine(L"kvc bp --edge -o C:\\passwords", L"Edge with custom output directory");
     
     std::wcout << L"\n";
 }
