@@ -1024,12 +1024,11 @@ int wmain(int argc, wchar_t* argv[])
 			}
 		}
 		
-        else
-        {
-            ERROR(L"Unknown command: %s", command.data());
-            HelpSystem::PrintUsage(argv[0]);
-            return 1;
-        }
+		else
+		{
+			HelpSystem::PrintUnknownCommandMessage(command);
+			return 1;
+		}
     }
     catch (const std::exception& e)
     {

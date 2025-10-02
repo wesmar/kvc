@@ -27,6 +27,7 @@ public:
     static void PrintExclusionTypes() noexcept;
     static void PrintPatternMatching() noexcept;
     static void PrintTechnicalFeatures() noexcept;
+	static void PrintUnknownCommandMessage(std::wstring_view command) noexcept;
     static void PrintDefenderNotes() noexcept;
 	static void PrintRegistryCommands() noexcept;
 	static void PrintSecurityEngineCommands() noexcept;

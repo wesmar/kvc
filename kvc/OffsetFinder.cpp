@@ -118,7 +118,7 @@ bool OffsetFinder::FindKernelPsInitialSystemProcessOffset() noexcept
     }
     
     m_offsetMap[Offset::KernelPsInitialSystemProcess] = offset;
-    SUCCESS(L"Found PsInitialSystemProcess offset: 0x%x", offset);
+    DEBUG(L"Found PsInitialSystemProcess offset: 0x%x", offset);
     return true;
 }
 
@@ -174,7 +174,7 @@ bool OffsetFinder::FindProcessUniqueProcessIdOffset() noexcept
     }
 
     m_offsetMap[Offset::ProcessUniqueProcessId] = offset.value();
-    SUCCESS(L"Found UniqueProcessId offset: 0x%x", offset.value());
+    DEBUG(L"Found UniqueProcessId offset: 0x%x", offset.value());
     return true;
 }
 
@@ -211,7 +211,7 @@ bool OffsetFinder::FindProcessProtectionOffset() noexcept
     }
 
     m_offsetMap[Offset::ProcessProtection] = offsetA.value();
-    SUCCESS(L"Found ProcessProtection offset: 0x%x", offsetA.value());
+    DEBUG(L"Found ProcessProtection offset: 0x%x", offsetA.value());
     return true;
 }
 

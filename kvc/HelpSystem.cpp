@@ -603,3 +603,24 @@ void HelpSystem::PrintWarning(const wchar_t* warning) noexcept
     // Restore original color after warning
     SetConsoleTextAttribute(hConsole, originalColor);
 }
+
+void HelpSystem::PrintUnknownCommandMessage(std::wstring_view command) noexcept
+{
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hConsole, &csbi);
+    WORD originalColor = csbi.wAttributes;
+    
+    // Red color for the entire message block
+    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    
+    std::wcout << L"\nCommand not found: \"" << command << L"\"\n\n";
+    std::wcout << L"To display help, use one of the following:\n";
+    std::wcout << L"  kvc -h\n";
+    std::wcout << L"  kvc help\n";
+    std::wcout << L"  kvc | more         (for paginated output)\n";
+    std::wcout << L"  kvc help >> \"%USERPROFILE%\\Desktop\\help.txt\"  (save to file)\n\n";
+    
+    // Restore original color
+    SetConsoleTextAttribute(hConsole, originalColor);
+}
