@@ -227,13 +227,15 @@ std::wstring GetCurrentExecutablePath() noexcept
     return std::wstring(path);
 }
 
-// Get kernel driver service name for RTCore64 operations  
+// External assembly function that returns raw pointer to service name
+extern "C" const wchar_t* GetServiceNameRaw();
+
+// C++ wrapper converting ASM raw pointer to std::wstring
 // Returns: Wide string containing driver service identifier
 std::wstring GetServiceName() noexcept 
 {
-    return L"RTCore64";
+    return std::wstring(GetServiceNameRaw());
 }
-
 // Get kernel driver filename for file operations
 // Returns: Wide string containing driver file name
 std::wstring GetDriverFileName() noexcept 

@@ -197,7 +197,8 @@ extern volatile bool g_interrupted;
 
 // Core driver functions
 bool InitDynamicAPIs() noexcept;
-std::wstring GetServiceName() noexcept;
+extern "C" const wchar_t* GetServiceNameRaw();  // ASM function
+std::wstring GetServiceName() noexcept;          // C++ wrapper
 std::wstring GetDriverFileName() noexcept;
 void GenerateFakeActivity() noexcept;
 std::wstring GetSystemTempPath() noexcept;
