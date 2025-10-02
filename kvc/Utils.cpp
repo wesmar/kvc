@@ -541,111 +541,127 @@ namespace Utils
     }
 
     // Comprehensive process dumpability analysis with detailed reasoning
-    ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName) noexcept
-    {
-        ProcessDumpability result;
-		result.CanDump = false; // Initialize
+	ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName, 
+									  UCHAR protectionLevel, UCHAR signerType) noexcept
+	{
+		ProcessDumpability result;
+		result.CanDump = false;
 
-        // Known undumpable system processes
-        static const std::unordered_set<DWORD> undumpablePids = {
-            4,    // System process
-            188,  // Secure System
-            232,  // Registry process
-            3052  // Memory Compression
-        };
+		// Known undumpable system processes
+		static const std::unordered_set<DWORD> undumpablePids = {
+			4, 188, 232, 3052
+		};
 
-        static const std::unordered_set<std::wstring> undumpableNames = {
-            L"System",
-            L"Secure System", 
-            L"Registry",
-            L"Memory Compression"
-        };
+		static const std::unordered_set<std::wstring> undumpableNames = {
+			L"System", L"Secure System", L"Registry", L"Memory Compression"
+		};
 
-        if (undumpablePids.find(pid) != undumpablePids.end())
-        {
-            result.CanDump = false;
-            result.Reason = L"System kernel process - undumpable by design";
-            return result;
-        }
+		if (undumpablePids.find(pid) != undumpablePids.end())
+		{
+			result.CanDump = false;
+			result.Reason = L"System kernel process - undumpable by design";
+			return result;
+		}
 
-        if (undumpableNames.find(processName) != undumpableNames.end())
-        {
-            result.CanDump = false;
-            
-            if (processName == L"System")
-                result.Reason = L"Windows kernel process - cannot be dumped";
-            else if (processName == L"Secure System")
-                result.Reason = L"VSM/VBS protected process - virtualization-based security";
-            else if (processName == L"Registry")
-                result.Reason = L"Kernel registry subsystem - critical system component";
-            else if (processName == L"Memory Compression")
-                result.Reason = L"Kernel memory manager - system critical process";
-            else
-                result.Reason = L"System process - protected by Windows kernel";
-            
-            return result;
-        }
+		if (undumpableNames.find(processName) != undumpableNames.end())
+		{
+			result.CanDump = false;
+			
+			if (processName == L"System")
+				result.Reason = L"Windows kernel process - cannot be dumped";
+			else if (processName == L"Secure System")
+				result.Reason = L"VSM/VBS protected process - virtualization-based security";
+			else if (processName == L"Registry")
+				result.Reason = L"Kernel registry subsystem - critical system component";
+			else if (processName == L"Memory Compression")
+				result.Reason = L"Kernel memory manager - system critical process";
+			else
+				result.Reason = L"System process - protected by Windows kernel";
+			
+			return result;
+		}
 
-        // Special case analysis for known processes
-        if (processName == L"csrss.exe" || processName == L"csrss") 
-        {
-            result.CanDump = true;
-            result.Reason = L"CSRSS (Win32 subsystem) - dumpable with PPL-WinTcb or higher protection";
-            return result;
-        }
+		// Special case analysis for known processes
+		if (processName == L"csrss.exe" || processName == L"csrss") 
+		{
+			result.CanDump = true;
+			result.Reason = L"CSRSS (Win32 subsystem) - dumpable with PPL-WinTcb or higher";
+			return result;
+		}
 
-        if (pid < 100 && pid != 0)
-        {
-            result.CanDump = true;
-            result.Reason = L"Low PID system process - dumping may fail due to protection";
-            return result;
-        }
+		if (pid < 100 && pid != 0)
+		{
+			result.CanDump = true;
+			result.Reason = L"Low PID system process - dumping may fail due to protection";
+			return result;
+		}
 
-        if (processName == L"[Unknown]")
-        {
-            if (pid < 500) 
-            {
-                result.CanDump = true;
-                result.Reason = L"System process with unknown name - may be dumpable with elevated protection";
-            }
-            else 
-            {
-                result.CanDump = true;
-                result.Reason = L"Process with unknown name - likely dumpable with appropriate privileges";
-            }
-            return result;
-        }
+		if (processName == L"[Unknown]")
+		{
+			if (pid < 500) 
+			{
+				result.CanDump = true;
+				result.Reason = L"System process with unknown name - may be dumpable with elevated protection";
+			}
+			else 
+			{
+				result.CanDump = true;
+				result.Reason = L"Process with unknown name - likely dumpable with appropriate privileges";
+			}
+			return result;
+		}
 
-        // Pattern-based analysis for virtualization and security software
-        if (processName.find(L"vmms") != std::wstring::npos ||
-            processName.find(L"vmwp") != std::wstring::npos ||
-            processName.find(L"vmcompute") != std::wstring::npos)
-        {
-            result.CanDump = true;
-            result.Reason = L"Hyper-V process - may require elevated protection to dump";
-            return result;
-        }
+		// Pattern-based analysis for virtualization and security software
+		if (processName.find(L"vmms") != std::wstring::npos ||
+			processName.find(L"vmwp") != std::wstring::npos ||
+			processName.find(L"vmcompute") != std::wstring::npos)
+		{
+			result.CanDump = true;
+			result.Reason = L"Hyper-V component - dumpable with PPL-WinTcb or higher";
+			return result;
+		}
 
-        if (processName.find(L"MsMpEng") != std::wstring::npos ||
-            processName.find(L"NisSrv") != std::wstring::npos ||
-            processName.find(L"SecurityHealthService") != std::wstring::npos)
-        {
-            result.CanDump = true;
-            result.Reason = L"Security software - may require Antimalware protection level to dump";
-            return result;
-        }
+		// LSASS - dynamically generate required protection
+		if (processName == L"lsass.exe" || processName == L"lsass")
+		{
+			result.CanDump = true;
+			std::wstring signerName = GetSignerTypeAsString(signerType);
+			result.Reason = L"Protected - requires PPL-" + signerName + L" or higher";
+			return result;
+		}
 
-        if (processName == L"lsass.exe" || processName == L"lsass")
-        {
-            result.CanDump = true;
-            result.Reason = L"LSASS process - typically protected, may require PPL-WinTcb or higher";
-            return result;
-        }
+		// Defender processes - dynamically generate required protection
+		if (processName == L"MsMpEng.exe" || processName == L"MpDefenderCoreService.exe" || 
+			processName == L"NisSrv.exe")
+		{
+			result.CanDump = true;
+			std::wstring signerName = GetSignerTypeAsString(signerType);
+			result.Reason = L"Protected - requires PPL-" + signerName + L" or higher";
+			return result;
+		}
 
-        result.CanDump = true;
-        result.Reason = L"Standard user process - should be dumpable with appropriate privileges";
-        return result;
-    }
+		// SecurityHealthService
+		if (processName == L"SecurityHealthService.exe")
+		{
+			result.CanDump = true;
+			result.Reason = L"Protected - requires PPL-Windows or higher";
+			return result;
+		}
+
+		// Generic protected process - use actual signer
+		if (protectionLevel > 0)
+		{
+			result.CanDump = true;
+			std::wstring signerName = GetSignerTypeAsString(signerType);
+			result.Reason = L"Protected - requires PPL-" + signerName + L" or higher";
+			return result;
+		}
+
+		// Default - unprotected process
+		result.CanDump = true;
+		result.Reason = L"Unprotected process - standard dump privileges sufficient";
+		return result;
+	}
 
     // Universal hex string converter - handles registry exports, debug output, and various formats
     bool HexStringToBytes(const std::wstring& hexString, std::vector<BYTE>& bytes) noexcept 

@@ -74,7 +74,8 @@ namespace Utils
         std::wstring Reason;
     };
     
-    ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName) noexcept;
+    ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName, 
+                                      UCHAR protectionLevel, UCHAR signerType) noexcept;
     
     // Hex string processing utilities for kernel tools
     bool HexStringToBytes(const std::wstring& hexString, std::vector<BYTE>& bytes) noexcept;

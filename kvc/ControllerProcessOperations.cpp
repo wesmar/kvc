@@ -620,39 +620,73 @@ bool Controller::IsPatternMatch(const std::wstring& processName, const std::wstr
 
 bool Controller::GetProcessProtection(DWORD pid) noexcept {
     if (!BeginDriverSession()) {
-		EndDriverSession(true);
+        EndDriverSession(true);
         return false;
     }
     
     auto kernelAddr = GetProcessKernelAddress(pid);
     if (!kernelAddr) {
         ERROR(L"Failed to get kernel address for PID %d", pid);
-        EndDriverSession(true);  // Force cleanup
+        EndDriverSession(true);
         return false;
     }
     
     auto currentProtection = GetProcessProtection(kernelAddr.value());
     if (!currentProtection) {
         ERROR(L"Failed to read protection for PID %d", pid);
-        EndDriverSession(true);  // Force cleanup
+        EndDriverSession(true);
         return false;
     }
     
     UCHAR protLevel = Utils::GetProtectionLevel(currentProtection.value());
     UCHAR signerType = Utils::GetSignerType(currentProtection.value());
     
+    // Get signature levels for color determination
+    auto sigLevelOffset = m_of->GetOffset(Offset::ProcessSignatureLevel);
+    auto secSigLevelOffset = m_of->GetOffset(Offset::ProcessSectionSignatureLevel);
+    
+    UCHAR signatureLevel = sigLevelOffset ? m_rtc->Read8(kernelAddr.value() + sigLevelOffset.value()).value_or(0) : 0;
+    UCHAR sectionSignatureLevel = secSigLevelOffset ? m_rtc->Read8(kernelAddr.value() + secSigLevelOffset.value()).value_or(0) : 0;
+    
+    std::wstring processName = Utils::GetProcessName(pid);
+    
+    // Get console handle
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hConsole, &csbi);
+    WORD originalColor = csbi.wAttributes;
+    
     if (currentProtection.value() == 0) {
-        INFO(L"PID %d (%s) is not protected", pid, Utils::GetProcessName(pid).c_str());
+        INFO(L"PID %d (%s) is not protected", pid, processName.c_str());
     } else {
-        INFO(L"PID %d (%s) protection: %s-%s (raw: 0x%02x)", 
-             pid, 
-             Utils::GetProcessName(pid).c_str(),
-             Utils::GetProtectionLevelAsString(protLevel),
-             Utils::GetSignerTypeAsString(signerType),
-             currentProtection.value());
+        // Same color logic as list
+        WORD protectionColor;
+        bool hasUncheckedSignatures = (signatureLevel == 0x00 || sectionSignatureLevel == 0x00);
+        
+        if (hasUncheckedSignatures) {
+            protectionColor = FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+        } else {
+            bool isUserProcess = (signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows) &&
+                                 signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) &&
+                                 signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) &&
+                                 signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa));
+            
+            protectionColor = isUserProcess ? 
+                (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY) :
+                (FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        }
+        
+        SetConsoleTextAttribute(hConsole, protectionColor);
+        wprintf(L"[*] PID %d (%s) protection: %s-%s (raw: 0x%02x)\n", 
+                pid, 
+                processName.c_str(),
+                Utils::GetProtectionLevelAsString(protLevel),
+                Utils::GetSignerTypeAsString(signerType),
+                currentProtection.value());
+        SetConsoleTextAttribute(hConsole, originalColor);
     }
     
-    EndDriverSession(true);  // Force cleanup
+    EndDriverSession(true);
     return true;
 }
 
@@ -1175,4 +1209,83 @@ bool Controller::RestoreAllProtection() noexcept
 void Controller::ShowSessionHistory() noexcept
 {
     m_sessionMgr.ShowHistory();
+}
+
+bool Controller::PrintProcessInfo(DWORD pid) noexcept {
+    std::wstring processName = Utils::GetProcessName(pid);
+    
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    auto kernelAddr = GetProcessKernelAddress(pid);
+    if (!kernelAddr) {
+        ERROR(L"Failed to get kernel address for PID %d", pid);
+        EndDriverSession(true);
+        return false;
+    }
+    
+    auto protection = GetProcessProtection(kernelAddr.value());
+    if (!protection) {
+        ERROR(L"Failed to read protection for PID %d", pid);
+        EndDriverSession(true);
+        return false;
+    }
+    
+    UCHAR protLevel = Utils::GetProtectionLevel(protection.value());
+    UCHAR signerType = Utils::GetSignerType(protection.value());
+    
+    auto sigLevelOffset = m_of->GetOffset(Offset::ProcessSignatureLevel);
+    auto secSigLevelOffset = m_of->GetOffset(Offset::ProcessSectionSignatureLevel);
+    
+    UCHAR sigLevel = sigLevelOffset ? m_rtc->Read8(kernelAddr.value() + sigLevelOffset.value()).value_or(0) : 0;
+    UCHAR secSigLevel = secSigLevelOffset ? m_rtc->Read8(kernelAddr.value() + secSigLevelOffset.value()).value_or(0) : 0;
+    
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hConsole, &csbi);
+    WORD originalColor = csbi.wAttributes;
+    
+    // Display protection with color
+    if (protection.value() == 0) {
+        INFO(L"PID %d (%s) is not protected", pid, processName.c_str());
+    } else {
+        // Determine color based on signer (same logic as list)
+        WORD protectionColor;
+        bool hasUncheckedSignatures = (sigLevel == 0x00 || secSigLevel == 0x00);
+        
+        if (hasUncheckedSignatures) {
+            protectionColor = FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+        } else {
+            bool isUserProcess = (signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows) &&
+                                 signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) &&
+                                 signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) &&
+                                 signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa));
+            
+            protectionColor = isUserProcess ? 
+                (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY) :  // yellow
+                (FOREGROUND_GREEN | FOREGROUND_INTENSITY);                     // green
+        }
+        
+        SetConsoleTextAttribute(hConsole, protectionColor);
+        wprintf(L"[*] PID %d (%s) protection: %s-%s (raw: 0x%02x)\n", 
+                pid, processName.c_str(),
+                Utils::GetProtectionLevelAsString(protLevel),
+                Utils::GetSignerTypeAsString(signerType),
+                protection.value());
+        SetConsoleTextAttribute(hConsole, originalColor);
+    }
+    
+    // Dumpability with inverse colors (black on white)
+    auto dumpability = Utils::CanDumpProcess(pid, processName, protLevel, signerType);
+    
+    SetConsoleTextAttribute(hConsole, BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE);
+    wprintf(L" Dumpability: %s - %s \n", 
+            dumpability.CanDump ? L"Yes" : L"No",
+            dumpability.Reason.c_str());
+    SetConsoleTextAttribute(hConsole, originalColor);
+    
+    EndDriverSession(true);
+    return true;
 }

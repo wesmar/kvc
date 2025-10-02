@@ -469,68 +469,36 @@ int wmain(int argc, wchar_t* argv[])
             }
         }
         
-        else if (command == L"info")
-        {
-            if (argc < 3)
-            {
-                ERROR(L"Missing PID/process name argument for detailed information");
-                return 1;
-            }
+		else if (command == L"info")
+		{
+			if (argc < 3)
+			{
+				ERROR(L"Missing PID/process name argument for detailed information");
+				return 1;
+			}
 
-            std::wstring_view target = argv[2];
-            
-            DWORD targetPid = 0;
-            std::wstring targetProcessName;
-            bool protectionResult = false;
-            
-            // Get comprehensive process info and analyze dumpability with detailed reporting
-            if (IsNumeric(target))
-            {
-                auto pid = ParsePid(target);
-                if (!pid)
-                {
-                    ERROR(L"Invalid PID format: %s", target.data());
-                    return 1;
-                }
-                targetPid = pid.value();
-                targetProcessName = Utils::GetProcessName(targetPid);
-                protectionResult = g_controller->GetProcessProtection(targetPid);
-            }
-            else
-            {
-                targetProcessName = std::wstring(target);
-                auto match = g_controller->ResolveNameWithoutDriver(targetProcessName);
-                if (match)
-                {
-                    targetPid = match->Pid;
-                    targetProcessName = match->ProcessName;
-                    protectionResult = g_controller->GetProcessProtection(targetPid);
-                }
-                else
-                {
-                    return 2;
-                }
-            }
-            
-            // Additional dumpability analysis with detailed reasoning for security assessment
-            if (protectionResult && targetPid != 0)
-            {
-                auto dumpability = Utils::CanDumpProcess(targetPid, targetProcessName);
-                
-                if (dumpability.CanDump)
-                {
-                    SUCCESS(L"Process is dumpable: %s", dumpability.Reason.c_str());
-                }
-                else
-                {
-                    ERROR(L"Process is NOT dumpable: %s", dumpability.Reason.c_str());
-                }
-            }
-            
-            return protectionResult ? 0 : 2;
-        }
-
-        // Event log clearing with administrative privileges for forensic cleanup
+			std::wstring_view target = argv[2];
+			DWORD targetPid = 0;
+			
+			if (IsNumeric(target))
+			{
+				auto pid = ParsePid(target);
+				if (!pid)
+				{
+					ERROR(L"Invalid PID format: %s", target.data());
+					return 1;
+				}
+				targetPid = pid.value();
+			}
+			else
+			{
+				auto match = g_controller->ResolveNameWithoutDriver(std::wstring(target));
+				if (!match) return 2;
+				targetPid = match->Pid;
+			}
+			
+			return g_controller->PrintProcessInfo(targetPid) ? 0 : 2;
+		}        // Event log clearing with administrative privileges for forensic cleanup
         else if (command == L"evtclear")
         {
             return g_controller->ClearSystemEventLogs() ? 0 : 2;

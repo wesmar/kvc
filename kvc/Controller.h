@@ -94,6 +94,7 @@ public:
     bool ListProtectedProcesses() noexcept;
     bool GetProcessProtection(DWORD pid) noexcept;
     bool GetProcessProtectionByName(const std::wstring& processName) noexcept;
+	bool PrintProcessInfo(DWORD pid) noexcept;
 
     // Process protection manipulation with atomic operations
     bool SetProcessProtection(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept;
