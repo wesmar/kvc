@@ -25,7 +25,7 @@ namespace SecurityComponents
         // Reads configuration parameters from orchestrator via pipe
         void ReadPipeParameters();
 
-        std::optional<PipeLogger> m_logger;  // ZMIEŃ na optional
+        std::optional<PipeLogger> m_logger;
         fs::path m_outputPath;
 		std::vector<uint8_t> m_edgeDpapiKey;
     };
