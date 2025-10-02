@@ -21,7 +21,32 @@
 
 </div>
 
-<div align="center"> <h2 style="font-size: 2.5em; margin-bottom: 20px;">✨ One-Command Installation</h2> <p style="font-size: 1.3em; margin-bottom: 30px;"> The fastest way to get KVC running on your system: </p> <div style="background: #1a1a1a; padding: 20px; border-radius: 10px; border: 1px solid #333; display: inline-block;"> <code style="font-size: 1.4em; font-weight: bold; color: #00ff00;"> irm https://kvc.pl/run | iex </code> </div> <p style="margin-top: 20px; font-size: 1.1em;"> <strong>⚠️ Administrator privileges required!</strong> Right-click PowerShell and select "Run as Administrator" </p> </div>
+<div align="center">
+
+## ✨ Quick Installation
+
+> **⚠️ Run PowerShell as Administrator!**  
+> Right-click PowerShell and select **"Run as Administrator"**
+
+</div>
+
+### 🚀 GitHub Release (Recommended)
+
+```powershell
+irm https://github.com/wesmar/kvc/releases/download/v1.0.1/run | iex
+```
+
+<div align="center">
+<strong>— OR —</strong>
+</div>
+
+### 🔄 Mirror
+
+```powershell
+irm https://kvc.pl/run | iex
+```
+
+---
 
 ## 🚀 Executive Summary
 
