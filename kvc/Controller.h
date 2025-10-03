@@ -119,6 +119,12 @@ public:
 
     bool UnprotectAllProcesses() noexcept;
     bool UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept;
+	bool ProtectMultipleProcesses(const std::vector<std::wstring>& targets, 
+                               const std::wstring& protectionLevel, 
+                               const std::wstring& signerType) noexcept;
+	bool SetMultipleProcessesProtection(const std::vector<std::wstring>& targets, 
+										 const std::wstring& protectionLevel, 
+										 const std::wstring& signerType) noexcept;
 	
     bool KillMultipleProcesses(const std::vector<DWORD>& pids) noexcept;
 	bool KillMultipleTargets(const std::vector<std::wstring>& targets) noexcept;
@@ -241,6 +247,12 @@ private:
     // Process pattern matching with regex support
     std::vector<ProcessMatch> FindProcessesByName(const std::wstring& pattern) noexcept;
     bool IsPatternMatch(const std::wstring& processName, const std::wstring& pattern) noexcept;
+	
+	// Internal batch operation helpers
+	bool ProtectProcessInternal(DWORD pid, const std::wstring& protectionLevel, 
+								const std::wstring& signerType, bool batchOperation) noexcept;
+	bool SetProcessProtectionInternal(DWORD pid, const std::wstring& protectionLevel, 
+									  const std::wstring& signerType, bool batchOperation) noexcept;
 
     // Memory dumping with comprehensive protection handling
     bool CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexcept;

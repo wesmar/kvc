@@ -32,14 +32,20 @@ that define these protections.
 #include <tlhelp32.h>
 #include <unordered_map>
 
+// Global flag to handle user interruption (e.g., Ctrl+C).
 extern volatile bool g_interrupted;
 
-// ============================================================================
-// SESSION MANAGEMENT IMPLEMENTATION
-// ============================================================================
+/*************************************************************************************************/
+/* SESSION AND CACHE MANAGEMENT                                                                  */
+/*************************************************************************************************/
 
+/**
+ * @brief Begins a driver session, loading the driver if necessary.
+ * Manages a short-lived session to avoid repeatedly loading/unloading the driver for quick operations.
+ * @return true if the driver session is active and ready, false otherwise.
+ */
 bool Controller::BeginDriverSession() {
-    // If driver is already active and used recently, keep it active
+    // If a session is already active, extend its lifetime.
     if (m_driverSessionActive) {
         auto timeSinceLastUse = std::chrono::steady_clock::now() - m_lastDriverUsage;
         if (timeSinceLastUse < std::chrono::seconds(5)) {
@@ -49,7 +55,7 @@ bool Controller::BeginDriverSession() {
         }
     }
     
-    // Initialize driver component
+    // Initialize the driver component.
     if (!EnsureDriverAvailable()) {
         ERROR(L"Failed to load driver for session");
         return false;
@@ -61,19 +67,21 @@ bool Controller::BeginDriverSession() {
     return true;
 }
 
+/**
+ * @brief Ends the current driver session, performing cleanup.
+ * @param force If true, the session is terminated immediately. If false, it may be kept alive briefly for potential reuse.
+ */
 void Controller::EndDriverSession(bool force) {
     if (!m_driverSessionActive) return;
     
-    // Don't end session immediately if not forced - keep it alive for potential reuse
     if (!force) {
         auto timeSinceLastUse = std::chrono::steady_clock::now() - m_lastDriverUsage;
         if (timeSinceLastUse < std::chrono::seconds(10)) {
             DEBUG(L"Keeping driver session active for potential reuse");
-            return; // Keep session alive
+            return; // Keep session alive for a bit longer.
         }
     }
     
-    // Force cleanup
     DEBUG(L"Ending driver session (force: %s)", force ? L"true" : L"false");
     PerformAtomicCleanup();
     m_driverSessionActive = false;
@@ -81,14 +89,20 @@ void Controller::EndDriverSession(bool force) {
     m_cachedProcessList.clear();
 }
 
+/**
+ * @brief Updates the timestamp of the last driver usage to manage session lifetime.
+ */
 void Controller::UpdateDriverUsageTimestamp() {
     m_lastDriverUsage = std::chrono::steady_clock::now();
 }
 
+/**
+ * @brief Refreshes the cache of process PIDs to kernel EPROCESS addresses.
+ */
 void Controller::RefreshKernelAddressCache() {
     DEBUG(L"Refreshing kernel address cache");
-    auto processes = GetProcessList();
     m_kernelAddressCache.clear();
+    auto processes = GetProcessList();
     
     for (const auto& entry : processes) {
         m_kernelAddressCache[entry.Pid] = entry.KernelAddress;
@@ -98,11 +112,14 @@ void Controller::RefreshKernelAddressCache() {
     DEBUG(L"Kernel address cache refreshed with %d entries", m_kernelAddressCache.size());
 }
 
+/**
+ * @brief Retrieves the cached kernel address for a given PID. Refreshes the cache if it's stale.
+ * @param pid The process ID.
+ * @return The cached kernel address, or std::nullopt if not found.
+ */
 std::optional<ULONG_PTR> Controller::GetCachedKernelAddress(DWORD pid) {
-    // Refresh cache if it's older than 30 seconds or empty
     auto now = std::chrono::steady_clock::now();
-    if (m_kernelAddressCache.empty() || 
-        (now - m_cacheTimestamp) > std::chrono::seconds(30)) {
+    if (m_kernelAddressCache.empty() || (now - m_cacheTimestamp) > std::chrono::seconds(30)) {
         RefreshKernelAddressCache();
     }
     
@@ -112,7 +129,7 @@ std::optional<ULONG_PTR> Controller::GetCachedKernelAddress(DWORD pid) {
         return it->second;
     }
     
-    // PID not in cache, try to find it manually
+    // If not in cache, perform a manual search and add it.
     DEBUG(L"PID %d not in cache, searching manually", pid);
     auto processes = GetProcessList();
     for (const auto& entry : processes) {
@@ -127,14 +144,47 @@ std::optional<ULONG_PTR> Controller::GetCachedKernelAddress(DWORD pid) {
     return std::nullopt;
 }
 
-// ============================================================================
-// PROCESS TERMINATION OPERATIONS
-// ============================================================================
+/*************************************************************************************************/
+/* PUBLIC API: PROCESS TERMINATION                                                               */
+/*************************************************************************************************/
 
 bool Controller::KillProcess(DWORD pid) noexcept {
     bool result = KillProcessInternal(pid, false);
-    EndDriverSession(true);  // Force cleanup for single operations
+    EndDriverSession(true);  // Force cleanup for single operations.
     return result;
+}
+
+bool Controller::KillProcessByName(const std::wstring& processName) noexcept {
+    if (!BeginDriverSession()) return false;
+    
+    auto matches = FindProcessesByName(processName);
+    if (matches.empty()) {
+        ERROR(L"No process found matching pattern: %s", processName.c_str());
+        EndDriverSession(true);
+        return false;
+    }
+    
+    DWORD successCount = 0;
+    DWORD totalCount = static_cast<DWORD>(matches.size());
+    INFO(L"Found %d processes matching '%s'", totalCount, processName.c_str());
+    
+    for (const auto& match : matches) {
+        if (g_interrupted) {
+            INFO(L"Process termination interrupted by user");
+            break;
+        }
+        INFO(L"Attempting to terminate process: %s (PID %d)", match.ProcessName.c_str(), match.Pid);
+        if (KillProcessInternal(match.Pid, true)) { // Use batch flag as session is already open.
+            SUCCESS(L"Successfully terminated: %s (PID %d)", match.ProcessName.c_str(), match.Pid);
+            successCount++;
+        } else {
+            ERROR(L"Failed to terminate PID: %d", match.Pid);
+        }
+    }
+    
+    EndDriverSession(true);
+    INFO(L"Kill operation completed: %d/%d processes terminated", successCount, totalCount);
+    return successCount > 0;
 }
 
 bool Controller::KillMultipleProcesses(const std::vector<DWORD>& pids) noexcept {
@@ -142,51 +192,43 @@ bool Controller::KillMultipleProcesses(const std::vector<DWORD>& pids) noexcept 
         ERROR(L"No PIDs provided for batch operation");
         return false;
     }
-    
     if (!BeginDriverSession()) {
         ERROR(L"Failed to start driver session for batch operation");
         return false;
     }
     
     INFO(L"Starting batch kill operation for %d processes", pids.size());
-    
     DWORD successCount = 0;
+    
     for (DWORD pid : pids) {
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
+        }
         INFO(L"Processing PID %d", pid);
-        
         if (KillProcessInternal(pid, true)) {
             successCount++;
             SUCCESS(L"Successfully terminated PID %d", pid);
         } else {
             ERROR(L"Failed to terminate PID %d", pid);
         }
-        
-        if (g_interrupted) {
-            INFO(L"Batch operation interrupted by user");
-            break;
-        }
     }
     
-    EndDriverSession(true); // End session after batch operation
+    EndDriverSession(true);
     INFO(L"Batch operation completed: %d/%d processes terminated", successCount, pids.size());
-    
     return successCount > 0;
 }
 
 bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) noexcept {
     if (targets.empty()) return false;
-    
     if (!BeginDriverSession()) return false;
     
     std::vector<DWORD> allPids;
-    
     for (const auto& target : targets) {
         if (Utils::IsNumeric(target)) {
-            auto pid = Utils::ParsePid(target);
-            if (pid) allPids.push_back(pid.value());
+            if (auto pid = Utils::ParsePid(target)) allPids.push_back(pid.value());
         } else {
-            auto matches = FindProcessesByName(target);
-            for (const auto& match : matches) {
+            for (const auto& match : FindProcessesByName(target)) {
                 allPids.push_back(match.Pid);
             }
         }
@@ -199,424 +241,540 @@ bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) n
     }
     
     INFO(L"Starting batch kill operation for %d resolved processes", allPids.size());
-    
     DWORD successCount = 0;
     for (DWORD pid : allPids) {
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
+        }
         INFO(L"Processing PID %d", pid);
-        
         if (KillProcessInternal(pid, true)) {
             successCount++;
             SUCCESS(L"Successfully terminated PID %d", pid);
         } else {
             ERROR(L"Failed to terminate PID %d", pid);
         }
-        
-        if (g_interrupted) {
-            INFO(L"Batch operation interrupted by user");
-            break;
-        }
     }
-    
-		// Always force cleanup for command-line operation
-		EndDriverSession(true);
-		INFO(L"Kill operation completed: %d/%d processes terminated", successCount, allPids.size());
-		return successCount > 0;
+
+    EndDriverSession(true);
+    INFO(L"Kill operation completed: %d/%d processes terminated", successCount, allPids.size());
+    return successCount > 0;
 }
 
-bool Controller::KillProcessInternal(DWORD pid, bool batchOperation) noexcept {
-    // Only start session if not batch operation (batch already started session)
-    if (!batchOperation && !BeginDriverSession()) {
-        ERROR(L"Failed to start driver session for PID %d", pid);
+/*************************************************************************************************/
+/* PUBLIC API: PROCESS PROTECTION MANIPULATION                                                   */
+/*************************************************************************************************/
+
+bool Controller::ProtectProcess(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
+    if (!BeginDriverSession()) {
+		EndDriverSession(true);
         return false;
     }
     
-    // Use cached kernel address if available
     auto kernelAddr = GetCachedKernelAddress(pid);
     if (!kernelAddr) {
-        ERROR(L"Failed to get kernel address for PID %d", pid);
-		if (!batchOperation) EndDriverSession(true);
+        EndDriverSession(true);
         return false;
     }
-    
-    // Get target process protection level for elevation
-    auto targetProtection = GetProcessProtection(kernelAddr.value());
-    if (targetProtection && targetProtection.value() > 0) {
-        UCHAR targetLevel = Utils::GetProtectionLevel(targetProtection.value());
-        UCHAR targetSigner = Utils::GetSignerType(targetProtection.value());
-        
-        std::wstring levelStr = (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected)) ? 
-                               L"PP" : L"PPL";
-        
-        INFO(L"Target process has %s-%s protection, elevating current process", 
-             levelStr.c_str(), 
-             Utils::GetSignerTypeAsString(targetSigner));
 
-        // Elevate current process protection to match or exceed target
-        UCHAR currentProcessProtection = Utils::GetProtection(targetLevel, targetSigner);
-        if (!SetCurrentProcessProtection(currentProcessProtection)) {
-            ERROR(L"Failed to elevate current process protection");
-            // Continue anyway - might still work
-        }
-    }
-
-    // Attempt standard process termination
-    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-    if (!hProcess) {
-        DWORD error = GetLastError();
-        ERROR(L"Failed to open process for termination (error: %d)", error);
-        
-        // Try with more privileges if available
-        hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
-        if (!hProcess) {
-            ERROR(L"Failed to open process with extended privileges (error: %d)", GetLastError());
-            return false;
-        }
-    }
-
-    BOOL terminated = TerminateProcess(hProcess, 1);
-    DWORD terminationError = GetLastError();
-    CloseHandle(hProcess);
-
-    if (terminated) {
-        SUCCESS(L"Successfully terminated PID: %d", pid);
-        return true;
-    } else {
-        ERROR(L"Failed to terminate PID: %d (error: %d)", pid, terminationError);
+    if (auto prot = GetProcessProtection(kernelAddr.value()); prot && prot.value() > 0) {
+        ERROR(L"PID %d is already protected", pid);
+        EndDriverSession(true);
         return false;
     }
+
+    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
+    auto signer = Utils::GetSignerTypeFromString(signerType);
+    if (!level || !signer) {
+        ERROR(L"Invalid protection level or signer type");
+        EndDriverSession(true);
+        return false;
+    }
+
+    UCHAR newProtection = Utils::GetProtection(level.value(), signer.value());
+    if (!SetProcessProtection(kernelAddr.value(), newProtection)) {
+        ERROR(L"Failed to protect PID %d", pid);
+        EndDriverSession(true);
+        return false;
+    }
+
+    SUCCESS(L"Protected PID %d with %s-%s", pid, protectionLevel.c_str(), signerType.c_str());
+    EndDriverSession(true);
+    return true;
 }
 
-bool Controller::KillProcessByName(const std::wstring& processName) noexcept {
+bool Controller::UnprotectProcess(DWORD pid) noexcept {
     if (!BeginDriverSession()) {
+		EndDriverSession(true);
         return false;
     }
     
-    auto matches = FindProcessesByName(processName);
+    auto kernelAddr = GetCachedKernelAddress(pid);
+    if (!kernelAddr) {
+        EndDriverSession(true);
+        return false;
+    }
+
+    auto currentProtection = GetProcessProtection(kernelAddr.value());
+    if (!currentProtection || currentProtection.value() == 0) {
+        ERROR(L"PID %d is not protected", pid);
+        EndDriverSession(true);
+        return false;
+    }
+
+    if (!SetProcessProtection(kernelAddr.value(), 0)) {
+        ERROR(L"Failed to remove protection from PID %d", pid);
+        EndDriverSession(true);
+        return false;
+    }
+
+    SUCCESS(L"Removed protection from PID %d", pid);
+    EndDriverSession(true);
+    return true;
+}
+
+bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
+    if (!BeginDriverSession()) {
+		EndDriverSession(true);
+        return false;
+    }
+
+    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
+    auto signer = Utils::GetSignerTypeFromString(signerType);
+    if (!level || !signer) {
+        ERROR(L"Invalid protection level or signer type");
+        EndDriverSession(true);
+        return false;
+    }
+
+    auto kernelAddr = GetCachedKernelAddress(pid);
+    if (!kernelAddr) {
+        EndDriverSession(true);
+        return false;
+    }
+
+    UCHAR newProtection = Utils::GetProtection(level.value(), signer.value());
+    if (!SetProcessProtection(kernelAddr.value(), newProtection)) {
+        ERROR(L"Failed to set protection on PID %d", pid);
+        EndDriverSession(true);
+        return false;
+    }
+
+    SUCCESS(L"Set protection %s-%s on PID %d", protectionLevel.c_str(), signerType.c_str(), pid);
+    EndDriverSession(true);
+    return true;
+}
+
+bool Controller::ProtectProcessByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
+    auto match = ResolveNameWithoutDriver(processName);
+    return match ? ProtectProcess(match->Pid, protectionLevel, signerType) : false;
+}
+
+bool Controller::UnprotectProcessByName(const std::wstring& processName) noexcept {
+    auto match = ResolveNameWithoutDriver(processName);
+    return match ? UnprotectProcess(match->Pid) : false;
+}
+
+bool Controller::SetProcessProtectionByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
+    auto match = ResolveNameWithoutDriver(processName);
+    return match ? SetProcessProtection(match->Pid, protectionLevel, signerType) : false;
+}
+
+/*************************************************************************************************/
+/* PUBLIC API: MASS PROTECTION OPERATIONS                                                        */
+/*************************************************************************************************/
+
+bool Controller::UnprotectAllProcesses() noexcept {
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+
+    auto processes = GetProcessList();
+    std::unordered_map<std::wstring, std::vector<ProcessEntry>> groupedProcesses;
     
-    if (matches.empty()) {
-        ERROR(L"No process found matching pattern: %s", processName.c_str());
+    for (const auto& entry : processes) {
+        if (entry.ProtectionLevel > 0) {
+            groupedProcesses[Utils::GetSignerTypeAsString(entry.SignerType)].push_back(entry);
+        }
+    }
+    
+    if (groupedProcesses.empty()) {
+        INFO(L"No protected processes found");
         EndDriverSession(true);
         return false;
     }
     
-    DWORD successCount = 0;
-    DWORD totalCount = static_cast<DWORD>(matches.size());
+    INFO(L"Starting mass unprotection (%zu signer groups)", groupedProcesses.size());
+    DWORD totalSuccess = 0;
+    DWORD totalProcessed = 0;
     
-    INFO(L"Found %d processes matching '%s'", totalCount, processName.c_str());
-    
-    for (const auto& match : matches) {
-        INFO(L"Attempting to terminate process: %s (PID %d)", 
-             match.ProcessName.c_str(), match.Pid);
+    for (const auto& [signerName, group] : groupedProcesses) {
+        if (g_interrupted) break;
+        INFO(L"Processing signer group: %s (%zu processes)", signerName.c_str(), group.size());
+        m_sessionMgr.SaveUnprotectOperation(signerName, group);
         
-        // Use the internal kill method with batch operation flag
-        if (KillProcessInternal(match.Pid, true)) {
-            SUCCESS(L"Successfully terminated: %s (PID %d)", 
-                   match.ProcessName.c_str(), match.Pid);
-            successCount++;
+        for (const auto& entry : group) {
+            if (g_interrupted) break;
+            totalProcessed++;
+            if (SetProcessProtection(entry.KernelAddress, 0)) {
+                totalSuccess++;
+                SUCCESS(L"Removed protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
+            } else {
+                ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
+            }
+        }
+    }
+    if (g_interrupted) {
+        INFO(L"Mass unprotection interrupted by user");
+    }
+    
+    INFO(L"Mass unprotection completed: %d/%d processes successfully unprotected", totalSuccess, totalProcessed);
+    EndDriverSession(true);
+    return totalSuccess > 0;
+}
+
+bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept {
+    if (targets.empty()) return false;
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+
+    DWORD successCount = 0;
+    DWORD totalCount = static_cast<DWORD>(targets.size());
+
+    for (const auto& target : targets) {
+        if (g_interrupted) break;
+        bool result = false;
+        if (Utils::IsNumeric(target)) {
+            try {
+                DWORD pid = std::stoul(target);
+                result = UnprotectProcess(pid);
+            } catch (...) {
+                ERROR(L"Invalid PID: %s", target.c_str());
+            }
         } else {
-            ERROR(L"Failed to terminate PID: %d", match.Pid);
+            result = UnprotectProcessByName(target);
+        }
+        if (result) successCount++;
+    }
+
+    INFO(L"Batch unprotection completed: %d/%d targets successfully processed", successCount, totalCount);
+    EndDriverSession(true);
+    return successCount == totalCount;
+}
+
+/*************************************************************************************************/
+/* PUBLIC API: BATCH PROTECT OPERATIONS (MIXED PIDs AND NAMES)                                  */
+/*************************************************************************************************/
+
+bool Controller::ProtectMultipleProcesses(const std::vector<std::wstring>& targets, 
+                                           const std::wstring& protectionLevel, 
+                                           const std::wstring& signerType) noexcept {
+    if (targets.empty()) {
+        ERROR(L"No targets provided for batch protect operation");
+        return false;
+    }
+    
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    // Validate protection parameters before processing
+    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
+    auto signer = Utils::GetSignerTypeFromString(signerType);
+    if (!level || !signer) {
+        ERROR(L"Invalid protection level or signer type");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    // Resolve all targets (PIDs and process names) to PIDs
+    std::vector<DWORD> allPids;
+    for (const auto& target : targets) {
+        if (Utils::IsNumeric(target)) {
+            // Handle PID
+            if (auto pid = Utils::ParsePid(target)) {
+                allPids.push_back(pid.value());
+            }
+        } else {
+            // Handle process name - find all matching processes
+            for (const auto& match : FindProcessesByName(target)) {
+                allPids.push_back(match.Pid);
+            }
+        }
+    }
+    
+    if (allPids.empty()) {
+        ERROR(L"No processes found matching the specified targets");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    INFO(L"Starting batch protect operation for %zu resolved processes", allPids.size());
+    DWORD successCount = 0;
+    
+    for (DWORD pid : allPids) {
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
         }
         
-        if (g_interrupted) {
-            INFO(L"Process termination interrupted by user");
-            break;
+        if (ProtectProcessInternal(pid, protectionLevel, signerType, true)) {
+            successCount++;
         }
     }
     
     EndDriverSession(true);
-    INFO(L"Kill operation completed: %d/%d processes terminated", successCount, totalCount);
+    INFO(L"Batch protect completed: %d/%zu processes", successCount, allPids.size());
     return successCount > 0;
 }
 
-// ============================================================================
-// KERNEL PROCESS OPERATIONS
-// ============================================================================
-
-std::optional<ULONG_PTR> Controller::GetInitialSystemProcessAddress() noexcept {
-    auto kernelBase = Utils::GetKernelBaseAddress();
-    if (!kernelBase) return std::nullopt;
-
-    auto offset = m_of->GetOffset(Offset::KernelPsInitialSystemProcess);
-    if (!offset) return std::nullopt;
-
-    ULONG_PTR pPsInitialSystemProcess = Utils::GetKernelAddress(kernelBase.value(), offset.value());
-    return m_rtc->ReadPtr(pPsInitialSystemProcess);
-}
-
-std::optional<ULONG_PTR> Controller::GetProcessKernelAddress(DWORD pid) noexcept {
-    auto processes = GetProcessList();
-    for (const auto& entry : processes) {
-        if (entry.Pid == pid)
-            return entry.KernelAddress;
-    }
-    
-    DEBUG(L"Kernel address not available for PID %d", pid);
-    return std::nullopt;
-}
-
-std::vector<ProcessEntry> Controller::GetProcessList() noexcept {
-    std::vector<ProcessEntry> processes;
-    
-    if (g_interrupted) {
-        INFO(L"Process enumeration cancelled by user before start");
-        return processes;
-    }
-    
-    auto initialProcess = GetInitialSystemProcessAddress();
-    if (!initialProcess) return processes;
-
-    auto uniqueIdOffset = m_of->GetOffset(Offset::ProcessUniqueProcessId);
-    auto linksOffset = m_of->GetOffset(Offset::ProcessActiveProcessLinks);
-    
-    if (!uniqueIdOffset || !linksOffset) return processes;
-
-    ULONG_PTR current = initialProcess.value();
-    DWORD processCount = 0;
-
-    do {
-        if (g_interrupted) {
-            break;
-        }
-
-        auto pidPtr = m_rtc->ReadPtr(current + uniqueIdOffset.value());
-        
-        if (g_interrupted) {
-            break;
-        }
-        
-        auto protection = GetProcessProtection(current);
-        
-        std::optional<UCHAR> signatureLevel = std::nullopt;
-        std::optional<UCHAR> sectionSignatureLevel = std::nullopt;
-        
-        auto sigLevelOffset = m_of->GetOffset(Offset::ProcessSignatureLevel);
-        auto secSigLevelOffset = m_of->GetOffset(Offset::ProcessSectionSignatureLevel);
-        
-        if (g_interrupted) {
-            break;
-        }
-        
-        if (sigLevelOffset)
-            signatureLevel = m_rtc->Read8(current + sigLevelOffset.value());
-        if (secSigLevelOffset)
-            sectionSignatureLevel = m_rtc->Read8(current + secSigLevelOffset.value());
-        
-        if (pidPtr && protection) {
-            ULONG_PTR pidValue = pidPtr.value();
-            
-            if (pidValue > 0 && pidValue <= MAXDWORD) {
-                ProcessEntry entry{};
-                entry.KernelAddress = current;
-                entry.Pid = static_cast<DWORD>(pidValue);
-                entry.ProtectionLevel = Utils::GetProtectionLevel(protection.value());
-                entry.SignerType = Utils::GetSignerType(protection.value());
-                entry.SignatureLevel = signatureLevel.value_or(0);
-                entry.SectionSignatureLevel = sectionSignatureLevel.value_or(0);
-                
-                if (g_interrupted) {
-                    break;
-                }
-                
-                std::wstring basicName = Utils::GetProcessName(entry.Pid);
-                
-                // Resolve unknown processes using enhanced detection
-                if (basicName == L"[Unknown]") {
-                    entry.ProcessName = Utils::ResolveUnknownProcessLocal(
-                        entry.Pid, 
-                        entry.KernelAddress, 
-                        entry.ProtectionLevel, 
-                        entry.SignerType
-                    );
-                } else {
-                    entry.ProcessName = basicName;
-                }
-                
-                processes.push_back(entry);
-                processCount++;
-            }
-        }
-
-        if (g_interrupted) {
-            break;
-        }
-
-        auto nextPtr = m_rtc->ReadPtr(current + linksOffset.value());
-        if (!nextPtr) break;
-        
-        current = nextPtr.value() - linksOffset.value();
-        
-        // Safety limit to prevent infinite loops
-        if (processCount >= 10000) {
-            break;
-        }
-        
-    } while (current != initialProcess.value() && !g_interrupted);
-
-    return processes;
-}
-
-std::optional<UCHAR> Controller::GetProcessProtection(ULONG_PTR addr) noexcept {
-    auto offset = m_of->GetOffset(Offset::ProcessProtection);
-    if (!offset) return std::nullopt;
-    
-    return m_rtc->Read8(addr + offset.value());
-}
-
-bool Controller::SetProcessProtection(ULONG_PTR addr, UCHAR protection) noexcept {
-    auto offset = m_of->GetOffset(Offset::ProcessProtection);
-    if (!offset) return false;
-
-    return m_rtc->Write8(addr + offset.value(), protection);
-}
-
-// ============================================================================
-// PROCESS NAME RESOLUTION
-// ============================================================================
-
-std::optional<ProcessMatch> Controller::ResolveProcessName(const std::wstring& processName) noexcept {
-    if (!BeginDriverSession()) {
-		EndDriverSession(true);
-        return std::nullopt;
-    }
-    
-    auto matches = FindProcessesByName(processName);
-    
-    if (matches.empty()) {
-        ERROR(L"No process found matching pattern: %s", processName.c_str());
-        EndDriverSession(true);  // Force cleanup
-        return std::nullopt;
-    }
-    
-    if (matches.size() == 1) {
-        INFO(L"Found process: %s (PID %d)", matches[0].ProcessName.c_str(), matches[0].Pid);
-        EndDriverSession(true);  // Force cleanup
-        return matches[0];
-    }
-    
-    ERROR(L"Multiple processes found matching pattern '%s'. Please use a more specific name:", processName.c_str());
-    for (const auto& match : matches) {
-        std::wcout << L"  PID " << match.Pid << L": " << match.ProcessName << L"\n";
-    }
-    
-    EndDriverSession(true);  // Force cleanup
-    return std::nullopt;
-}
-
-std::vector<ProcessMatch> Controller::FindProcessesByName(const std::wstring& pattern) noexcept {
-    std::vector<ProcessMatch> matches;
-    auto processes = GetProcessList();
-    
-    for (const auto& entry : processes) {
-        if (IsPatternMatch(entry.ProcessName, pattern)) {
-            ProcessMatch match;
-            match.Pid = entry.Pid;
-            match.ProcessName = entry.ProcessName;
-            match.KernelAddress = entry.KernelAddress;
-            matches.push_back(match);
-        }
-    }
-    
-    return matches;
-}
-
-// ============================================================================
-// DRIVER-FREE PROCESS OPERATIONS
-// ============================================================================
-
-std::optional<ProcessMatch> Controller::ResolveNameWithoutDriver(const std::wstring& processName) noexcept {
-    auto matches = FindProcessesByNameWithoutDriver(processName);
-    
-    if (matches.empty()) {
-        ERROR(L"No process found matching pattern: %s", processName.c_str());
-        return std::nullopt;
-    }
-    
-    if (matches.size() == 1) {
-        INFO(L"Found process: %s (PID %d)", matches[0].ProcessName.c_str(), matches[0].Pid);
-        return matches[0];
-    }
-    
-    ERROR(L"Multiple processes found matching pattern '%s'. Please use a more specific name:", processName.c_str());
-    for (const auto& match : matches) {
-        std::wcout << L"  PID " << match.Pid << L": " << match.ProcessName << L"\n";
-    }
-    
-    return std::nullopt;
-}
-
-std::vector<ProcessMatch> Controller::FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept {
-    std::vector<ProcessMatch> matches;
-    
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnapshot == INVALID_HANDLE_VALUE) {
-        return matches;
-    }
-
-    PROCESSENTRY32W pe;
-    pe.dwSize = sizeof(PROCESSENTRY32W);
-    
-    if (Process32FirstW(hSnapshot, &pe)) {
-        do {
-            std::wstring processName = pe.szExeFile;
-            
-            if (IsPatternMatch(processName, pattern)) {
-                ProcessMatch match;
-                match.Pid = pe.th32ProcessID;
-                match.ProcessName = processName;
-                match.KernelAddress = 0; // Not available without driver
-                matches.push_back(match);
-            }
-        } while (Process32NextW(hSnapshot, &pe));
-    }
-    
-    CloseHandle(hSnapshot);
-    return matches;
-}
-
-// ============================================================================
-// PATTERN MATCHING
-// ============================================================================
-
-bool Controller::IsPatternMatch(const std::wstring& processName, const std::wstring& pattern) noexcept {
-    std::wstring lowerProcessName = processName;
-    std::wstring lowerPattern = pattern;
-    
-    // Convert to lowercase for case-insensitive matching
-    std::transform(lowerProcessName.begin(), lowerProcessName.end(), lowerProcessName.begin(), ::towlower);
-    std::transform(lowerPattern.begin(), lowerPattern.end(), lowerPattern.begin(), ::towlower);
-    
-    // Exact match
-    if (lowerProcessName == lowerPattern) return true;
-    
-    // Substring match
-    if (lowerProcessName.find(lowerPattern) != std::wstring::npos) return true;
-    
-    // Wildcard pattern matching
-    std::wstring regexPattern = lowerPattern;
-    
-    // Escape special regex characters except *
-    std::wstring specialChars = L"\\^$.+{}[]|()";
-    
-    for (auto& ch : regexPattern) {
-        if (specialChars.find(ch) != std::wstring::npos) {
-            regexPattern = std::regex_replace(regexPattern, std::wregex(std::wstring(1, ch)), L"\\" + std::wstring(1, ch));
-        }
-    }
-    
-    // Convert * wildcards to regex .*
-    regexPattern = std::regex_replace(regexPattern, std::wregex(L"\\*"), L".*");
-    
-    try {
-        std::wregex regex(regexPattern, std::regex_constants::icase);
-        return std::regex_search(lowerProcessName, regex);
-    } catch (const std::regex_error&) {
+bool Controller::SetMultipleProcessesProtection(const std::vector<std::wstring>& targets, 
+                                                 const std::wstring& protectionLevel, 
+                                                 const std::wstring& signerType) noexcept {
+    if (targets.empty()) {
+        ERROR(L"No targets provided for batch set operation");
         return false;
     }
+    
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    // Validate protection parameters
+    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
+    auto signer = Utils::GetSignerTypeFromString(signerType);
+    if (!level || !signer) {
+        ERROR(L"Invalid protection level or signer type");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    // Resolve all targets to PIDs
+    std::vector<DWORD> allPids;
+    for (const auto& target : targets) {
+        if (Utils::IsNumeric(target)) {
+            if (auto pid = Utils::ParsePid(target)) {
+                allPids.push_back(pid.value());
+            }
+        } else {
+            for (const auto& match : FindProcessesByName(target)) {
+                allPids.push_back(match.Pid);
+            }
+        }
+    }
+    
+    if (allPids.empty()) {
+        ERROR(L"No processes found matching the specified targets");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    INFO(L"Starting batch set operation for %zu resolved processes", allPids.size());
+    DWORD successCount = 0;
+    
+    for (DWORD pid : allPids) {
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
+        }
+        
+        if (SetProcessProtectionInternal(pid, protectionLevel, signerType, true)) {
+            successCount++;
+        }
+    }
+    
+    EndDriverSession(true);
+    INFO(L"Batch set completed: %d/%zu processes", successCount, allPids.size());
+    return successCount > 0;
 }
 
-// ============================================================================
-// PROCESS INFORMATION OPERATIONS
-// ============================================================================
+bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept {
+    auto signerType = Utils::GetSignerTypeFromString(signerName);
+    if (!signerType) {
+        ERROR(L"Invalid signer type: %s", signerName.c_str());
+        return false;
+    }
+
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+
+    auto processes = GetProcessList();
+    std::vector<ProcessEntry> affectedProcesses;
+    for (const auto& entry : processes) {
+        if (entry.ProtectionLevel > 0 && entry.SignerType == signerType.value()) {
+            affectedProcesses.push_back(entry);
+        }
+    }
+    
+    if (affectedProcesses.empty()) {
+        INFO(L"No protected processes found with signer: %s", signerName.c_str());
+        EndDriverSession(true);
+        return false;
+    }
+
+    INFO(L"Starting batch unprotection of processes signed by: %s", signerName.c_str());
+    m_sessionMgr.SaveUnprotectOperation(signerName, affectedProcesses);
+
+    DWORD successCount = 0;
+    for (const auto& entry : affectedProcesses) {
+        if (g_interrupted) {
+            INFO(L"Batch operation interrupted by user");
+            break;
+        }
+        if (SetProcessProtection(entry.KernelAddress, 0)) {
+            successCount++;
+            SUCCESS(L"Removed protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
+        } else {
+            ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
+        }
+    }
+    
+    INFO(L"Batch unprotection completed: %d/%d processes successfully unprotected", successCount, affectedProcesses.size());
+    EndDriverSession(true); 
+    return successCount > 0;
+}
+
+/*************************************************************************************************/
+/* PUBLIC API: SESSION STATE RESTORATION                                                         */
+/*************************************************************************************************/
+
+bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexcept {
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    bool result = m_sessionMgr.RestoreBySigner(signerName, this);
+    EndDriverSession(true);
+    return result;
+}
+
+bool Controller::RestoreAllProtection() noexcept {
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    bool result = m_sessionMgr.RestoreAll(this);
+    EndDriverSession(true);
+    return result;
+}
+
+void Controller::ShowSessionHistory() noexcept {
+    m_sessionMgr.ShowHistory();
+}
+
+/*************************************************************************************************/
+/* PUBLIC API: PROCESS INFORMATION & LISTING                                                     */
+/*************************************************************************************************/
+
+bool Controller::ListProtectedProcesses() noexcept {
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    auto processes = GetProcessList();
+    EndDriverSession(true); // End session now, display cached data.
+    
+    if (!Utils::EnableConsoleVirtualTerminal()) {
+        ERROR(L"Failed to enable console colors");
+    }
+    
+    std::wcout << Utils::ProcessColors::GREEN
+        << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
+        << Utils::ProcessColors::HEADER
+        << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    "
+        << Utils::ProcessColors::RESET << L"\n"
+        << Utils::ProcessColors::GREEN
+        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
+
+    DWORD count = 0;
+    for (const auto& entry : processes) {
+        if (entry.ProtectionLevel > 0) {
+            count++;
+            const wchar_t* color = Utils::GetProcessDisplayColor(entry.SignerType, entry.SignatureLevel, entry.SectionSignatureLevel);
+            
+            wchar_t buffer[512];
+            swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
+                entry.Pid,
+                entry.ProcessName.length() > 28 ? (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
+                Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
+                Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
+                Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
+                Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
+                entry.KernelAddress);
+            
+            std::wcout << color << buffer << Utils::ProcessColors::RESET;
+        }
+    }
+
+    std::wcout << Utils::ProcessColors::GREEN
+        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
+        << Utils::ProcessColors::RESET;
+    
+    SUCCESS(L"Listed %d protected processes", count);
+    return count > 0;
+}
+
+bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept {
+    auto signerType = Utils::GetSignerTypeFromString(signerName);
+    if (!signerType) {
+        ERROR(L"Invalid signer type: %s", signerName.c_str());
+        return false;
+    }
+
+    if (!BeginDriverSession()) return false;
+    auto processes = GetProcessList();
+    EndDriverSession(true);
+    
+    if (!Utils::EnableConsoleVirtualTerminal()) {
+        ERROR(L"Failed to enable console colors");
+    }
+    
+    INFO(L"Processes with signer: %s", signerName.c_str());
+    std::wcout << Utils::ProcessColors::GREEN
+        << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
+        << Utils::ProcessColors::HEADER
+        << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    "
+        << Utils::ProcessColors::RESET << L"\n"
+        << Utils::ProcessColors::GREEN
+        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
+        << Utils::ProcessColors::RESET;
+    
+    bool foundAny = false;
+    for (const auto& entry : processes) {
+        if (entry.SignerType == signerType.value()) {
+            foundAny = true;
+            const wchar_t* color = Utils::GetProcessDisplayColor(entry.SignerType, entry.SignatureLevel, entry.SectionSignatureLevel);
+            wchar_t buffer[512];
+            swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
+                entry.Pid,
+                entry.ProcessName.length() > 28 ? (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
+                Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
+                Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
+                Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
+                Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
+                entry.KernelAddress);
+            std::wcout << color << buffer << Utils::ProcessColors::RESET;
+        }
+    }
+    
+    if (!foundAny) {
+        std::wcout << L"\nNo processes found with signer type: " << signerName << L"\n";
+        return false;
+    }
+    
+    std::wcout << Utils::ProcessColors::GREEN
+        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
+        << Utils::ProcessColors::RESET;
+    return true;
+}
 
 bool Controller::GetProcessProtection(DWORD pid) noexcept {
     if (!BeginDriverSession()) {
@@ -637,11 +795,10 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept {
         EndDriverSession(true);
         return false;
     }
-    
+
     UCHAR protLevel = Utils::GetProtectionLevel(currentProtection.value());
     UCHAR signerType = Utils::GetSignerType(currentProtection.value());
     
-    // Get signature levels for color determination
     auto sigLevelOffset = m_of->GetOffset(Offset::ProcessSignatureLevel);
     auto secSigLevelOffset = m_of->GetOffset(Offset::ProcessSectionSignatureLevel);
     
@@ -649,8 +806,6 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept {
     UCHAR sectionSignatureLevel = secSigLevelOffset ? m_rtc->Read8(kernelAddr.value() + secSigLevelOffset.value()).value_or(0) : 0;
     
     std::wstring processName = Utils::GetProcessName(pid);
-    
-    // Get console handle
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(hConsole, &csbi);
@@ -659,7 +814,6 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept {
     if (currentProtection.value() == 0) {
         INFO(L"PID %d (%s) is not protected", pid, processName.c_str());
     } else {
-        // Same color logic as list
         WORD protectionColor;
         bool hasUncheckedSignatures = (signatureLevel == 0x00 || sectionSignatureLevel == 0x00);
         
@@ -671,15 +825,12 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept {
                                  signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) &&
                                  signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa));
             
-            protectionColor = isUserProcess ? 
-                (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY) :
-                (FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            protectionColor = isUserProcess ? (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY) : (FOREGROUND_GREEN | FOREGROUND_INTENSITY);
         }
         
         SetConsoleTextAttribute(hConsole, protectionColor);
         wprintf(L"[*] PID %d (%s) protection: %s-%s (raw: 0x%02x)\n", 
-                pid, 
-                processName.c_str(),
+                pid, processName.c_str(),
                 Utils::GetProtectionLevelAsString(protLevel),
                 Utils::GetSignerTypeAsString(signerType),
                 currentProtection.value());
@@ -692,528 +843,10 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept {
 
 bool Controller::GetProcessProtectionByName(const std::wstring& processName) noexcept {
     auto match = ResolveNameWithoutDriver(processName);
-    if (!match) {
-        return false;
-    }
-    
-    return GetProcessProtection(match->Pid);
-}
-
-// ============================================================================
-// PROTECTED PROCESS LISTING
-// ============================================================================
-
-bool Controller::ListProtectedProcesses() noexcept {
-    if (!BeginDriverSession()) {
-        EndDriverSession(true);
-        return false;
-    }
-    
-    auto processes = GetProcessList();
-    DWORD count = 0;
-
-    // Enable ANSI colors using Utils function
-    if (!Utils::EnableConsoleVirtualTerminal()) {
-        ERROR(L"Failed to enable console colors");
-    }
-
-    std::wcout << Utils::ProcessColors::GREEN;
-    std::wcout << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << Utils::ProcessColors::HEADER;
-    std::wcout << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    ";
-    std::wcout << Utils::ProcessColors::RESET << L"\n";
-    std::wcout << Utils::ProcessColors::GREEN;
-    std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-
-    for (const auto& entry : processes) {
-        if (entry.ProtectionLevel > 0) {
-            // Use centralized color logic instead of duplicated code
-            const wchar_t* processColor = Utils::GetProcessDisplayColor(
-                entry.SignerType, 
-                entry.SignatureLevel, 
-                entry.SectionSignatureLevel
-            );
-
-            wchar_t buffer[512];
-            swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
-                entry.Pid,
-                entry.ProcessName.length() > 28 ? 
-                    (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
-                Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
-                Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
-                Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
-                Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
-                entry.KernelAddress);
-
-            std::wcout << processColor << buffer << Utils::ProcessColors::RESET;
-            count++;
-        }
-    }
-
-    std::wcout << Utils::ProcessColors::GREEN;
-    std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << Utils::ProcessColors::RESET;
-
-    SUCCESS(L"Listed %d protected processes", count);
-    EndDriverSession(true);
-    return count > 0;
-}
-
-// ============================================================================
-// PROCESS PROTECTION MANIPULATION
-// ============================================================================
-
-bool Controller::UnprotectProcess(DWORD pid) noexcept {
-    if (!BeginDriverSession()) {
-		EndDriverSession(true);
-        return false;
-    }
-    
-    auto kernelAddr = GetCachedKernelAddress(pid);
-    if (!kernelAddr) {
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    auto currentProtection = GetProcessProtection(kernelAddr.value());
-    if (!currentProtection) {
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    if (currentProtection.value() == 0) {
-        ERROR(L"PID %d is not protected", pid);
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    if (!SetProcessProtection(kernelAddr.value(), 0)) {
-        ERROR(L"Failed to remove protection from PID %d", pid);
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    SUCCESS(L"Removed protection from PID %d", pid);
-    EndDriverSession(true);  // Force cleanup
-    return true;
-}
-
-bool Controller::ProtectProcess(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
-    if (!BeginDriverSession()) {
-		EndDriverSession(true);
-        return false;
-    }
-    
-    auto kernelAddr = GetCachedKernelAddress(pid);
-    if (!kernelAddr) {
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    auto currentProtection = GetProcessProtection(kernelAddr.value());
-    if (!currentProtection) {
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    if (currentProtection.value() > 0) {
-        ERROR(L"PID %d is already protected", pid);
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
-    auto signer = Utils::GetSignerTypeFromString(signerType);
-    
-    if (!level || !signer) {
-        ERROR(L"Invalid protection level or signer type");
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    UCHAR newProtection = Utils::GetProtection(level.value(), signer.value());
-    if (!SetProcessProtection(kernelAddr.value(), newProtection)) {
-        ERROR(L"Failed to protect PID %d", pid);
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    SUCCESS(L"Protected PID %d with %s-%s", pid, protectionLevel.c_str(), signerType.c_str());
-    EndDriverSession(true);  // Force cleanup
-    return true;
-}
-
-bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
-    if (!BeginDriverSession()) {
-		EndDriverSession(true);
-        return false;
-    }
-    
-    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
-    auto signer = Utils::GetSignerTypeFromString(signerType);
-    
-    if (!level || !signer) {
-        ERROR(L"Invalid protection level or signer type");
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    auto kernelAddr = GetCachedKernelAddress(pid);
-    if (!kernelAddr) {
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    UCHAR newProtection = Utils::GetProtection(level.value(), signer.value());
-    
-    if (!SetProcessProtection(kernelAddr.value(), newProtection)) {
-        ERROR(L"Failed to set protection on PID %d", pid);
-        EndDriverSession(true);  // Force cleanup
-        return false;
-    }
-
-    SUCCESS(L"Set protection %s-%s on PID %d", protectionLevel.c_str(), signerType.c_str(), pid);
-    EndDriverSession(true);  // Force cleanup
-    return true;
-}
-
-// ============================================================================
-// MASS PROTECTION OPERATIONS
-// ============================================================================
-
-bool Controller::UnprotectAllProcesses() noexcept
-{
-    if (!BeginDriverSession()) {
-        EndDriverSession(true);
-        return false;
-    }
-
-    auto processes = GetProcessList();
-    
-    // Group processes by signer type
-    std::unordered_map<std::wstring, std::vector<ProcessEntry>> groupedProcesses;
-    
-    for (const auto& entry : processes)
-    {
-        if (entry.ProtectionLevel > 0)
-        {
-            std::wstring signerName = Utils::GetSignerTypeAsString(entry.SignerType);
-            groupedProcesses[signerName].push_back(entry);
-        }
-    }
-    
-    if (groupedProcesses.empty())
-    {
-        INFO(L"No protected processes found");
-        EndDriverSession(true);
-        return false;
-    }
-    
-    INFO(L"Starting mass unprotection (%zu signer groups)", groupedProcesses.size());
-    
-    DWORD totalSuccess = 0;
-    DWORD totalProcessed = 0;
-    
-    // Process each signer group
-    for (const auto& [signerName, processes] : groupedProcesses)
-    {
-        INFO(L"Processing signer group: %s (%zu processes)", signerName.c_str(), processes.size());
-        
-        // Save state before modification
-        m_sessionMgr.SaveUnprotectOperation(signerName, processes);
-        
-        // Unprotect all in this group
-        for (const auto& entry : processes)
-        {
-            totalProcessed++;
-            
-            if (SetProcessProtection(entry.KernelAddress, 0))
-            {
-                totalSuccess++;
-                SUCCESS(L"Removed protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
-            }
-            else
-            {
-                ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
-            }
-            
-            if (g_interrupted)
-            {
-                INFO(L"Mass unprotection interrupted by user");
-                EndDriverSession(true);
-                return false;
-            }
-        }
-    }
-    
-    INFO(L"Mass unprotection completed: %d/%d processes successfully unprotected", totalSuccess, totalProcessed);
-    
-    EndDriverSession(true);
-    return totalSuccess > 0;
-}
-
-// ControllerProcessOperations.cpp
-bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept
-{
-    if (targets.empty())
-        return false;
-
-    if (!BeginDriverSession()) {
-        EndDriverSession(true);
-        return false;
-    }
-
-    DWORD successCount = 0;
-    DWORD totalCount = static_cast<DWORD>(targets.size());
-
-    for (const auto& target : targets)
-    {
-        bool result = false;
-
-        // Check if target is numeric (PID)
-        bool isNumeric = true;
-        for (wchar_t ch : target)
-        {
-            if (!iswdigit(ch))
-            {
-                isNumeric = false;
-                break;
-            }
-        }
-
-        if (isNumeric)
-        {
-            try {
-                DWORD pid = std::stoul(target);
-                result = UnprotectProcess(pid);
-            }
-            catch (...) {
-                ERROR(L"Invalid PID: %s", target.c_str());
-            }
-        }
-        else
-        {
-            result = UnprotectProcessByName(target);
-        }
-
-        if (result) successCount++;
-    }
-
-    INFO(L"Batch unprotection completed: %d/%d targets successfully processed", successCount, totalCount);
-
-    EndDriverSession(true);
-
-    return successCount == totalCount;
-}
-
-bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept {
-    auto signerType = Utils::GetSignerTypeFromString(signerName);
-    if (!signerType) {
-        ERROR(L"Invalid signer type: %s", signerName.c_str());
-        return false;
-    }
-
-    if (!BeginDriverSession()) {
-        EndDriverSession(true);
-        return false;
-    }
-
-    auto processes = GetProcessList();
-    std::vector<ProcessEntry> affectedProcesses;
-    DWORD totalCount = 0;
-    DWORD successCount = 0;
-
-    INFO(L"Starting batch unprotection of processes signed by: %s", signerName.c_str());
-
-    // Collect processes that will be affected
-    for (const auto& entry : processes) {
-        if (entry.ProtectionLevel > 0 && entry.SignerType == signerType.value()) {
-            affectedProcesses.push_back(entry);
-            totalCount++;
-        }
-    }
-    
-    // Save state before modification
-    if (!affectedProcesses.empty()) {
-        m_sessionMgr.SaveUnprotectOperation(signerName, affectedProcesses);
-    }
-
-    for (const auto& entry : affectedProcesses) {
-        if (SetProcessProtection(entry.KernelAddress, 0)) {
-            successCount++;
-            SUCCESS(L"Removed protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
-        } else {
-            ERROR(L"Failed to remove protection from PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
-        }
-
-        if (g_interrupted) {
-            INFO(L"Batch operation interrupted by user");
-            break;
-        }
-    }
-
-    if (totalCount == 0) {
-        INFO(L"No protected processes found with signer: %s", signerName.c_str());
-    } else {
-        INFO(L"Batch unprotection completed: %d/%d processes successfully unprotected", successCount, totalCount);
-    }
-    
-    EndDriverSession(true); 
-    return successCount > 0;
-}
-
-/**
- * Lists all processes that have the specified signer type.
- * Displays process information in a formatted table including PID, name, protection level,
- * signer type, signature levels, and kernel address.
- * 
- * @param signerName The name of the signer type to filter by (e.g., "Windows", "Antimalware", "WinTcb")
- * @return true if processes were found and displayed, false if signer type is invalid or no processes match
- */
-bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept {
-    auto signerType = Utils::GetSignerTypeFromString(signerName);
-    if (!signerType) {
-        ERROR(L"Invalid signer type: %s", signerName.c_str());
-        return false;
-    }
-
-    std::vector<ProcessEntry> processes;
-    
-    if (!BeginDriverSession()) {
-        return false;
-    }
-    
-    processes = GetProcessList(); // Collect data while driver is active
-    EndDriverSession(true); // Close driver session immediately
-    
-    // Enable ANSI colors - same as ListProtectedProcesses
-    if (!Utils::EnableConsoleVirtualTerminal()) {
-        ERROR(L"Failed to enable console colors");
-        // Continue anyway, just without colors
-    }
-    
-    bool foundAny = false;
-    
-    INFO(L"Processes with signer: %s", signerName.c_str());
-    
-    // Use same table formatting as ListProtectedProcesses
-    std::wcout << Utils::ProcessColors::GREEN;
-    std::wcout << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << Utils::ProcessColors::HEADER;
-    std::wcout << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    ";
-    std::wcout << Utils::ProcessColors::RESET << L"\n";
-    std::wcout << Utils::ProcessColors::GREEN;
-    std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << Utils::ProcessColors::RESET;
-    
-    for (const auto& entry : processes) {
-        if (entry.SignerType == signerType.value()) {
-            foundAny = true;
-            
-            // Use centralized color logic
-            const wchar_t* processColor = Utils::GetProcessDisplayColor(
-                entry.SignerType, 
-                entry.SignatureLevel, 
-                entry.SectionSignatureLevel
-            );
-            
-            wchar_t buffer[512];
-            
-            std::wcout << processColor; // Apply color
-            
-            // Use consistent column widths and formatting
-            swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
-                entry.Pid,
-                entry.ProcessName.length() > 28 ? 
-                    (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
-                Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
-                Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
-                Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
-                Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
-                entry.KernelAddress);
-                
-            std::wcout << buffer;
-            std::wcout << Utils::ProcessColors::RESET; // Reset color after each line
-        }
-    }
-    
-    if (!foundAny) {
-        std::wcout << L"\nNo processes found with signer type: " << signerName << L"\n";
-        return false;
-    }
-    
-    std::wcout << Utils::ProcessColors::GREEN;
-    std::wcout << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
-    std::wcout << Utils::ProcessColors::RESET;
-    
-    return true;
-}
-// ============================================================================
-// PROCESS NAME-BASED OPERATIONS
-// ============================================================================
-
-bool Controller::ProtectProcessByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
-    auto match = ResolveNameWithoutDriver(processName);
-    if (!match) {
-        return false;
-    }
-    
-    return ProtectProcess(match->Pid, protectionLevel, signerType);
-}
-
-bool Controller::UnprotectProcessByName(const std::wstring& processName) noexcept {
-    auto match = ResolveNameWithoutDriver(processName);
-    if (!match) {
-        return false;
-    }
-    
-    return UnprotectProcess(match->Pid);
-}
-
-bool Controller::SetProcessProtectionByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept {
-    auto match = ResolveNameWithoutDriver(processName);
-    if (!match) {
-        return false;
-    }
-    
-    return SetProcessProtection(match->Pid, protectionLevel, signerType);
-}
-
-// Session state restoration operations
-bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexcept
-{
-    if (!BeginDriverSession()) {
-        EndDriverSession(true);
-        return false;
-    }
-    
-    bool result = m_sessionMgr.RestoreBySigner(signerName, this);
-    
-    EndDriverSession(true);
-    return result;
-}
-
-bool Controller::RestoreAllProtection() noexcept
-{
-    if (!BeginDriverSession()) {
-        EndDriverSession(true);
-        return false;
-    }
-    
-    bool result = m_sessionMgr.RestoreAll(this);
-    
-    EndDriverSession(true);
-    return result;
-}
-
-void Controller::ShowSessionHistory() noexcept
-{
-    m_sessionMgr.ShowHistory();
+    return match ? GetProcessProtection(match->Pid) : false;
 }
 
 bool Controller::PrintProcessInfo(DWORD pid) noexcept {
-    std::wstring processName = Utils::GetProcessName(pid);
-    
     if (!BeginDriverSession()) {
         EndDriverSession(true);
         return false;
@@ -1232,7 +865,8 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept {
         EndDriverSession(true);
         return false;
     }
-    
+
+    std::wstring processName = Utils::GetProcessName(pid);
     UCHAR protLevel = Utils::GetProtectionLevel(protection.value());
     UCHAR signerType = Utils::GetSignerType(protection.value());
     
@@ -1247,11 +881,9 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept {
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Display protection with color
     if (protection.value() == 0) {
         INFO(L"PID %d (%s) is not protected", pid, processName.c_str());
     } else {
-        // Determine color based on signer (same logic as list)
         WORD protectionColor;
         bool hasUncheckedSignatures = (sigLevel == 0x00 || secSigLevel == 0x00);
         
@@ -1263,9 +895,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept {
                                  signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) &&
                                  signerType != static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa));
             
-            protectionColor = isUserProcess ? 
-                (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY) :  // yellow
-                (FOREGROUND_GREEN | FOREGROUND_INTENSITY);                     // green
+            protectionColor = isUserProcess ? (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY) : (FOREGROUND_GREEN | FOREGROUND_INTENSITY);
         }
         
         SetConsoleTextAttribute(hConsole, protectionColor);
@@ -1277,9 +907,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept {
         SetConsoleTextAttribute(hConsole, originalColor);
     }
     
-    // Dumpability with inverse colors (black on white)
     auto dumpability = Utils::CanDumpProcess(pid, processName, protLevel, signerType);
-    
     SetConsoleTextAttribute(hConsole, BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE);
     wprintf(L" Dumpability: %s - %s \n", 
             dumpability.CanDump ? L"Yes" : L"No",
@@ -1288,4 +916,379 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept {
     
     EndDriverSession(true);
     return true;
+}
+
+/*************************************************************************************************/
+/* INTERNAL IMPLEMENTATION: CORE LOGIC                                                           */
+/*************************************************************************************************/
+
+/**
+ * @brief Internal worker function for terminating a process.
+ * @param pid The ID of the process to terminate.
+ * @param batchOperation If true, assumes a driver session is already active.
+ * @return true on success, false on failure.
+ */
+bool Controller::KillProcessInternal(DWORD pid, bool batchOperation) noexcept {
+    if (!batchOperation && !BeginDriverSession()) {
+        ERROR(L"Failed to start driver session for PID %d", pid);
+        return false;
+    }
+    
+    auto kernelAddr = GetCachedKernelAddress(pid);
+    if (!kernelAddr) {
+        if (!batchOperation) EndDriverSession(true);
+        return false;
+    }
+    
+    if (auto prot = GetProcessProtection(kernelAddr.value()); prot && prot.value() > 0) {
+        UCHAR targetLevel = Utils::GetProtectionLevel(prot.value());
+        UCHAR targetSigner = Utils::GetSignerType(prot.value());
+        std::wstring levelStr = (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected)) ? L"PP" : L"PPL";
+        INFO(L"Target process has %s-%s protection, elevating current process", levelStr.c_str(), Utils::GetSignerTypeAsString(targetSigner));
+        
+        UCHAR currentProcessProtection = Utils::GetProtection(targetLevel, targetSigner);
+        if (!SetCurrentProcessProtection(currentProcessProtection)) {
+            ERROR(L"Failed to elevate current process protection");
+        }
+    }
+
+    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+    if (!hProcess) {
+        hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+        if (!hProcess) {
+            ERROR(L"Failed to open process for termination (PID: %d, Error: %d)", pid, GetLastError());
+            return false;
+        }
+    }
+
+    BOOL terminated = TerminateProcess(hProcess, 1);
+    DWORD terminationError = GetLastError();
+    CloseHandle(hProcess);
+
+    if (!terminated) {
+        ERROR(L"Failed to terminate PID: %d (error: %d)", pid, terminationError);
+    }
+    
+    return terminated;
+}
+
+/**
+ * @brief Internal worker for protecting a process (batch mode support).
+ * @param pid Process ID to protect.
+ * @param protectionLevel Protection level string (PP or PPL).
+ * @param signerType Signer type string.
+ * @param batchOperation If true, assumes driver session is already active.
+ * @return true on success, false on failure.
+ */
+bool Controller::ProtectProcessInternal(DWORD pid, const std::wstring& protectionLevel, 
+                                         const std::wstring& signerType, bool batchOperation) noexcept {
+    if (!batchOperation && !BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
+    auto signer = Utils::GetSignerTypeFromString(signerType);
+    if (!level || !signer) {
+        ERROR(L"Invalid protection level or signer type for PID %d", pid);
+        if (!batchOperation) EndDriverSession(true);
+        return false;
+    }
+    
+    auto kernelAddr = GetCachedKernelAddress(pid);
+    if (!kernelAddr) {
+        if (!batchOperation) EndDriverSession(true);
+        return false;
+    }
+    
+    // Check if already protected (protect command skips already protected)
+    if (auto currentProt = GetProcessProtection(kernelAddr.value()); 
+        currentProt && currentProt.value() > 0) {
+        INFO(L"PID %d already protected, skipping", pid);
+        if (!batchOperation) EndDriverSession(true);
+        return false;
+    }
+    
+    UCHAR newProtection = Utils::GetProtection(level.value(), signer.value());
+    bool result = SetProcessProtection(kernelAddr.value(), newProtection);
+    
+    if (result) {
+        SUCCESS(L"Protected PID %d with %s-%s", pid, protectionLevel.c_str(), signerType.c_str());
+    } else {
+        ERROR(L"Failed to protect PID %d", pid);
+    }
+    
+    if (!batchOperation) EndDriverSession(true);
+    return result;
+}
+
+/**
+ * @brief Internal worker for setting protection (batch mode support).
+ * @param pid Process ID.
+ * @param protectionLevel Protection level string (PP or PPL).
+ * @param signerType Signer type string.
+ * @param batchOperation If true, assumes driver session is already active.
+ * @return true on success, false on failure.
+ */
+bool Controller::SetProcessProtectionInternal(DWORD pid, const std::wstring& protectionLevel, 
+                                               const std::wstring& signerType, bool batchOperation) noexcept {
+    if (!batchOperation && !BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    auto level = Utils::GetProtectionLevelFromString(protectionLevel);
+    auto signer = Utils::GetSignerTypeFromString(signerType);
+    if (!level || !signer) {
+        ERROR(L"Invalid protection level or signer type for PID %d", pid);
+        if (!batchOperation) EndDriverSession(true);
+        return false;
+    }
+    
+    auto kernelAddr = GetCachedKernelAddress(pid);
+    if (!kernelAddr) {
+        if (!batchOperation) EndDriverSession(true);
+        return false;
+    }
+    
+    UCHAR newProtection = Utils::GetProtection(level.value(), signer.value());
+    bool result = SetProcessProtection(kernelAddr.value(), newProtection);
+    
+    if (result) {
+        SUCCESS(L"Set protection %s-%s on PID %d", protectionLevel.c_str(), signerType.c_str(), pid);
+    } else {
+        ERROR(L"Failed to set protection on PID %d", pid);
+    }
+    
+    if (!batchOperation) EndDriverSession(true);
+    return result;
+}
+
+/*************************************************************************************************/
+/* INTERNAL IMPLEMENTATION: KERNEL-LEVEL OPERATIONS                                              */
+/*************************************************************************************************/
+
+/**
+ * @brief Enumerates all running processes by walking the kernel's EPROCESS list.
+ * This is the primary method for gathering detailed process information.
+ * @return A vector of ProcessEntry structs.
+ */
+std::vector<ProcessEntry> Controller::GetProcessList() noexcept {
+    std::vector<ProcessEntry> processes;
+    if (g_interrupted) {
+        INFO(L"Process enumeration cancelled by user before start");
+        return processes;
+    }
+
+    auto initialProcess = GetInitialSystemProcessAddress();
+    if (!initialProcess) return processes;
+
+    auto uniqueIdOffset = m_of->GetOffset(Offset::ProcessUniqueProcessId);
+    auto linksOffset = m_of->GetOffset(Offset::ProcessActiveProcessLinks);
+    if (!uniqueIdOffset || !linksOffset) return processes;
+
+    ULONG_PTR current = initialProcess.value();
+    DWORD processCount = 0;
+
+    do {
+        if (g_interrupted) break;
+
+        auto pidPtr = m_rtc->ReadPtr(current + uniqueIdOffset.value());
+        if (g_interrupted) break;
+        
+        auto protection = GetProcessProtection(current);
+        
+        std::optional<UCHAR> signatureLevel = std::nullopt;
+        std::optional<UCHAR> sectionSignatureLevel = std::nullopt;
+        
+        auto sigLevelOffset = m_of->GetOffset(Offset::ProcessSignatureLevel);
+        auto secSigLevelOffset = m_of->GetOffset(Offset::ProcessSectionSignatureLevel);
+        
+        if (g_interrupted) break;
+        
+        if (sigLevelOffset) signatureLevel = m_rtc->Read8(current + sigLevelOffset.value());
+        if (secSigLevelOffset) sectionSignatureLevel = m_rtc->Read8(current + secSigLevelOffset.value());
+        
+        if (pidPtr && protection) {
+            if (ULONG_PTR pidValue = pidPtr.value(); pidValue > 0 && pidValue <= MAXDWORD) {
+                ProcessEntry entry{};
+                entry.KernelAddress = current;
+                entry.Pid = static_cast<DWORD>(pidValue);
+                entry.ProtectionLevel = Utils::GetProtectionLevel(protection.value());
+                entry.SignerType = Utils::GetSignerType(protection.value());
+                entry.SignatureLevel = signatureLevel.value_or(0);
+                entry.SectionSignatureLevel = sectionSignatureLevel.value_or(0);
+                
+                if (g_interrupted) break;
+                
+                std::wstring basicName = Utils::GetProcessName(entry.Pid);
+                entry.ProcessName = (basicName == L"[Unknown]")
+                    ? Utils::ResolveUnknownProcessLocal(entry.Pid, entry.KernelAddress, entry.ProtectionLevel, entry.SignerType)
+                    : basicName;
+                
+                processes.push_back(entry);
+                processCount++;
+            }
+        }
+
+        if (g_interrupted) break;
+
+        auto nextPtr = m_rtc->ReadPtr(current + linksOffset.value());
+        if (!nextPtr) break;
+        
+        current = nextPtr.value() - linksOffset.value();
+        
+        if (processCount >= 10000) break; // Safety break.
+        
+    } while (current != initialProcess.value() && !g_interrupted);
+
+    return processes;
+}
+
+std::optional<ULONG_PTR> Controller::GetInitialSystemProcessAddress() noexcept {
+    auto kernelBase = Utils::GetKernelBaseAddress();
+    auto offset = m_of->GetOffset(Offset::KernelPsInitialSystemProcess);
+    if (!kernelBase || !offset) return std::nullopt;
+
+    ULONG_PTR pPsInitialSystemProcess = Utils::GetKernelAddress(kernelBase.value(), offset.value());
+    return m_rtc->ReadPtr(pPsInitialSystemProcess);
+}
+
+std::optional<ULONG_PTR> Controller::GetProcessKernelAddress(DWORD pid) noexcept {
+    auto processes = GetProcessList();
+    for (const auto& entry : processes) {
+        if (entry.Pid == pid)
+            return entry.KernelAddress;
+    }
+    DEBUG(L"Kernel address not available for PID %d", pid);
+    return std::nullopt;
+}
+
+std::optional<UCHAR> Controller::GetProcessProtection(ULONG_PTR addr) noexcept {
+    auto offset = m_of->GetOffset(Offset::ProcessProtection);
+    return offset ? m_rtc->Read8(addr + offset.value()) : std::nullopt;
+}
+
+bool Controller::SetProcessProtection(ULONG_PTR addr, UCHAR protection) noexcept {
+    auto offset = m_of->GetOffset(Offset::ProcessProtection);
+    return offset ? m_rtc->Write8(addr + offset.value(), protection) : false;
+}
+
+/*************************************************************************************************/
+/* HELPERS: PROCESS NAME RESOLUTION & PATTERN MATCHING                                           */
+/*************************************************************************************************/
+
+std::optional<ProcessMatch> Controller::ResolveProcessName(const std::wstring& processName) noexcept {
+    if (!BeginDriverSession()) return std::nullopt;
+    
+    auto matches = FindProcessesByName(processName);
+    EndDriverSession(true);
+    
+    if (matches.empty()) {
+        ERROR(L"No process found matching pattern: %s", processName.c_str());
+        return std::nullopt;
+    }
+    if (matches.size() == 1) {
+        INFO(L"Found process: %s (PID %d)", matches[0].ProcessName.c_str(), matches[0].Pid);
+        return matches[0];
+    }
+    
+    ERROR(L"Multiple processes found matching pattern '%s'. Please use a more specific name:", processName.c_str());
+    for (const auto& match : matches) {
+        std::wcout << L"  PID " << match.Pid << L": " << match.ProcessName << L"\n";
+    }
+    return std::nullopt;
+}
+
+std::vector<ProcessMatch> Controller::FindProcessesByName(const std::wstring& pattern) noexcept {
+    std::vector<ProcessMatch> matches;
+    for (const auto& entry : GetProcessList()) {
+        if (IsPatternMatch(entry.ProcessName, pattern)) {
+            matches.push_back({entry.Pid, entry.ProcessName, entry.KernelAddress});
+        }
+    }
+    return matches;
+}
+
+std::optional<ProcessMatch> Controller::ResolveNameWithoutDriver(const std::wstring& processName) noexcept {
+    auto matches = FindProcessesByNameWithoutDriver(processName);
+    
+    if (matches.empty()) {
+        ERROR(L"No process found matching pattern: %s", processName.c_str());
+        return std::nullopt;
+    }
+    if (matches.size() == 1) {
+        INFO(L"Found process: %s (PID %d)", matches[0].ProcessName.c_str(), matches[0].Pid);
+        return matches[0];
+    }
+    
+    ERROR(L"Multiple processes found matching pattern '%s'. Please use a more specific name:", processName.c_str());
+    for (const auto& match : matches) {
+        std::wcout << L"  PID " << match.Pid << L": " << match.ProcessName << L"\n";
+    }
+    return std::nullopt;
+}
+
+std::vector<ProcessMatch> Controller::FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept {
+    std::vector<ProcessMatch> matches;
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) return matches;
+
+    PROCESSENTRY32W pe;
+    pe.dwSize = sizeof(PROCESSENTRY32W);
+    
+    if (Process32FirstW(hSnapshot, &pe)) {
+        do {
+            if (IsPatternMatch(pe.szExeFile, pattern)) {
+                matches.push_back({pe.th32ProcessID, pe.szExeFile, 0});
+            }
+        } while (Process32NextW(hSnapshot, &pe));
+    }
+    
+    CloseHandle(hSnapshot);
+    return matches;
+}
+
+/**
+ * @brief Checks if a process name matches a given pattern (case-insensitive).
+ * Supports exact, substring, and wildcard (*) matching.
+ * @param processName The name of the process.
+ * @param pattern The pattern to match against.
+ * @return true if it's a match, false otherwise.
+ */
+bool Controller::IsPatternMatch(const std::wstring& processName, const std::wstring& pattern) noexcept {
+    std::wstring lowerProcessName = processName;
+    std::wstring lowerPattern = pattern;
+    std::transform(lowerProcessName.begin(), lowerProcessName.end(), lowerProcessName.begin(), ::towlower);
+    std::transform(lowerPattern.begin(), lowerPattern.end(), lowerPattern.begin(), ::towlower);
+    
+    if (lowerProcessName == lowerPattern || lowerProcessName.find(lowerPattern) != std::wstring::npos) {
+        return true;
+    }
+    
+    std::wstring regexPattern = lowerPattern;
+    std::wstring specialChars = L"\\^$.+{}[]|()";
+    for (wchar_t ch : specialChars) {
+        size_t pos = 0;
+        while ((pos = regexPattern.find(ch, pos)) != std::wstring::npos) {
+            regexPattern.insert(pos, 1, L'\\');
+            pos += 2;
+        }
+    }
+    
+    size_t pos = 0;
+    while ((pos = regexPattern.find(L'*', pos)) != std::wstring::npos) {
+        if (pos == 0 || regexPattern[pos - 1] != L'\\') {
+            regexPattern.replace(pos, 1, L".*");
+            pos += 2;
+        } else {
+            pos++;
+        }
+    }
+    
+    try {
+        return std::regex_search(lowerProcessName, std::wregex(regexPattern, std::regex_constants::icase));
+    } catch (const std::regex_error&) {
+        return false;
+    }
 }

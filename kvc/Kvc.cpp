@@ -505,7 +505,6 @@ int wmain(int argc, wchar_t* argv[])
         }
         
         // Process protection commands with atomic driver operations
-		// Process protection commands with atomic driver operations
 		else if (command == L"set" || command == L"protect")
 		{
 			if (argc < 5)
@@ -513,30 +512,26 @@ int wmain(int argc, wchar_t* argv[])
 				ERROR(L"Missing arguments: <PID/process_name> <PP|PPL> <SIGNER_TYPE>");
 				return 1;
 			}
-
+			
 			std::wstring_view target = argv[2];
 			std::wstring level = argv[3];
 			std::wstring signer = argv[4];
-
-			// Handle comma-separated list of PIDs for batch operations
+			
+			// Handle comma-separated list for batch operations (supports PIDs AND process names)
 			std::wstring targetStr(target);
 			if (targetStr.find(L',') != std::wstring::npos)
 			{
-				std::vector<DWORD> pids;
+				std::vector<std::wstring> targets;
 				std::wstring current;
 				
-				// Parse comma-separated PIDs with whitespace handling
+				// Parse comma-separated targets with whitespace handling
 				for (wchar_t ch : targetStr)
 				{
 					if (ch == L',')
 					{
 						if (!current.empty())
 						{
-							if (IsNumeric(current))
-							{
-								auto pid = ParsePid(current);
-								if (pid) pids.push_back(pid.value());
-							}
+							targets.push_back(current);
 							current.clear();
 						}
 					}
@@ -547,35 +542,25 @@ int wmain(int argc, wchar_t* argv[])
 				}
 				
 				// Last token
-				if (!current.empty() && IsNumeric(current))
-				{
-					auto pid = ParsePid(current);
-					if (pid) pids.push_back(pid.value());
-				}
+				if (!current.empty())
+					targets.push_back(current);
 				
-				if (pids.empty())
+				if (targets.empty())
 				{
-					ERROR(L"No valid PIDs found in comma-separated list");
+					ERROR(L"No valid targets found in comma-separated list");
 					return 1;
 				}
 				
-				// Batch operation
-				INFO(L"Batch %s operation: %zu processes", command.data(), pids.size());
-				int successCount = 0;
+				// Batch operation - handles both PIDs and process names
+				INFO(L"Batch %s operation: %zu targets (mixed PIDs/names)", command.data(), targets.size());
 				
-				for (DWORD pid : pids)
-				{
-					bool result = (command == L"set") ?
-						g_controller->SetProcessProtection(pid, level, signer) :
-						g_controller->ProtectProcess(pid, level, signer);
-					
-					if (result) successCount++;
-				}
+				bool result = (command == L"set") ?
+					g_controller->SetMultipleProcessesProtection(targets, level, signer) :
+					g_controller->ProtectMultipleProcesses(targets, level, signer);
 				
-				INFO(L"Batch %s completed: %d/%zu processes", command.data(), successCount, pids.size());
-				return successCount == pids.size() ? 0 : 2;
+				return result ? 0 : 2;
 			}
-
+			
 			// Single target (PID or name)
 			bool result = false;
 			
@@ -601,7 +586,7 @@ int wmain(int argc, wchar_t* argv[])
 					g_controller->SetProcessProtectionByName(processName, level, signer) :
 					g_controller->ProtectProcessByName(processName, level, signer);
 			}
-
+			
 			return result ? 0 : 2;
 		}
         
