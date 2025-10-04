@@ -1186,27 +1186,33 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept
     GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
     WORD originalColor = consoleInfo.wAttributes;
 
-    if (protLevel == 0) {
-        wprintf(L"[*] PID %d (%s) is not protected\n", pid, processName.c_str());
-    } else {
-        WORD protectionColor = (protLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::ProtectedLight)) ?
-            (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY) : (FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        
-        SetConsoleTextAttribute(hConsole, protectionColor);
-        wprintf(L"[*] PID %d (%s) protection: %s-%s (raw: 0x%02x)\n", 
-                pid, processName.c_str(),
-                Utils::GetProtectionLevelAsString(protLevel),
-                Utils::GetSignerTypeAsString(signerType),
-                currentProtection.value());
-        SetConsoleTextAttribute(hConsole, originalColor);
-    }
-    
-    auto dumpability = Utils::CanDumpProcess(pid, processName, protLevel, signerType);
-    SetConsoleTextAttribute(hConsole, BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE);
-    wprintf(L" Dumpability: %s - %s \n", 
-            dumpability.CanDump ? L"Yes" : L"No",
-            dumpability.Reason.c_str());
-    SetConsoleTextAttribute(hConsole, originalColor);
+	if (protLevel == 0) {
+		wprintf(L"[*] PID %d (%s) is not protected\n", pid, processName.c_str());
+	} else {
+		WORD protectionColor;
+		if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
+			protectionColor = FOREGROUND_RED | FOREGROUND_INTENSITY;
+		}
+		else if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) ||
+				 signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) ||
+				 signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows)) {
+			protectionColor = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+		}
+		else if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Antimalware)) {
+			protectionColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+		}
+		else {
+			protectionColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+		}
+		
+		SetConsoleTextAttribute(hConsole, protectionColor);
+		wprintf(L"[*] PID %d (%s) protection: %s-%s (raw: 0x%02x)\n", 
+				pid, processName.c_str(),
+				Utils::GetProtectionLevelAsString(protLevel),
+				Utils::GetSignerTypeAsString(signerType),
+				currentProtection.value());
+		SetConsoleTextAttribute(hConsole, originalColor);
+	}
     
     EndDriverSession(true);
     return true;

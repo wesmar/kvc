@@ -319,13 +319,14 @@ namespace Utils
     /**
      * @brief ANSI color codes for process display
      */
-    struct ProcessColors {
-        static constexpr const wchar_t* GREEN = L"\033[92m";   ///< System processes
-        static constexpr const wchar_t* YELLOW = L"\033[93m";  ///< User processes
-        static constexpr const wchar_t* BLUE = L"\033[94m";    ///< Unchecked signatures
-        static constexpr const wchar_t* HEADER = L"\033[97;44m"; ///< Table headers
-        static constexpr const wchar_t* RESET = L"\033[0m";    ///< Reset color
-    };
+	struct ProcessColors {
+		static constexpr const wchar_t* GREEN = L"\033[92m";   ///< System processes (WinTcb, WinSystem, Windows)
+		static constexpr const wchar_t* RED = L"\033[91m";     ///< LSA processes (critical security)
+		static constexpr const wchar_t* YELLOW = L"\033[93m";  ///< User/Antimalware processes
+		static constexpr const wchar_t* BLUE = L"\033[94m";    ///< Unchecked signatures
+		static constexpr const wchar_t* HEADER = L"\033[97;44m"; ///< Table headers
+		static constexpr const wchar_t* RESET = L"\033[0m";    ///< Reset color
+	};
 
     /**
      * @brief Enables ANSI virtual terminal processing for colored output

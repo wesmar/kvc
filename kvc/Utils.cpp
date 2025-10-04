@@ -994,20 +994,24 @@ const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel,
         return ProcessColors::BLUE; // Unchecked signatures - blue
     }
 
-    // System processes - green
+    // LSA processes - RED (critical security authority)
+    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
+        return ProcessColors::RED;
+    }
+
+    // System processes - GREEN (kernel/system trust)
     if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows) ||
         signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) ||
-        signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) ||
-        signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
+        signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem)) {
         return ProcessColors::GREEN;
     }
 
-    // Security software - yellow
+    // Security software - YELLOW (antimalware)
     if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Antimalware)) {
         return ProcessColors::YELLOW;
     }
 
-    // User/third-party processes - yellow
+    // User/third-party processes - YELLOW (default)
     return ProcessColors::YELLOW;
 }
 
