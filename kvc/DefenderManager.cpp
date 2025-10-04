@@ -1,29 +1,17 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
+/**
+ * @file DefenderManager.cpp
+ * @brief Implementation of Windows Defender Security Engine management
+ * @author Marek Wesolowski
+ * @date 2025
+ * @copyright KVC Framework
+ * 
+ * Implements registry-level manipulation of Windows Defender service dependencies.
+ * Provides atomic operations for enabling/disabling the security engine by modifying
+ * RPC service dependencies in the Windows registry.
+ */
 
 #include "DefenderManager.h"
+#include "common.h"
 #include <filesystem>
 #include <algorithm>
 #include <iostream>
@@ -31,23 +19,56 @@ that define these protections.
 using namespace std;
 namespace fs = std::filesystem;
 
+// Console color helper (using existing SetColor function from main application)
 extern void SetColor(int color);
 
-// Console color helper (using your existing SetColor function)
-extern void SetColor(int color);
+// ============================================================================
+// PUBLIC INTERFACE IMPLEMENTATION
+// ============================================================================
 
-// Primary interface methods
-bool DefenderManager::DisableSecurityEngine() noexcept {
+/**
+ * @brief Disables Windows Defender security engine
+ * 
+ * Implementation details:
+ * 1. Calls ModifySecurityEngine(false) to perform registry manipulation
+ * 2. Provides user feedback through console output
+ * 
+ * @return bool true if Defender successfully disabled, false on failure
+ */
+bool DefenderManager::DisableSecurityEngine() noexcept 
+{
     std::wcout << L"Disabling Windows Security Engine...\n";
     return ModifySecurityEngine(false);
 }
 
-bool DefenderManager::EnableSecurityEngine() noexcept {
+/**
+ * @brief Enables Windows Defender security engine
+ * 
+ * Implementation details:
+ * 1. Calls ModifySecurityEngine(true) to perform registry manipulation
+ * 2. Provides user feedback through console output
+ * 
+ * @return bool true if Defender successfully enabled, false on failure
+ */
+bool DefenderManager::EnableSecurityEngine() noexcept 
+{
     std::wcout << L"Enabling Windows Security Engine...\n";
     return ModifySecurityEngine(true);
 }
 
-DefenderManager::SecurityState DefenderManager::GetSecurityEngineStatus() noexcept {
+/**
+ * @brief Queries current Windows Defender security engine state
+ * 
+ * Detection logic:
+ * 1. Opens Windows Defender service registry key (read-only)
+ * 2. Reads DependOnService REG_MULTI_SZ value
+ * 3. Searches for RpcSs (enabled) or RpcSt (disabled) in dependencies
+ * 4. Returns ENABLED if RpcSs found, DISABLED if RpcSt found, UNKNOWN otherwise
+ * 
+ * @return SecurityState Current state of Windows Defender security engine
+ */
+DefenderManager::SecurityState DefenderManager::GetSecurityEngineStatus() noexcept 
+{
     try {
         HKEY key;
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, WINDEFEND_KEY, 0, KEY_READ, &key) != ERROR_SUCCESS) {
@@ -73,8 +94,27 @@ DefenderManager::SecurityState DefenderManager::GetSecurityEngineStatus() noexce
     }
 }
 
-// Core engine manipulation - critical path
-bool DefenderManager::ModifySecurityEngine(bool enable) noexcept {
+// ============================================================================
+// CORE OPERATIONS IMPLEMENTATION
+// ============================================================================
+
+/**
+ * @brief Core registry manipulation logic for enable/disable operations
+ * 
+ * Atomic operation sequence:
+ * 1. Enable required privileges (SE_BACKUP_NAME, SE_RESTORE_NAME, SE_LOAD_DRIVER_NAME)
+ * 2. Create registry snapshot of Services hive to temp file
+ * 3. Modify Windows Defender dependencies in temp registry
+ * 4. Restore modified registry snapshot to live system
+ * 
+ * @param enable true to enable Defender (RpcSt→RpcSs), false to disable (RpcSs→RpcSt)
+ * @return bool true if all operations successful, false on any failure
+ * 
+ * @note All operations are atomic - partial failure results in rollback
+ * @note Provides detailed console feedback for each step
+ */
+bool DefenderManager::ModifySecurityEngine(bool enable) noexcept 
+{
     try {
         // Enable required privileges first
         if (!EnableRequiredPrivileges()) {
@@ -111,16 +151,33 @@ bool DefenderManager::ModifySecurityEngine(bool enable) noexcept {
     }
 }
 
-// Registry snapshot creation
-bool DefenderManager::CreateRegistrySnapshot(RegistryContext& ctx) noexcept {
-    ctx.tempPath = GetSystemTempPath();
+/**
+ * @brief Creates temporary registry snapshot for atomic modifications
+ * 
+ * Process:
+ * 1. Get system temp path (Windows\temp)
+ * 2. Validate write access to temp directory
+ * 3. Clean up any existing Services.hiv file
+ * 4. Unload any existing HKLM\Temp registry hive
+ * 5. Save HKLM\SYSTEM\CurrentControlSet\Services to Services.hiv
+ * 6. Load Services.hiv as HKLM\Temp for modification
+ * 
+ * @param ctx [out] Registry context populated with temp paths and hive file
+ * @return bool true if snapshot created successfully, false on failure
+ * 
+ * @note Uses REG_LATEST_FORMAT for maximum compatibility
+ * @note Cleans up existing temp hives to prevent conflicts
+ */
+bool DefenderManager::CreateRegistrySnapshot(RegistryContext& ctx) noexcept 
+{
+    ctx.tempPath = ::GetSystemTempPath();
     if (ctx.tempPath.empty()) {
         std::wcout << L"Failed to get system temp path\n";
         return false;
     }
     
     // Ensure temp directory exists and is writable
-    if (!ValidateWriteAccess(ctx.tempPath)) {
+    if (!PathUtils::ValidateDirectoryWritable(ctx.tempPath)) {
         std::wcout << L"Cannot write to temp directory: " << ctx.tempPath << L"\n";
         return false;
     }
@@ -164,8 +221,26 @@ bool DefenderManager::CreateRegistrySnapshot(RegistryContext& ctx) noexcept {
     return true;
 }
 
-// Modify Defender service dependencies - core logic
-bool DefenderManager::ModifyDefenderDependencies(const RegistryContext& ctx, bool enable) noexcept {
+/**
+ * @brief Modifies Windows Defender service dependencies in temp registry
+ * 
+ * Modification logic:
+ * 1. Opens HKLM\Temp\WinDefend key (loaded from snapshot)
+ * 2. Reads DependOnService REG_MULTI_SZ value
+ * 3. Transforms RPC service dependency:
+ *    - Enable: RpcSt (inactive stub) → RpcSs (active service)
+ *    - Disable: RpcSs (active service) → RpcSt (inactive stub)
+ * 4. Writes modified dependencies back to temp registry
+ * 
+ * @param ctx Registry context with loaded temp hive
+ * @param enable true to enable Defender, false to disable
+ * @return bool true if dependency modification successful, false on failure
+ * 
+ * @note Operates only on temp registry (HKLM\Temp), not live system
+ * @note Automatically closes registry key handle on exit
+ */
+bool DefenderManager::ModifyDefenderDependencies(const RegistryContext& ctx, bool enable) noexcept 
+{
     HKEY tempKey;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Temp\\WinDefend", 0, KEY_READ | KEY_WRITE, &tempKey) != ERROR_SUCCESS) {
         std::wcout << L"Failed to open temporary WinDefend key\n";
@@ -200,8 +275,24 @@ bool DefenderManager::ModifyDefenderDependencies(const RegistryContext& ctx, boo
     return true;
 }
 
-// Restore registry snapshot
-bool DefenderManager::RestoreRegistrySnapshot(const RegistryContext& ctx) noexcept {
+/**
+ * @brief Restores modified registry snapshot to live system registry
+ * 
+ * Restoration process:
+ * 1. Unload temporary HKLM\Temp registry hive (modified snapshot)
+ * 2. Open HKLM\SYSTEM\CurrentControlSet\Services key with write access
+ * 3. Restore modified hive file using RegRestoreKeyW with force flag
+ * 4. Close registry key handle
+ * 
+ * @param ctx Registry context with modified hive file path
+ * @return bool true if restore successful, false on failure
+ * 
+ * @warning This operation permanently modifies the live system registry
+ * @note Uses REG_FORCE_RESTORE to overwrite existing registry data
+ * @note Warnings about failed unload are informational only (non-critical)
+ */
+bool DefenderManager::RestoreRegistrySnapshot(const RegistryContext& ctx) noexcept 
+{
     // Unload temporary registry hive
     if (RegUnLoadKeyW(HKEY_LOCAL_MACHINE, L"Temp") != ERROR_SUCCESS) {
         std::wcout << L"Warning: Failed to unload temporary registry hive\n";
@@ -225,64 +316,55 @@ bool DefenderManager::RestoreRegistrySnapshot(const RegistryContext& ctx) noexce
     return true;
 }
 
-// Helper methods
-bool DefenderManager::EnableRequiredPrivileges() noexcept {
-    return EnablePrivilege(SE_BACKUP_NAME) &&
-           EnablePrivilege(SE_RESTORE_NAME) &&
-           EnablePrivilege(SE_LOAD_DRIVER_NAME);
+// ============================================================================
+// PRIVILEGE MANAGEMENT IMPLEMENTATION
+// ============================================================================
+
+/**
+ * @brief Enables all required privileges for registry operations
+ * 
+ * Required privileges:
+ * - SE_BACKUP_NAME: Allows reading registry hives (RegSaveKeyExW)
+ * - SE_RESTORE_NAME: Allows writing registry hives (RegRestoreKeyW)
+ * - SE_LOAD_DRIVER_NAME: Allows loading/unloading registry hives (RegLoadKeyW/RegUnLoadKeyW)
+ * 
+ * @return bool true if all three privileges enabled successfully, false if any fails
+ * 
+ * @note All three privileges must be enabled for registry snapshot operations
+ * @note Failure of any single privilege causes entire operation to fail
+ */
+bool DefenderManager::EnableRequiredPrivileges() noexcept 
+{
+	return PrivilegeUtils::EnablePrivilege(SE_BACKUP_NAME) &&
+		   PrivilegeUtils::EnablePrivilege(SE_RESTORE_NAME) &&
+		   PrivilegeUtils::EnablePrivilege(SE_LOAD_DRIVER_NAME);
 }
 
-bool DefenderManager::EnablePrivilege(const wchar_t* privilege) noexcept {
-    HANDLE token;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-        return false;
-    }
-    
-    TOKEN_PRIVILEGES tp;
-    LUID luid;
-    
-    bool success = LookupPrivilegeValueW(nullptr, privilege, &luid);
-    if (success) {
-        tp.PrivilegeCount = 1;
-        tp.Privileges[0].Luid = luid;
-        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-        
-        success = AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp), nullptr, nullptr) &&
-                  GetLastError() != ERROR_NOT_ALL_ASSIGNED;
-    }
-    
-    CloseHandle(token);
-    return success;
-}
+// ============================================================================
+// HELPER UTILITIES IMPLEMENTATION
+// ============================================================================
 
-wstring DefenderManager::GetSystemTempPath() noexcept {
-    wchar_t path[MAX_PATH];
-    UINT result = GetWindowsDirectoryW(path, MAX_PATH);
-    if (result == 0 || result > MAX_PATH) return L"";
-    
-    return wstring(path) + L"\\temp\\";
-}
-
-bool DefenderManager::ValidateWriteAccess(const wstring& path) noexcept {
-    try {
-        fs::create_directories(path);
-        
-        wstring testFile = path + L"test.tmp";
-        HANDLE hTest = CreateFileW(testFile.c_str(), GENERIC_WRITE, 0, nullptr, 
-                                  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        
-        if (hTest == INVALID_HANDLE_VALUE) return false;
-        
-        CloseHandle(hTest);
-        DeleteFileW(testFile.c_str());
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-}
-
-vector<wstring> DefenderManager::ReadMultiString(HKEY key, const wstring& valueName) noexcept {
+/**
+ * @brief Reads REG_MULTI_SZ registry value as string vector
+ * 
+ * Reading process:
+ * 1. Query value type and size using RegQueryValueExW (initial call)
+ * 2. Validate value is REG_MULTI_SZ type
+ * 3. Allocate buffer for value data
+ * 4. Read value data into buffer
+ * 5. Parse null-terminated strings from buffer
+ * 6. Return vector of strings (empty vector on failure)
+ * 
+ * @param key Open registry key handle with KEY_READ access
+ * @param valueName Name of REG_MULTI_SZ value to read
+ * @return std::vector<std::wstring> Vector of strings, empty if value doesn't exist or wrong type
+ * 
+ * @note Returns empty vector if value is wrong type or doesn't exist
+ * @note Properly handles null-terminated string array format
+ * @note Does not close registry key handle (caller's responsibility)
+ */
+vector<wstring> DefenderManager::ReadMultiString(HKEY key, const wstring& valueName) noexcept 
+{
     DWORD type, size;
     if (RegQueryValueExW(key, valueName.c_str(), nullptr, &type, nullptr, &size) != ERROR_SUCCESS || 
         type != REG_MULTI_SZ) {
@@ -306,8 +388,26 @@ vector<wstring> DefenderManager::ReadMultiString(HKEY key, const wstring& valueN
     return result;
 }
 
+/**
+ * @brief Writes string vector to REG_MULTI_SZ registry value
+ * 
+ * Writing process:
+ * 1. Create buffer for null-terminated string array
+ * 2. Copy each string to buffer with null terminator
+ * 3. Add final double null terminator
+ * 4. Write buffer to registry using RegSetValueExW
+ * 
+ * @param key Open registry key handle with KEY_WRITE access
+ * @param valueName Name of REG_MULTI_SZ value to write
+ * @param values Vector of strings to write
+ * @return bool true if write successful, false on failure
+ * 
+ * @note Properly formats with double null terminator (REG_MULTI_SZ requirement)
+ * @note Does not close registry key handle (caller's responsibility)
+ */
 bool DefenderManager::WriteMultiString(HKEY key, const wstring& valueName, 
-                                      const vector<wstring>& values) noexcept {
+                                      const vector<wstring>& values) noexcept 
+{
     vector<wchar_t> buffer;
     
     for (const auto& str : values) {
@@ -321,8 +421,25 @@ bool DefenderManager::WriteMultiString(HKEY key, const wstring& valueName,
                          static_cast<DWORD>(buffer.size() * sizeof(wchar_t))) == ERROR_SUCCESS;
 }
 
-// Cleanup implementation
-void DefenderManager::RegistryContext::Cleanup() noexcept {
+// ============================================================================
+// REGISTRY CONTEXT CLEANUP IMPLEMENTATION
+// ============================================================================
+
+/**
+ * @brief Cleans up temporary registry files and transaction logs
+ * 
+ * Cleanup targets:
+ * 1. Main hive file (Services.hiv)
+ * 2. Transaction logs (Services.hiv.LOG1, Services.hiv.LOG2)
+ * 3. Binary log file (Services.hiv.blf)
+ * 4. Registry transaction files (*.regtrans-ms in temp directory)
+ * 
+ * @note Safe to call multiple times (idempotent operation)
+ * @note Ignores errors during cleanup (best-effort cleanup)
+ * @note Called automatically by RegistryContext destructor
+ */
+void DefenderManager::RegistryContext::Cleanup() noexcept 
+{
     if (hiveFile.empty()) return;
     
     // Standard cleanup patterns

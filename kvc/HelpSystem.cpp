@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 #include <windows.h>
 #include "HelpSystem.h"
 #include <iostream>
@@ -137,16 +112,16 @@ void HelpSystem::PrintProtectionCommands() noexcept
     PrintSectionHeader(L"Process Protection Commands");
     PrintCommandLine(L"set <PID|process_name> <PP|PPL> <TYPE>", L"Set protection (force, ignoring current state)");
     PrintCommandLine(L"protect <PID|process_name> <PP|PPL> <TYPE>", L"Protect unprotected process");
-	PrintCommandLine(L"unprotect Antimalware", L"Remove protection from all Antimalware-signed processes");
-	PrintCommandLine(L"unprotect WinTcb", L"Remove protection from all WinTcb-signed processes"); 
-	PrintCommandLine(L"list-signer Antimalware", L"List all processes signed by Antimalware");
-    PrintCommandLine(L"unprotect <PID|process_name>", L"Remove protection from specific process");
+    PrintCommandLine(L"unprotect <PID|process_name|SIGNER>", L"Remove protection from process(es)");
     PrintCommandLine(L"unprotect all", L"Remove protection from ALL processes");
     PrintCommandLine(L"unprotect <PID1,PID2,PID3>", L"Remove protection from multiple processes");
-	PrintCommandLine(L"restore <signer_name>", L"Restore protection for specific signer group");
+    PrintCommandLine(L"set-signer <SIGNER> <PP|PPL> <NEW_SIGNER>", L"Batch modify protection for all processes of specific signer");
+    PrintCommandLine(L"list-signer <SIGNER>", L"List all processes with specific signer");
+    PrintCommandLine(L"restore <signer_name>", L"Restore protection for specific signer group");
     PrintCommandLine(L"restore all", L"Restore all saved protection states");
     PrintCommandLine(L"history", L"Show saved session history (max 16 sessions)");
     PrintCommandLine(L"cleanup-sessions", L"Delete all sessions except current");
+    PrintNote(L"SIGNER can be: Antimalware, WinTcb, Windows, Lsa, WinSystem, etc.");
     std::wcout << L"\n";
 }
 
@@ -353,6 +328,8 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc unprotect 1,2,3,lsass", L"Batch unprotect multiple targets");
     printLine(L"kvc unprotect Antimalware", L"Remove protection from all Antimalware processes");
     printLine(L"kvc unprotect all", L"Remove protection from ALL processes (grouped by signer)");
+	printLine(L"kvc set-signer Antimalware PPL WinTcb", L"Change all Antimalware processes to PPL-WinTcb");
+	printLine(L"kvc set-signer Windows PP Antimalware", L"Escalate all Windows processes to PP-Antimalware");
     
     // Session state management
     printLine(L"kvc history", L"Show saved sessions (max 16, with status tracking)");

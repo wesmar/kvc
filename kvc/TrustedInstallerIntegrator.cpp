@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 #include "TrustedInstallerIntegrator.h"
 #include "common.h" // Assumed to contain SUCCESS, ERROR, INFO macros
 #include <tchar.h>
@@ -282,7 +257,7 @@ bool TrustedInstallerIntegrator::RemoveDefenderExclusion(ExclusionType type, con
     bool result = RunAsTrustedInstallerSilent(command);
     
     if (result) {
-        SUCCESS(L"Successfully removed from Windows Defender %s exclusions: %s", typeStr.c_str(), processedValue.c_str());
+            SUCCESS(L"Windows Defender %s exclusion removal completed: %s", typeStr.c_str(), processedValue.c_str());
     } else {
         INFO(L"AV cleanup skipped: %s %s", typeStr.c_str(), processedValue.c_str());
     }

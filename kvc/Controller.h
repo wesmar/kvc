@@ -105,10 +105,13 @@ public:
     bool UnprotectProcessByName(const std::wstring& processName) noexcept;
     bool SetProcessProtectionByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept;
 
-    // Signer-based batch operations for mass unprotection scenarios 
-    bool UnprotectBySigner(const std::wstring& signerName) noexcept;
-    bool ListProcessesBySigner(const std::wstring& signerName) noexcept;
-	
+	// Signer-based batch operations for mass unprotection scenarios 
+	bool UnprotectBySigner(const std::wstring& signerName) noexcept;
+	bool ListProcessesBySigner(const std::wstring& signerName) noexcept;
+	bool SetProtectionBySigner(const std::wstring& currentSigner, 
+							  const std::wstring& level, 
+							  const std::wstring& newSigner) noexcept;
+
 	// Session state restoration
     bool RestoreProtectionBySigner(const std::wstring& signerName) noexcept;
     bool RestoreAllProtection() noexcept;
@@ -196,7 +199,6 @@ private:
     SQLiteAPI m_sqlite;
 
     // Privilege and system management
-    bool EnablePrivilege(LPCWSTR privilegeName) noexcept;
     bool EnableDebugPrivilege() noexcept;
 	
     // Enhanced file writing with TrustedInstaller privileges
@@ -224,6 +226,7 @@ private:
     
     // Session management
     bool BeginDriverSession();
+	bool IsServiceZombie() noexcept;
     void EndDriverSession(bool force = false);
     void UpdateDriverUsageTimestamp();
     
@@ -270,8 +273,7 @@ private:
     
     // Registry master key processing for enhanced display
     bool ProcessRegistryMasterKeys(std::vector<RegistryMasterKey>& masterKeys) noexcept;
-    std::string BytesToHexString(const std::vector<BYTE>& bytes) noexcept;
-
+    
     // Browser password processing with AES-GCM decryption
     bool ProcessBrowserPasswords(const std::vector<RegistryMasterKey>& masterKeys, std::vector<PasswordResult>& results, const std::wstring& outputPath) noexcept;
     bool ProcessSingleBrowser(const std::wstring& browserPath, const std::wstring& browserName, const std::vector<RegistryMasterKey>& masterKeys, std::vector<PasswordResult>& results, const std::wstring& outputPath) noexcept;
@@ -286,7 +288,6 @@ private:
     void UnloadSQLiteLibrary() noexcept;
 
     // Cryptographic operations for DPAPI and Chrome AES-GCM
-    std::vector<BYTE> Base64Decode(const std::string& encoded) noexcept;
     std::vector<BYTE> DecryptWithDPAPI(const std::vector<BYTE>& encryptedData, const std::vector<RegistryMasterKey>& masterKeys) noexcept;
     std::string DecryptChromeAESGCM(const std::vector<BYTE>& encryptedData, const std::vector<BYTE>& key) noexcept;
 

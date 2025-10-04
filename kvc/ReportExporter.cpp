@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 #include "ReportExporter.h"
 #include "Controller.h"
 #include <filesystem>
@@ -42,12 +17,8 @@ ReportData::ReportData(const std::vector<PasswordResult>& results,
     : passwordResults(results), masterKeys(keys), outputPath(path)
 {
     // Generate timestamp for report
-    time_t now = time(nullptr);
-    char timestampBuffer[20];
-    struct tm timeInfo;
-    localtime_s(&timeInfo, &now);
-    strftime(timestampBuffer, sizeof(timestampBuffer), "%Y-%m-%d %H:%M:%S", &timeInfo);
-    timestamp = timestampBuffer;
+std::wstring wts = TimeUtils::GetFormattedTimestamp("datetime_display");
+timestamp = StringUtils::WideToUTF8(wts);
     
     CalculateStatistics();
 }
@@ -239,8 +210,8 @@ std::string ReportExporter::BuildMasterKeysTable(const ReportData& data) noexcep
         }
         
         // Convert binary data to hex strings
-        std::string rawHex = BytesToHexString(masterKey.encryptedData);
-        std::string processedHex = BytesToHexString(masterKey.decryptedData);
+		std::string rawHex = CryptoUtils::BytesToHex(masterKey.encryptedData, 32);
+		std::string processedHex = CryptoUtils::BytesToHex(masterKey.decryptedData, 32);
         
         // Truncate for display if too long
         if (rawHex.length() > 64) {
@@ -291,12 +262,12 @@ std::string ReportExporter::BuildPasswordsTable(const ReportData& data) noexcept
             std::string cssClass = result.type.find(L"Chrome") != std::wstring::npos ? "chrome" : "edge";
             
             table << "                <tr class=\"" << cssClass << "\">\n";
-            table << "                    <td>" << WStringToUTF8(result.type) << "</td>\n";
-            table << "                    <td>" << WStringToUTF8(result.profile) << "</td>\n";
-            table << "                    <td>" << WStringToUTF8(result.url) << "</td>\n";
-            table << "                    <td>" << WStringToUTF8(result.username) << "</td>\n";
-            table << "                    <td class=\"password\">" << WStringToUTF8(result.password) << "</td>\n";
-            table << "                    <td class=\"status-decrypted\">" << WStringToUTF8(result.status) << "</td>\n";
+            table << "                    <td>" << StringUtils::WideToUTF8(result.type) << "</td>\n";
+            table << "                    <td>" << StringUtils::WideToUTF8(result.profile) << "</td>\n";
+            table << "                    <td>" << StringUtils::WideToUTF8(result.url) << "</td>\n";
+            table << "                    <td>" << StringUtils::WideToUTF8(result.username) << "</td>\n";
+            table << "                    <td class=\"password\">" << StringUtils::WideToUTF8(result.password) << "</td>\n";
+            table << "                    <td class=\"status-decrypted\">" << StringUtils::WideToUTF8(result.status) << "</td>\n";
             table << "                </tr>\n";
         }
     }
@@ -325,35 +296,16 @@ std::string ReportExporter::BuildWiFiTable(const ReportData& data) noexcept
     for (const auto& result : data.passwordResults) {
         if (result.type.find(L"WiFi") != std::wstring::npos) {
             table << "                <tr class=\"wifi\">\n";
-            table << "                    <td>" << WStringToUTF8(result.profile) << "</td>\n";
-            table << "                    <td class=\"password\">" << WStringToUTF8(result.password) << "</td>\n";
-            table << "                    <td>" << WStringToUTF8(result.type) << "</td>\n";
-            table << "                    <td class=\"status-decrypted\">" << WStringToUTF8(result.status) << "</td>\n";
+            table << "                    <td>" << StringUtils::WideToUTF8(result.profile) << "</td>\n";
+            table << "                    <td class=\"password\">" << StringUtils::WideToUTF8(result.password) << "</td>\n";
+            table << "                    <td>" << StringUtils::WideToUTF8(result.type) << "</td>\n";
+            table << "                    <td class=\"status-decrypted\">" << StringUtils::WideToUTF8(result.status) << "</td>\n";
             table << "                </tr>\n";
         }
     }
     
     table << "            </tbody>\n        </table>\n";
     return table.str();
-}
-
-// Convert byte vector to hex string for display
-std::string ReportExporter::BytesToHexString(const std::vector<BYTE>& bytes) noexcept 
-{
-    if (bytes.empty()) return "N/A";
-    
-    std::ostringstream hexStream;
-    hexStream << std::hex << std::setfill('0');
-    
-    for (size_t i = 0; i < bytes.size() && i < 32; ++i) {  // Limit to first 32 bytes for display
-        hexStream << std::setw(2) << static_cast<int>(bytes[i]);
-    }
-    
-    if (bytes.size() > 32) {
-        hexStream << "...";
-    }
-    
-    return hexStream.str();
 }
 
 // TXT report generation for lightweight output
@@ -437,17 +389,6 @@ std::wstring ReportExporter::BuildTXTWiFi(const ReportData& data) noexcept
     section << L"\n";
     
     return section.str();
-}
-
-// Utility functions for file handling and encoding
-std::string ReportExporter::WStringToUTF8(const std::wstring& wstr) noexcept
-{
-    if (wstr.empty()) return "";
-    
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), NULL, 0, NULL, NULL);
-    std::string strTo(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
-    return strTo;
 }
 
 std::wstring ReportExporter::GetHTMLPath(const std::wstring& outputPath) noexcept

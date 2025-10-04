@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 // HiveManager.cpp
 #include "HiveManager.h"
 #include "common.h"
@@ -168,30 +143,17 @@ void HiveManager::ResetStats()
     m_lastStats = BackupStats{};
 }
 
-std::wstring HiveManager::GetTimestamp()
-{
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    
-    std::tm tm;
-    localtime_s(&tm, &time);
-    
-    std::wstringstream ss;
-    ss << std::put_time(&tm, L"%Y.%m.%d_%H.%M.%S");
-    return ss.str();
-}
-
 fs::path HiveManager::GenerateDefaultBackupPath()
 {
     wchar_t downloadsPath[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROFILE, nullptr, 0, downloadsPath))) {
         fs::path basePath = fs::path(downloadsPath) / L"Downloads";
-        std::wstring folderName = L"Registry_Backup_" + GetTimestamp();
+        std::wstring folderName = L"Registry_Backup_" + TimeUtils::GetFormattedTimestamp("datetime_file");
         return basePath / folderName;
     }
     
     // Fallback to temp if Downloads not found
-    return fs::temp_directory_path() / (L"Registry_Backup_" + GetTimestamp());
+    return fs::temp_directory_path() / (L"Registry_Backup_" + TimeUtils::GetFormattedTimestamp("datetime_file"));
 }
 
 bool HiveManager::ValidateBackupDirectory(const fs::path& path)
@@ -652,7 +614,7 @@ bool HiveManager::Defrag(const std::wstring& tempPath)
     // Generate temp backup path BEFORE any elevation (to get real user temp)
     fs::path defragPath;
     if (tempPath.empty()) {
-        defragPath = fs::temp_directory_path() / (L"Registry_Defrag_" + GetTimestamp());
+        defragPath = fs::temp_directory_path() / (L"Registry_Defrag_" + TimeUtils::GetFormattedTimestamp("datetime_file"));
     }
     else {
         defragPath = tempPath;

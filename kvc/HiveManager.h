@@ -51,7 +51,6 @@ private:
     bool PromptYesNo(const wchar_t* question);
     
     fs::path GenerateDefaultBackupPath();
-    std::wstring GetTimestamp();
     std::wstring GetCurrentUserSid();
     std::wstring GetCurrentUsername();
     fs::path GetHivePhysicalPath(const std::wstring& hiveName);

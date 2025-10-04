@@ -7,6 +7,7 @@
 #include <Shlobj.h>
 #include <accctrl.h>
 #include <aclapi.h>
+#include <wincrypt.h>
 #include <iostream>
 #include <string>
 #include <optional>
@@ -14,6 +15,12 @@
 #include <array>
 #include <chrono>
 #include <memory>
+#include <vector>
+#include <algorithm>
+#include <iomanip>
+#include <filesystem>
+
+#pragma comment(lib, "crypt32.lib")
 
 // Session management constants
 inline constexpr int MAX_SESSIONS = 16;
@@ -80,6 +87,32 @@ void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
     std::wcout << ss.str();
 }
 
+template<typename... Args>
+void PrintCriticalMessage(const wchar_t* format, Args&&... args) {
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hConsole, &csbi);
+    WORD originalColor = csbi.wAttributes;
+    
+    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    
+    std::wstringstream ss;
+    ss << L"[!] ";
+    
+    if constexpr (sizeof...(args) > 0) {
+        wchar_t buffer[1024];
+        swprintf_s(buffer, 1024, format, std::forward<Args>(args)...);
+        ss << buffer;
+    } else {
+        ss << format;  // <-- DODAJ ELSE - gdy brak args, wyświetl sam format
+    }
+    
+    ss << L"\r\n";
+    std::wcout << ss.str();
+    
+    SetConsoleTextAttribute(hConsole, originalColor);
+}
+
 #if kvc_DEBUG_ENABLED
     #define DEBUG(format, ...) PrintMessage(L"[DEBUG] ", format, ##__VA_ARGS__)
 #else
@@ -89,6 +122,7 @@ void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
 #define ERROR(format, ...) PrintMessage(L"[-] ", format, ##__VA_ARGS__)
 #define INFO(format, ...) PrintMessage(L"[*] ", format, ##__VA_ARGS__)
 #define SUCCESS(format, ...) PrintMessage(L"[+] ", format, ##__VA_ARGS__)
+#define CRITICAL(format, ...) PrintCriticalMessage(format, ##__VA_ARGS__)
 
 #define LASTERROR(f) \
     do { \
@@ -266,3 +300,278 @@ inline constexpr std::array<BYTE, 7> KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE
 inline constexpr wchar_t KVC_DATA_FILE[]  = L"kvc.dat";
 inline constexpr wchar_t KVC_PASS_FILE[]  = L"kvc_pass.exe";
 inline constexpr wchar_t KVC_CRYPT_FILE[] = L"kvc_crypt.dll";
+
+// ============================================================================
+// CONSOLIDATED UTILITY NAMESPACES - String, Path, Time, Crypto, Privilege
+// Centralized implementations to eliminate code duplication across project
+// ============================================================================
+
+namespace StringUtils {
+    /**
+     * @brief Converts UTF-8 encoded narrow string to wide string (UTF-16 LE)
+     * @param str UTF-8 encoded std::string
+     * @return std::wstring UTF-16 LE encoded wide string, empty on failure
+     * @note Returns empty string if conversion fails or input is empty
+     */
+    inline std::wstring UTF8ToWide(const std::string& str) noexcept {
+        if (str.empty()) return L"";
+        
+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, str.data(), 
+                                             static_cast<int>(str.size()), nullptr, 0);
+        if (size_needed <= 0) return L"";
+        
+        std::wstring result(size_needed, 0);
+        MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), 
+                           result.data(), size_needed);
+        return result;
+    }
+    
+    /**
+     * @brief Converts wide string (UTF-16 LE) to UTF-8 encoded narrow string
+     * @param wstr UTF-16 LE encoded std::wstring
+     * @return std::string UTF-8 encoded narrow string, empty on failure
+     * @note Returns empty string if conversion fails or input is empty
+     */
+    inline std::string WideToUTF8(const std::wstring& wstr) noexcept {
+        if (wstr.empty()) return "";
+        
+        int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), 
+                                             static_cast<int>(wstr.size()), 
+                                             nullptr, 0, nullptr, nullptr);
+        if (size_needed <= 0) return "";
+        
+        std::string result(size_needed, 0);
+        WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), 
+                           result.data(), size_needed, nullptr, nullptr);
+        return result;
+    }
+    
+    /**
+     * @brief Converts wide string to lowercase in-place using Windows locale
+     * @param str Wide string to convert (modified in-place)
+     * @return std::wstring& Reference to modified string for chaining
+     */
+    inline std::wstring& ToLowerCase(std::wstring& str) noexcept {
+        std::transform(str.begin(), str.end(), str.begin(), ::towlower);
+        return str;
+    }
+    
+    /**
+     * @brief Creates lowercase copy of wide string
+     * @param str Wide string to convert
+     * @return std::wstring Lowercase copy of input string
+     */
+    inline std::wstring ToLowerCaseCopy(const std::wstring& str) noexcept {
+        std::wstring result = str;
+        std::transform(result.begin(), result.end(), result.begin(), ::towlower);
+        return result;
+    }
+}
+
+namespace PathUtils {
+    /**
+     * @brief Retrieves user's Downloads folder path using modern Windows API
+     * @return std::wstring Full path to Downloads folder (e.g., C:\Users\John\Downloads)
+     * @note Uses SHGetKnownFolderPath with FOLDERID_Downloads (Windows 10/11)
+     * @note Returns empty string on failure, caller must validate
+     */
+    inline std::wstring GetDownloadsPath() noexcept {
+        wchar_t* downloadsPath = nullptr;
+        if (SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &downloadsPath) != S_OK) {
+            return L"";
+        }
+        
+        std::wstring result = downloadsPath;
+        CoTaskMemFree(downloadsPath);
+        return result;
+    }
+    
+    /**
+     * @brief Creates timestamped Secrets folder path in user Downloads directory
+     * @return std::wstring Full path in format: Downloads\Secrets_DD.MM.YYYY
+     * @note Uses current system date for folder naming
+     * @note Returns empty string if Downloads path cannot be determined
+     */
+    inline std::wstring GetDefaultSecretsOutputPath() noexcept {
+        std::wstring downloadsPath = GetDownloadsPath();
+        if (downloadsPath.empty()) {
+            return L"";
+        }
+        
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+        localtime_s(&tm, &time);
+        
+        wchar_t dateStr[16];
+        swprintf_s(dateStr, L"_%02d.%02d.%04d", 
+                   tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
+        
+        return downloadsPath + L"\\Secrets" + dateStr;
+    }
+    
+    /**
+     * @brief Ensures directory exists, creates if missing including parent directories
+     * @param path Directory path to validate/create
+     * @return bool true if directory exists or was created successfully
+     * @note Uses std::filesystem::create_directories for recursive creation
+     */
+    inline bool EnsureDirectoryExists(const std::wstring& path) noexcept {
+        if (path.empty()) return false;
+        
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec)) {
+            return std::filesystem::is_directory(path, ec);
+        }
+        
+        return std::filesystem::create_directories(path, ec) && !ec;
+    }
+    
+    /**
+     * @brief Validates directory write access by creating and deleting test file
+     * @param path Directory path to test
+     * @return bool true if directory is writable, false otherwise
+     * @note Creates directory if it doesn't exist
+     * @note Cleans up test file after validation
+     */
+    inline bool ValidateDirectoryWritable(const std::wstring& path) noexcept {
+        try {
+            std::filesystem::create_directories(path);
+            
+            std::wstring testFile = path + L"\\test.tmp";
+            HANDLE hTest = CreateFileW(testFile.c_str(), GENERIC_WRITE, 0, nullptr, 
+                                      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            
+            if (hTest == INVALID_HANDLE_VALUE) return false;
+            
+            CloseHandle(hTest);
+            DeleteFileW(testFile.c_str());
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+}
+
+namespace TimeUtils {
+    /**
+     * @brief Generates formatted timestamp string with multiple output formats
+     * @param format Format specifier: "date_only", "datetime_file", "datetime_display"
+     * @return std::wstring Formatted timestamp in requested format
+     * 
+     * Format options:
+     * - "date_only": DD.MM.YYYY (for folder names in Secrets exports)
+     * - "datetime_file": YYYY.MM.DD_HH.MM.SS (for backup filenames)
+     * - "datetime_display": YYYY-MM-DD HH:MM:SS (for reports and logs)
+     */
+    inline std::wstring GetFormattedTimestamp(const char* format = "datetime_file") noexcept {
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+        localtime_s(&tm, &time);
+        
+        std::wstringstream ss;
+        
+        if (strcmp(format, "date_only") == 0) {
+            ss << std::put_time(&tm, L"%d.%m.%Y");
+        }
+        else if (strcmp(format, "datetime_display") == 0) {
+            ss << std::put_time(&tm, L"%Y-%m-%d %H:%M:%S");
+        }
+        else { // datetime_file (default)
+            ss << std::put_time(&tm, L"%Y.%m.%d_%H.%M.%S");
+        }
+        
+        return ss.str();
+    }
+}
+
+namespace CryptoUtils {
+    /**
+     * @brief Decodes Base64-encoded string to binary data using Windows CryptAPI
+     * @param encoded Base64-encoded std::string
+     * @return std::vector<BYTE> Decoded binary data, empty on failure
+     * @note Uses CryptStringToBinaryA for decoding
+     */
+    inline std::vector<BYTE> Base64Decode(const std::string& encoded) noexcept {
+        if (encoded.empty()) return {};
+        
+        DWORD decodedSize = 0;
+        if (!CryptStringToBinaryA(encoded.c_str(), 0, CRYPT_STRING_BASE64, 
+                                 nullptr, &decodedSize, nullptr, nullptr)) {
+            return {};
+        }
+        
+        std::vector<BYTE> decoded(decodedSize);
+        if (!CryptStringToBinaryA(encoded.c_str(), 0, CRYPT_STRING_BASE64, 
+                                 decoded.data(), &decodedSize, nullptr, nullptr)) {
+            return {};
+        }
+        
+        decoded.resize(decodedSize);
+        return decoded;
+    }
+    
+    /**
+     * @brief Converts byte vector to hexadecimal string representation
+     * @param bytes Binary data to convert
+     * @param maxBytes Maximum bytes to convert (0 = unlimited)
+     * @return std::string Hex string (e.g., "A0E2808B" for {0xA0, 0xE2, 0x80, 0x8B})
+     * @note Appends "..." if truncated due to maxBytes limit
+     */
+    inline std::string BytesToHex(const std::vector<BYTE>& bytes, size_t maxBytes = 0) noexcept {
+        if (bytes.empty()) return "";
+        
+        size_t limit = (maxBytes > 0 && maxBytes < bytes.size()) ? maxBytes : bytes.size();
+        
+        std::ostringstream hexStream;
+        hexStream << std::hex << std::setfill('0');
+        
+        for (size_t i = 0; i < limit; ++i) {
+            hexStream << std::setw(2) << static_cast<int>(bytes[i]);
+        }
+        
+        if (maxBytes > 0 && bytes.size() > maxBytes) {
+            hexStream << "...";
+        }
+        
+        return hexStream.str();
+    }
+}
+
+namespace PrivilegeUtils {
+    /**
+     * @brief Enables specified privilege in current process token
+     * @param privilege Privilege name constant (e.g., SE_BACKUP_NAME, SE_DEBUG_NAME)
+     * @return bool true if privilege enabled successfully, false on failure
+     * 
+     * @note Automatically opens and closes process token
+     * @note Verifies privilege enablement via ERROR_NOT_ALL_ASSIGNED check
+     * @note Required for registry backup/restore, process manipulation, etc.
+     */
+    inline bool EnablePrivilege(LPCWSTR privilege) noexcept {
+        HANDLE hToken;
+        if (!OpenProcessToken(GetCurrentProcess(), 
+                             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+            return false;
+        }
+
+        LUID luid;
+        if (!LookupPrivilegeValueW(nullptr, privilege, &luid)) {
+            CloseHandle(hToken);
+            return false;
+        }
+
+        TOKEN_PRIVILEGES tp = {};
+        tp.PrivilegeCount = 1;
+        tp.Privileges[0].Luid = luid;
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+        BOOL result = AdjustTokenPrivileges(hToken, FALSE, &tp, 
+                                           sizeof(TOKEN_PRIVILEGES), nullptr, nullptr);
+        DWORD lastError = GetLastError();
+        CloseHandle(hToken);
+        
+        return result && (lastError == ERROR_SUCCESS);
+    }
+}

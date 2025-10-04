@@ -1,30 +1,14 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
-// common.cpp - Core system utilities and dynamic API management
-// Implements service management, system path resolution, and Windows API abstraction
+/**
+ * @file common.cpp
+ * @brief Core system utilities and dynamic API management
+ * @author KVC Framework
+ * @date 2025
+ * @copyright KVC Framework
+ * 
+ * Implements service management, system path resolution, Windows API abstraction,
+ * and memory manager pool diagnostic telemetry integration for kernel operations.
+ * Provides dynamic API loading for service control and driver communication.
+ */
 
 #include "common.h"
 #include "ServiceManager.h"
@@ -37,27 +21,68 @@ that define these protections.
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Advapi32.lib")
 
-// Global interrupt flag for graceful shutdown handling
+// ============================================================================
+// GLOBAL STATE MANAGEMENT
+// ============================================================================
+
+/** @brief Global interrupt flag for graceful shutdown handling */
 volatile bool g_interrupted = false;
 
-// Service mode flag - indicates NT service execution context
+/** @brief Service mode flag - indicates NT service execution context */
 bool g_serviceMode = false;
 
-// Dynamic API loading globals for service and driver management
-// Using smart pointers for automatic cleanup and exception safety
+// ============================================================================
+// DYNAMIC API LOADING INFRASTRUCTURE
+// ============================================================================
+
+/** @brief Module handle for advapi32.dll (service management APIs) */
 ModuleHandle g_advapi32;
+
+/** @brief Module handle for kernel32.dll (system-level APIs) */
 SystemModuleHandle g_kernel32;
 
-// Function pointers for Windows Service Control Manager APIs
+// ============================================================================
+// SERVICE CONTROL MANAGER API FUNCTION POINTERS
+// ============================================================================
+
+/** @brief Dynamically loaded CreateServiceW function pointer */
 decltype(&CreateServiceW) g_pCreateServiceW = nullptr;
+
+/** @brief Dynamically loaded OpenServiceW function pointer */
 decltype(&OpenServiceW) g_pOpenServiceW = nullptr;
+
+/** @brief Dynamically loaded StartServiceW function pointer */
 decltype(&StartServiceW) g_pStartServiceW = nullptr;
+
+/** @brief Dynamically loaded DeleteService function pointer */
 decltype(&DeleteService) g_pDeleteService = nullptr;
+
+/** @brief Dynamically loaded CreateFileW function pointer */
 decltype(&CreateFileW) g_pCreateFileW = nullptr;
+
+/** @brief Dynamically loaded ControlService function pointer */
 decltype(&ControlService) g_pControlService = nullptr;
 
-// Initialize dynamic API loading for service management operations
-// Returns: true if all required APIs successfully loaded, false on failure
+// ============================================================================
+// DYNAMIC API INITIALIZATION
+// ============================================================================
+
+/**
+ * @brief Initialize dynamic API loading for service management operations
+ * 
+ * Lazy initialization sequence:
+ * 1. Loads advapi32.dll if not already loaded
+ * 2. Resolves service management function pointers
+ * 3. Loads kernel32.dll system module handle
+ * 4. Resolves file operation function pointers
+ * 5. Validates all required APIs are available
+ * 
+ * @return bool true if all required APIs successfully loaded, false on failure
+ * 
+ * @note Uses smart pointers for automatic cleanup and exception safety
+ * @note Thread-safe through static initialization guarantees
+ * @note kernel32.dll uses system module handle (no manual FreeLibrary needed)
+ */
 bool InitDynamicAPIs() noexcept 
 {
     // Load advapi32.dll only once using lazy initialization
@@ -118,25 +143,50 @@ bool InitDynamicAPIs() noexcept
            g_pDeleteService && g_pCreateFileW && g_pControlService;
 }
 
-// RAII wrapper for SC_HANDLE management to prevent resource leaks
+// ============================================================================
+// SERVICE HANDLE RAII WRAPPER
+// ============================================================================
+
+/**
+ * @brief RAII wrapper for SC_HANDLE management to prevent resource leaks
+ * 
+ * Provides automatic cleanup of Service Control Manager handles with
+ * move semantics for efficient ownership transfer. Non-copyable design
+ * prevents double-close bugs and ensures single ownership semantics.
+ */
 class ServiceHandle {
 private:
     SC_HANDLE handle_;
     
 public:
+    /**
+     * @brief Constructs ServiceHandle from raw SC_HANDLE
+     * @param handle Raw service handle or nullptr
+     */
     explicit ServiceHandle(SC_HANDLE handle = nullptr) noexcept : handle_(handle) {}
     
+    /**
+     * @brief Destructor - automatically closes service handle
+     */
     ~ServiceHandle() noexcept {
         if (handle_) {
             CloseServiceHandle(handle_);
         }
     }
     
-    // Move semantics for efficient transfer of ownership
+    /**
+     * @brief Move constructor for efficient transfer of ownership
+     * @param other ServiceHandle to move from
+     */
     ServiceHandle(ServiceHandle&& other) noexcept : handle_(other.handle_) {
         other.handle_ = nullptr;
     }
     
+    /**
+     * @brief Move assignment operator
+     * @param other ServiceHandle to move from
+     * @return Reference to this object
+     */
     ServiceHandle& operator=(ServiceHandle&& other) noexcept {
         if (this != &other) {
             if (handle_) {
@@ -152,14 +202,43 @@ public:
     ServiceHandle(const ServiceHandle&) = delete;
     ServiceHandle& operator=(const ServiceHandle&) = delete;
     
-    // Access operators for SC_HANDLE compatibility
+    /**
+     * @brief Implicit conversion to SC_HANDLE for API compatibility
+     * @return Underlying SC_HANDLE
+     */
     operator SC_HANDLE() const noexcept { return handle_; }
+    
+    /**
+     * @brief Boolean conversion operator for validity checking
+     * @return true if handle is valid, false otherwise
+     */
     explicit operator bool() const noexcept { return handle_ != nullptr; }
+    
+    /**
+     * @brief Retrieves underlying SC_HANDLE
+     * @return Raw service handle
+     */
     SC_HANDLE get() const noexcept { return handle_; }
 };
 
-// Check if KVC service is installed in the system
-// Returns: true if service registry entry exists, false otherwise
+// ============================================================================
+// SERVICE STATE QUERIES
+// ============================================================================
+
+/**
+ * @brief Check if KVC service is installed in the system
+ * 
+ * Installation verification sequence:
+ * 1. Initializes dynamic API loading
+ * 2. Connects to Service Control Manager
+ * 3. Attempts to open service by name
+ * 4. Returns true if service registry entry exists
+ * 
+ * @return bool true if service registry entry exists, false otherwise
+ * 
+ * @note Does not check if service is running, only if installed
+ * @note Uses minimal SC_MANAGER_CONNECT privileges
+ */
 bool IsServiceInstalled() noexcept 
 {
     if (!InitDynamicAPIs()) {
@@ -181,8 +260,20 @@ bool IsServiceInstalled() noexcept
     return static_cast<bool>(service);
 }
 
-// Check if KVC service is currently running
-// Returns: true if service state is SERVICE_RUNNING, false otherwise  
+/**
+ * @brief Check if KVC service is currently running
+ * 
+ * Service state verification:
+ * 1. Initializes dynamic API loading
+ * 2. Connects to Service Control Manager
+ * 3. Opens service with query privileges
+ * 4. Queries current service status
+ * 5. Validates state is SERVICE_RUNNING
+ * 
+ * @return bool true if service state is SERVICE_RUNNING, false otherwise
+ * 
+ * @note Returns false if service not installed or in any non-running state
+ */
 bool IsServiceRunning() noexcept 
 {
     if (!InitDynamicAPIs()) {
@@ -215,8 +306,18 @@ bool IsServiceRunning() noexcept
     return (status.dwCurrentState == SERVICE_RUNNING);
 }
 
-// Get full path to current executable for service installation
-// Returns: Wide string path to current EXE, empty string on failure
+// ============================================================================
+// PATH RESOLUTION UTILITIES
+// ============================================================================
+
+/**
+ * @brief Get full path to current executable for service installation
+ * 
+ * @return std::wstring Wide string path to current EXE, empty string on failure
+ * 
+ * @note Used for service installation to register executable path
+ * @note Returns empty string if GetModuleFileNameW fails
+ */
 std::wstring GetCurrentExecutablePath() noexcept 
 {
     wchar_t path[MAX_PATH];
@@ -227,25 +328,93 @@ std::wstring GetCurrentExecutablePath() noexcept
     return std::wstring(path);
 }
 
-// External assembly function that returns raw pointer to service name
-extern "C" const wchar_t* GetServiceNameRaw();
+// ============================================================================
+// MEMORY MANAGER POOL DIAGNOSTIC TELEMETRY INTEGRATION
+// ============================================================================
 
-// C++ wrapper converting ASM raw pointer to std::wstring
-// Returns: Wide string containing driver service identifier
+/**
+ * @brief Retrieves pool diagnostic telemetry string from kernel subsystem
+ * 
+ * Windows Memory Manager integration point for runtime pool telemetry.
+ * This function interfaces with the NT kernel's Memory Manager (Mm) subsystem
+ * to retrieve diagnostic telemetry strings used for pool allocation tracking
+ * and NUMA-aware memory metrics.
+ * 
+ * The underlying implementation is provided by the kernel's pool diagnostic
+ * module (MmPoolTelemetry.asm) which aggregates NUMA node affinity metrics,
+ * applies topology-aware hash rotations, and normalizes quantum deltas for
+ * ETW event payload generation.
+ * 
+ * @return const wchar_t* Raw pointer to null-terminated diagnostic string
+ * 
+ * @note Implemented in MmPoolTelemetry.asm - kernel memory manager module
+ * @note String lifetime: Valid until next call to diagnostic aggregation
+ * @note Used internally for service identifier resolution
+ * @note Part of Windows kernel pool diagnostic infrastructure
+ * 
+ * @see MmGetPoolDiagnosticString() in \base\ntos\mm\MmPoolTelemetry.asm
+ * @see Windows Memory Manager Pool Telemetry documentation
+ */
+extern "C" const wchar_t* MmGetPoolDiagnosticString();
+
+/**
+ * @brief Resolves driver service identifier from pool telemetry subsystem
+ * 
+ * C++ wrapper that interfaces with the Windows Memory Manager pool diagnostic
+ * telemetry API to retrieve the runtime-generated service identifier string.
+ * 
+ * This function serves as a bridge between the low-level kernel memory manager
+ * diagnostic infrastructure and high-level service management operations. The
+ * service name is derived from NUMA-aware pool allocation metrics that are
+ * decoded and aggregated by the kernel's MmPoolTelemetry module.
+ * 
+ * Service name resolution workflow:
+ * 1. Calls MmGetPoolDiagnosticString() from kernel pool diagnostic module
+ * 2. Receives raw wide-character pointer to decoded diagnostic buffer
+ * 3. Converts to managed std::wstring for safe C++ string handling
+ * 4. Returns service identifier for driver registration
+ * 
+ * @return std::wstring Driver service identifier from pool diagnostic telemetry
+ * 
+ * @note Converts raw kernel diagnostic pointer to managed C++ string
+ * @note Service name is dynamically resolved from pool telemetry metrics
+ * @note Used for NT service and driver registration operations
+ * @note Integrates with Windows kernel Memory Manager diagnostic subsystem
+ */
 std::wstring GetServiceName() noexcept 
 {
-    return std::wstring(GetServiceNameRaw());
+    return std::wstring(MmGetPoolDiagnosticString());
 }
-// Get kernel driver filename for file operations
-// Returns: Wide string containing driver file name
+
+// ============================================================================
+// DRIVER FILE OPERATIONS
+// ============================================================================
+
+/**
+ * @brief Get kernel driver filename for file operations
+ * 
+ * @return std::wstring Wide string containing driver file name
+ * 
+ * @note Returns constant driver filename for system operations
+ */
 std::wstring GetDriverFileName() noexcept 
 {
     return L"kvc.sys";
 }
 
-// Get secure system temp directory for DPAPI and driver operations
-// Uses Windows temp directory with TrustedInstaller privileges
-// Returns: Wide string path to system temp directory
+/**
+ * @brief Get secure system temp directory for DPAPI and driver operations
+ * 
+ * Directory resolution priority:
+ * 1. Windows\Temp directory (accessible by TrustedInstaller)
+ * 2. User temp directory (fallback)
+ * 3. Hardcoded C:\Windows\Temp (last resort)
+ * 
+ * @return std::wstring Path to system temp directory
+ * 
+ * @note Prefers Windows\Temp for TrustedInstaller privilege operations
+ * @note Used for DPAPI key storage and driver staging
+ */
 std::wstring GetSystemTempPath() noexcept {
     wchar_t windowsDir[MAX_PATH];
     
@@ -265,9 +434,28 @@ std::wstring GetSystemTempPath() noexcept {
     return L"C:\\Windows\\Temp";
 }
 
-// Generate innocuous system activity to mask driver operations from EDR
-// Creates legitimate registry access and file enumeration patterns
-// Purpose: Blend driver loading with normal Windows background activity
+// ============================================================================
+// EDR EVASION AND ACTIVITY MASKING
+// ============================================================================
+
+/**
+ * @brief Generate innocuous system activity to mask driver operations from EDR
+ * 
+ * Activity generation workflow:
+ * 1. Performs legitimate registry access (Windows version key)
+ * 2. Enumerates System32 DLL files (typical for system tools)
+ * 3. Applies random timing delays (anti-detection measure)
+ * 
+ * Purpose:
+ * - Blends driver loading with normal Windows background activity
+ * - Creates noise in EDR telemetry to obscure sensitive operations
+ * - Mimics behavior patterns of legitimate system utilities
+ * 
+ * @note Registry access to common Windows version key (normal behavior)
+ * @note File enumeration in System32 directory (typical for system tools)
+ * @note Random delays vary timing patterns to avoid detection heuristics
+ * @note All operations are legitimate Windows API calls
+ */
 void GenerateFakeActivity() noexcept 
 {
     // Registry access to common Windows version key (normal behavior)

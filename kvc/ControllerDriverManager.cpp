@@ -1,28 +1,3 @@
-/*******************************************************************************
-  _  ____     ______ 
- | |/ /\ \   / / ___|
- | ' /  \ \ / / |    
- | . \   \ V /| |___ 
- |_|\_\   \_/  \____|
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, 
-offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived 
-as "Kernel Process Control," the framework has evolved to emphasize not just control, but the complete **exploitation 
-of kernel-level primitives** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows 
-security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) and Antimalware 
-Protected Interface (AMSI) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures 
-that define these protections.
-
-  -----------------------------------------------------------------------------
-  Author : Marek Wesołowski
-  Email  : marek@wesolowski.eu.org
-  Phone  : +48 607 440 283 (Tel/WhatsApp)
-  Date   : 04-09-2025
-
-*******************************************************************************/
-
 // ControllerDriverManager.cpp
 #include "Controller.h"
 #include "common.h"
@@ -145,6 +120,24 @@ std::vector<BYTE> Controller::DecryptDriver(const std::vector<BYTE>& encryptedDa
 // Silent driver installation with TrustedInstaller privileges
 bool Controller::InstallDriverSilently() noexcept {
     ForceRemoveService();
+	// Check for zombie service state
+	if (IsServiceZombie()) {
+		CRITICAL(L"");  // była ERROR
+		CRITICAL(L"===============================================================");
+		CRITICAL(L"  DRIVER SERVICE IN ZOMBIE STATE - SYSTEM RESTART REQUIRED");
+		CRITICAL(L"===============================================================");
+		CRITICAL(L"");
+		CRITICAL(L"The kernel driver service is marked for deletion but cannot be");
+		CRITICAL(L"removed until the system is restarted. This typically occurs");
+		CRITICAL(L"when driver loading is interrupted during initialization.");
+		CRITICAL(L"");
+		INFO(L"Required action: Restart your computer to clear the zombie state");  // INFO zostaje
+		INFO(L"After restart, the driver will load normally");  // INFO zostaje
+		CRITICAL(L"");
+		CRITICAL(L"===============================================================");
+		CRITICAL(L"");
+		return false;
+	}
 	auto encryptedData = ExtractEncryptedDriver();
     if (encryptedData.empty()) return false;
     
@@ -186,6 +179,12 @@ bool Controller::InstallDriverSilently() noexcept {
 
 bool Controller::RegisterDriverServiceSilent(const std::wstring& driverPath) noexcept {
     if (!InitDynamicAPIs()) return false;
+    
+    if (IsServiceZombie()) {
+        DEBUG(L"Zombie service detected - restart required");
+        return false;
+    }
+    
     GenerateFakeActivity();
     
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
@@ -194,7 +193,7 @@ bool Controller::RegisterDriverServiceSilent(const std::wstring& driverPath) noe
     SC_HANDLE hService = g_pCreateServiceW(
         hSCM, 
         GetServiceName().c_str(), 
-        L"Kernel Driver Service",
+        L"KVC",
         SERVICE_ALL_ACCESS, 
         SERVICE_KERNEL_DRIVER,  // KEY CHANGE: type = kernel
         SERVICE_DEMAND_START,   // start = demand (can be changed to auto)
@@ -237,9 +236,51 @@ bool Controller::StartDriverServiceSilent() noexcept {
     return success;
 }
 
+// Detects zombie service state (marked for deletion but not yet removed).
+// Returns true if service exists with DELETE_PENDING flag, indicating system restart is required.
+bool Controller::IsServiceZombie() noexcept {
+    if (!InitDynamicAPIs()) return false;
+    
+    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (!hSCM) return false;
+    
+    SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), DELETE);
+    if (!hService) {
+        DWORD err = GetLastError();
+        CloseServiceHandle(hSCM);
+        return false;
+    }
+    
+    BOOL delResult = g_pDeleteService(hService);
+    DWORD err = GetLastError();
+    
+    CloseServiceHandle(hService);
+    CloseServiceHandle(hSCM);
+    
+    return (!delResult && err == ERROR_SERVICE_MARKED_FOR_DELETE);
+}
+
 // Legacy driver installation with enhanced error handling
 bool Controller::InstallDriver() noexcept {
 	ForceRemoveService();
+	// Check for zombie service state
+	if (IsServiceZombie()) {
+		CRITICAL(L"");  // była ERROR
+		CRITICAL(L"===============================================================");
+		CRITICAL(L"  DRIVER SERVICE IN ZOMBIE STATE - SYSTEM RESTART REQUIRED");
+		CRITICAL(L"===============================================================");
+		CRITICAL(L"");
+		CRITICAL(L"The kernel driver service is marked for deletion but cannot be");
+		CRITICAL(L"removed until the system is restarted. This typically occurs");
+		CRITICAL(L"when driver loading is interrupted during initialization.");
+		CRITICAL(L"");
+		INFO(L"Required action: Restart your computer to clear the zombie state");  // INFO zostaje
+		INFO(L"After restart, the driver will load normally");  // INFO zostaje
+		CRITICAL(L"");
+		CRITICAL(L"===============================================================");
+		CRITICAL(L"");
+		return false;
+	}
     auto encryptedData = ExtractEncryptedDriver();
     if (encryptedData.empty()) {
         ERROR(L"Failed to extract encrypted driver from icon resource");
@@ -297,7 +338,7 @@ bool Controller::InstallDriver() noexcept {
     }
 
     SC_HANDLE hService = g_pCreateServiceW(
-        hSCM, GetServiceName().c_str(), L"Memory Access Driver",
+        hSCM, GetServiceName().c_str(), L"KVC",
         SERVICE_ALL_ACCESS, 
         SERVICE_KERNEL_DRIVER,  // KEY CHANGE
         SERVICE_DEMAND_START,   // start= demand

@@ -68,11 +68,7 @@ private:
     std::wstring BuildTXTWiFi(const ReportData& data) noexcept;
     
     // Utility functions for encoding and paths
-    std::string WStringToUTF8(const std::wstring& wstr) noexcept;
     std::wstring GetHTMLPath(const std::wstring& outputPath) noexcept;
     std::wstring GetTXTPath(const std::wstring& outputPath) noexcept;
     bool EnsureOutputDirectory(const std::wstring& path) noexcept;
-    
-    // Utility for DPAPI key display
-    std::string BytesToHexString(const std::vector<BYTE>& bytes) noexcept;
 };

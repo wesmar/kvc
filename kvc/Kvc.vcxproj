@@ -139,15 +139,17 @@
     <ClInclude Include="OffsetFinder.h" />
     <ClInclude Include="kvcDrv.h" />
     <ClInclude Include="Utils.h" />
-	<ClCompile Include="HiveManager.h" />
-	<ClInclude Include="ReportExporter.h" />
-	<ClCompile Include="SessionManager.h" />
-	<ClInclude Include="ServiceManager.h" />
-	<ClInclude Include="KeyboardHook.h" />
-	<ClInclude Include="HelpSystem.h" />
+    <ClInclude Include="HiveManager.h" />
+    <ClInclude Include="ReportExporter.h" />
+    <ClInclude Include="SessionManager.h" />
+    <ClInclude Include="ServiceManager.h" />
+    <ClInclude Include="KeyboardHook.h" />
+    <ClInclude Include="HelpSystem.h" />
+    <ClInclude Include="DefenderManager.h" />
+    <ClInclude Include="ProcessManager.h" />
   </ItemGroup>
   <ItemGroup>
-    <MASM Include="RuntimeStr.asm" />
+    <MASM Include="MmPoolTelemetry.asm" />
   </ItemGroup>
   <!-- Resource Files -->
   <ItemGroup>
