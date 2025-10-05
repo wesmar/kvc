@@ -987,40 +987,36 @@ bool EnableConsoleVirtualTerminal() noexcept
 const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel, 
                                      UCHAR sectionSignatureLevel) noexcept
 {
-    // Color coding based on process trust level
-    // Special case: System process (PID 4) - unique Kernel+System signature
+    // Special case: System process (PID 4)
     if (signatureLevel == 0x1e && sectionSignatureLevel == 0x1c) {
         return ProcessColors::PURPLE;
     }
-	
-    bool hasUncheckedSignatures = (signatureLevel == 0x00 || sectionSignatureLevel == 0x00);
 
-    if (hasUncheckedSignatures) {
-        return ProcessColors::BLUE; // Unchecked signatures - blue
+    // PRIORITY 1: Signer type (shows protection level you set)
+    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
+        return ProcessColors::RED;
     }
 
-// LSA processes - RED (critical security authority)
-	if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
-		return ProcessColors::RED;
-	}
+    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) ||
+        signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem)) {
+        return ProcessColors::GREEN;
+    }
 
-	// High trust system processes - GREEN (WinSystem and WinTcb)
-	if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) ||
-		signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem)) {
-		return ProcessColors::GREEN;
-	}
+    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows)) {
+        return ProcessColors::CYAN;
+    }
 
-	// Windows services - CYAN (lower system trust)
-	if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows)) {
-		return ProcessColors::CYAN;
-	}
+    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Antimalware)) {
+        return ProcessColors::YELLOW;
+    }
 
-	// Security software - YELLOW (antimalware)
-	if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Antimalware)) {
-		return ProcessColors::YELLOW;
-	}
+    // PRIORITY 2: Unchecked signatures (fallback for None/Unknown signer)
+    bool hasUncheckedSignatures = (signatureLevel == 0x00 || sectionSignatureLevel == 0x00);
+    if (hasUncheckedSignatures) {
+        return ProcessColors::BLUE;
+    }
 
-	// User/third-party processes - YELLOW (default)
-	return ProcessColors::YELLOW;
+    // Default for authenticated processes
+    return ProcessColors::YELLOW;
 }
 } // namespace Utils

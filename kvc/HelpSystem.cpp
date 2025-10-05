@@ -3,6 +3,8 @@
 #include <iostream>
 #include <iomanip>
 
+extern "C" void ScreenShake(int intensity, int shakes);
+
 void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
 {
     PrintHeader();
@@ -600,4 +602,7 @@ void HelpSystem::PrintUnknownCommandMessage(std::wstring_view command) noexcept
     
     // Restore original color
     SetConsoleTextAttribute(hConsole, originalColor);
+	
+	// Visual feedback: shake desktop on invalid command
+	ScreenShake(3, 10); //ScreenShake.asm
 }
