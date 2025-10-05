@@ -1,3 +1,14 @@
+/**
+ * @file common.h
+ * @brief Common definitions, utilities and includes for KVC Framework
+ * @author Marek Wesolowski
+ * @date 2025
+ * @copyright KVC Framework
+ * 
+ * Central header containing Windows API includes, type definitions,
+ * logging system, and cross-cutting utilities used throughout the framework.
+ */
+
 #pragma once
 
 #include <Windows.h>
@@ -23,32 +34,40 @@
 #pragma comment(lib, "crypt32.lib")
 
 // Session management constants
-inline constexpr int MAX_SESSIONS = 16;
+inline constexpr int MAX_SESSIONS = 16;  ///< Maximum number of stored sessions
 
 #ifdef BUILD_DATE
-    #define __DATE__ BUILD_DATE
+    #define __DATE__ BUILD_DATE  ///< Build date override for reproducible builds
 #endif
 
 #ifdef BUILD_TIME  
-    #define __TIME__ BUILD_TIME
+    #define __TIME__ BUILD_TIME  ///< Build time override for reproducible builds
 #endif
 
-#define kvc_DEBUG_ENABLED 0
+#define kvc_DEBUG_ENABLED 0  ///< Global debug flag (0=disabled, 1=enabled)
 
 #ifdef ERROR
-#undef ERROR
+#undef ERROR  ///< Undefine Windows ERROR macro to avoid conflicts
 #endif
 
 #ifndef SHTDN_REASON_MAJOR_SOFTWARE
-#define SHTDN_REASON_MAJOR_SOFTWARE 0x00030000
+#define SHTDN_REASON_MAJOR_SOFTWARE 0x00030000  ///< Software shutdown reason
 #endif
 
 #ifndef SHTDN_REASON_MINOR_RECONFIGURE  
-#define SHTDN_REASON_MINOR_RECONFIGURE 0x00000004
+#define SHTDN_REASON_MINOR_RECONFIGURE 0x00000004  ///< Reconfiguration shutdown reason
 #endif
 
 // Smart module handle management
+
+/**
+ * @brief Custom deleter for HMODULE with FreeLibrary
+ */
 struct ModuleDeleter {
+    /**
+     * @brief Free library module
+     * @param mod Module handle to free
+     */
     void operator()(HMODULE mod) const noexcept {
         if (mod) {
             FreeLibrary(mod);
@@ -56,16 +75,31 @@ struct ModuleDeleter {
     }
 };
 
+/**
+ * @brief Custom deleter for system modules (no cleanup needed)
+ */
 struct SystemModuleDeleter {
+    /**
+     * @brief No-op deleter for system modules from GetModuleHandle
+     * @param mod Module handle (ignored)
+     */
     void operator()(HMODULE) const noexcept {
         // System modules obtained via GetModuleHandle don't need to be freed
     }
 };
 
-using ModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, ModuleDeleter>;
-using SystemModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, SystemModuleDeleter>;
+using ModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, ModuleDeleter>;  ///< Smart pointer for loaded modules
+using SystemModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, SystemModuleDeleter>;  ///< Smart pointer for system modules
 
 // Fixed logging system with proper buffer size and variadic handling
+
+/**
+ * @brief Print formatted message with prefix
+ * @tparam Args Variadic template arguments
+ * @param prefix Message prefix (e.g., "[DEBUG] ")
+ * @param format Format string (printf-style)
+ * @param args Format arguments
+ */
 template<typename... Args>
 void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
 {
@@ -87,6 +121,12 @@ void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
     std::wcout << ss.str();
 }
 
+/**
+ * @brief Print critical message in red color
+ * @tparam Args Variadic template arguments
+ * @param format Format string (printf-style)
+ * @param args Format arguments
+ */
 template<typename... Args>
 void PrintCriticalMessage(const wchar_t* format, Args&&... args) {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -104,7 +144,7 @@ void PrintCriticalMessage(const wchar_t* format, Args&&... args) {
         swprintf_s(buffer, 1024, format, std::forward<Args>(args)...);
         ss << buffer;
     } else {
-        ss << format;  // <-- DODAJ ELSE - gdy brak args, wyświetl sam format
+        ss << format;
     }
     
     ss << L"\r\n";
@@ -114,16 +154,20 @@ void PrintCriticalMessage(const wchar_t* format, Args&&... args) {
 }
 
 #if kvc_DEBUG_ENABLED
-    #define DEBUG(format, ...) PrintMessage(L"[DEBUG] ", format, ##__VA_ARGS__)
+    #define DEBUG(format, ...) PrintMessage(L"[DEBUG] ", format, ##__VA_ARGS__)  ///< Debug logging macro
 #else
-    #define DEBUG(format, ...) do {} while(0)
+    #define DEBUG(format, ...) do {} while(0)  ///< Debug logging macro (disabled)
 #endif
 
-#define ERROR(format, ...) PrintMessage(L"[-] ", format, ##__VA_ARGS__)
-#define INFO(format, ...) PrintMessage(L"[*] ", format, ##__VA_ARGS__)
-#define SUCCESS(format, ...) PrintMessage(L"[+] ", format, ##__VA_ARGS__)
-#define CRITICAL(format, ...) PrintCriticalMessage(format, ##__VA_ARGS__)
+#define ERROR(format, ...) PrintMessage(L"[-] ", format, ##__VA_ARGS__)      ///< Error logging macro
+#define INFO(format, ...) PrintMessage(L"[*] ", format, ##__VA_ARGS__)       ///< Info logging macro
+#define SUCCESS(format, ...) PrintMessage(L"[+] ", format, ##__VA_ARGS__)    ///< Success logging macro
+#define CRITICAL(format, ...) PrintCriticalMessage(format, ##__VA_ARGS__)    ///< Critical error logging macro
 
+/**
+ * @brief Log last error for failed function
+ * @param f Function name that failed
+ */
 #define LASTERROR(f) \
     do { \
         wchar_t buf[256]; \
@@ -132,119 +176,139 @@ void PrintCriticalMessage(const wchar_t* format, Args&&... args) {
     } while(0)
 
 // Windows protection type definitions
+
+/**
+ * @brief Process protection level enumeration
+ */
 enum class PS_PROTECTED_TYPE : UCHAR
 {
-    None = 0,
-    ProtectedLight = 1,
-    Protected = 2
+    None = 0,           ///< No protection
+    ProtectedLight = 1, ///< Protected Process Light (PPL)
+    Protected = 2       ///< Protected Process (PP)
 };
 
+/**
+ * @brief Process signer type enumeration
+ */
 enum class PS_PROTECTED_SIGNER : UCHAR
 {
-    None = 0,
-    Authenticode = 1,
-    CodeGen = 2,
-    Antimalware = 3,
-    Lsa = 4,
-    Windows = 5,
-    WinTcb = 6,
-    WinSystem = 7,
-    App = 8,
-    Max = 9
+    None = 0,           ///< No signer
+    Authenticode = 1,   ///< Authenticode signed
+    CodeGen = 2,        ///< Code generation
+    Antimalware = 3,    ///< Antimalware products
+    Lsa = 4,            ///< Local Security Authority
+    Windows = 5,        ///< Windows signed
+    WinTcb = 6,         ///< Windows TCB (Trusted Computing Base)
+    WinSystem = 7,      ///< Windows system components
+    App = 8,            ///< Application signer
+    Max = 9             ///< Maximum value
 };
 
 // Service-related constants
+
+/**
+ * @brief Service-related constants and configuration
+ */
 namespace ServiceConstants {
-    inline constexpr wchar_t SERVICE_NAME[] = L"KernelVulnerabilityControl";
-    inline constexpr wchar_t SERVICE_DISPLAY_NAME[] = L"Kernel Vulnerability Capabilities Framework";
-    inline constexpr wchar_t SERVICE_PARAM[] = L"--service";
+    inline constexpr wchar_t SERVICE_NAME[] = L"KernelVulnerabilityControl";              ///< Service internal name
+    inline constexpr wchar_t SERVICE_DISPLAY_NAME[] = L"Kernel Vulnerability Capabilities Framework";  ///< Service display name
+    inline constexpr wchar_t SERVICE_PARAM[] = L"--service";                              ///< Service mode parameter
     
     // Keyboard hook settings
-    inline constexpr int CTRL_SEQUENCE_LENGTH = 5;
-    inline constexpr DWORD CTRL_SEQUENCE_TIMEOUT_MS = 2000;
-    inline constexpr DWORD CTRL_DEBOUNCE_MS = 50;
+    inline constexpr int CTRL_SEQUENCE_LENGTH = 5;           ///< Number of Ctrl presses for activation
+    inline constexpr DWORD CTRL_SEQUENCE_TIMEOUT_MS = 2000;  ///< Sequence timeout in milliseconds
+    inline constexpr DWORD CTRL_DEBOUNCE_MS = 50;            ///< Key debounce period
 }
 
 // DPAPI constants for password extraction
+
+/**
+ * @brief DPAPI-related constants for password extraction operations
+ */
 namespace DPAPIConstants {
-    inline constexpr int SQLITE_OK = 0;
-    inline constexpr int SQLITE_ROW = 100;
-    inline constexpr int SQLITE_DONE = 101;
-    inline constexpr int SQLITE_OPEN_READONLY = 0x00000001;
+    inline constexpr int SQLITE_OK = 0;              ///< SQLite success code
+    inline constexpr int SQLITE_ROW = 100;           ///< SQLite row available code
+    inline constexpr int SQLITE_DONE = 101;          ///< SQLite operation complete code
+    inline constexpr int SQLITE_OPEN_READONLY = 0x00000001;  ///< SQLite read-only mode
     
-    inline std::string GetChromeV10Prefix() { return "v10"; }
-    inline std::string GetChromeDPAPIPrefix() { return "DPAPI"; }
+    inline std::string GetChromeV10Prefix() { return "v10"; }        ///< Chrome encrypted key prefix
+    inline std::string GetChromeDPAPIPrefix() { return "DPAPI"; }    ///< Chrome DPAPI prefix
     
-    inline std::wstring GetSecurityPolicySecrets() { return L"SECURITY\\Policy\\Secrets"; }
-    inline std::wstring GetDPAPISystemKey() { return L"DPAPI_SYSTEM"; }
-    inline std::wstring GetNLKMKey() { return L"NL$KM"; }
-    inline std::wstring GetDefaultPasswordKey() { return L"DefaultPassword"; }
+    inline std::wstring GetSecurityPolicySecrets() { return L"SECURITY\\Policy\\Secrets"; }  ///< Registry path for LSA secrets
+    inline std::wstring GetDPAPISystemKey() { return L"DPAPI_SYSTEM"; }      ///< DPAPI system key name
+    inline std::wstring GetNLKMKey() { return L"NL$KM"; }                   ///< NL$KM key name
+    inline std::wstring GetDefaultPasswordKey() { return L"DefaultPassword"; }  ///< Default password key name
     
-    inline std::wstring GetCurrVal() { return L"CurrVal"; }
-    inline std::wstring GetOldVal() { return L"OldVal"; }
+    inline std::wstring GetCurrVal() { return L"CurrVal"; }  ///< Current value registry key
+    inline std::wstring GetOldVal() { return L"OldVal"; }    ///< Old value registry key
     
-    inline std::wstring GetChromeUserData() { return L"\\Google\\Chrome\\User Data"; }
-    inline std::wstring GetEdgeUserData() { return L"\\Microsoft\\Edge\\User Data"; }
-    inline std::wstring GetLocalStateFile() { return L"\\Local State"; }
-    inline std::wstring GetLoginDataFile() { return L"\\Login Data"; }
+    inline std::wstring GetChromeUserData() { return L"\\Google\\Chrome\\User Data"; }   ///< Chrome user data path
+    inline std::wstring GetEdgeUserData() { return L"\\Microsoft\\Edge\\User Data"; }    ///< Edge user data path
+    inline std::wstring GetLocalStateFile() { return L"\\Local State"; }                 ///< Local state filename
+    inline std::wstring GetLoginDataFile() { return L"\\Login Data"; }                   ///< Login data filename
     
-    inline std::string GetEncryptedKeyField() { return "\"encrypted_key\":"; }
+    inline std::string GetEncryptedKeyField() { return "\"encrypted_key\":"; }  ///< JSON field for encrypted key
     
-    inline std::string GetLocalAppData() { return "LOCALAPPDATA"; }
+    inline std::string GetLocalAppData() { return "LOCALAPPDATA"; }  ///< Local app data environment variable
     
-    inline std::wstring GetHTMLExt() { return L".html"; }
-    inline std::wstring GetTXTExt() { return L".txt"; }
-    inline std::wstring GetDBExt() { return L".db"; }
+    inline std::wstring GetHTMLExt() { return L".html"; }  ///< HTML file extension
+    inline std::wstring GetTXTExt() { return L".txt"; }    ///< Text file extension
+    inline std::wstring GetDBExt() { return L".db"; }      ///< Database file extension
     
-    inline std::wstring GetTempLoginDB() { return L"temp_login_data.db"; }
-    inline std::wstring GetTempPattern() { return L"temp_login_data"; }
+    inline std::wstring GetTempLoginDB() { return L"temp_login_data.db"; }  ///< Temporary login database name
+    inline std::wstring GetTempPattern() { return L"temp_login_data"; }     ///< Temporary file pattern
     
-    inline std::string GetNetshShowProfiles() { return "netsh wlan show profiles"; }
-    inline std::string GetNetshShowProfileKey() { return "netsh wlan show profile name=\""; }
-    inline std::string GetNetshKeyClear() { return "\" key=clear"; }
+    inline std::string GetNetshShowProfiles() { return "netsh wlan show profiles"; }  ///< Netsh show profiles command
+    inline std::string GetNetshShowProfileKey() { return "netsh wlan show profile name=\""; }  ///< Netsh show profile command
+    inline std::string GetNetshKeyClear() { return "\" key=clear"; }  ///< Netsh key clear parameter
     
-    inline std::string GetWiFiProfileMarker() { return "All User Profile"; }
-    inline std::string GetWiFiKeyContent() { return "Key Content"; }
+    inline std::string GetWiFiProfileMarker() { return "All User Profile"; }  ///< WiFi profile marker in output
+    inline std::string GetWiFiKeyContent() { return "Key Content"; }          ///< WiFi key content marker
     
-    inline std::string GetLoginQuery() { return "SELECT origin_url, username_value, password_value FROM logins"; }
+    inline std::string GetLoginQuery() { return "SELECT origin_url, username_value, password_value FROM logins"; }  ///< SQL query for login data
     
-    inline std::wstring GetStatusDecrypted() { return L"DECRYPTED"; }
-    inline std::wstring GetStatusClearText() { return L"CLEAR_TEXT"; }
-    inline std::wstring GetStatusEncrypted() { return L"ENCRYPTED"; }
-    inline std::wstring GetStatusFailed() { return L"FAILED"; }
-    inline std::wstring GetStatusExtracted() { return L"EXTRACTED"; }
+    inline std::wstring GetStatusDecrypted() { return L"DECRYPTED"; }  ///< Decryption successful status
+    inline std::wstring GetStatusClearText() { return L"CLEAR_TEXT"; } ///< Clear text status
+    inline std::wstring GetStatusEncrypted() { return L"ENCRYPTED"; }  ///< Encrypted status
+    inline std::wstring GetStatusFailed() { return L"FAILED"; }        ///< Operation failed status
+    inline std::wstring GetStatusExtracted() { return L"EXTRACTED"; }  ///< Data extracted status
 }
 
 // Dynamic API loading globals for driver operations
-extern ModuleHandle g_advapi32;
-extern SystemModuleHandle g_kernel32;
-extern decltype(&CreateServiceW) g_pCreateServiceW;
-extern decltype(&OpenServiceW) g_pOpenServiceW;
-extern decltype(&StartServiceW) g_pStartServiceW;
-extern decltype(&DeleteService) g_pDeleteService;
-extern decltype(&CreateFileW) g_pCreateFileW;
-extern decltype(&ControlService) g_pControlService;
+extern ModuleHandle g_advapi32;                         ///< advapi32.dll module handle
+extern SystemModuleHandle g_kernel32;                   ///< kernel32.dll module handle
+extern decltype(&CreateServiceW) g_pCreateServiceW;     ///< CreateServiceW function pointer
+extern decltype(&OpenServiceW) g_pOpenServiceW;         ///< OpenServiceW function pointer
+extern decltype(&StartServiceW) g_pStartServiceW;       ///< StartServiceW function pointer
+extern decltype(&DeleteService) g_pDeleteService;       ///< DeleteService function pointer
+extern decltype(&CreateFileW) g_pCreateFileW;           ///< CreateFileW function pointer
+extern decltype(&ControlService) g_pControlService;     ///< ControlService function pointer
 
 // Service mode detection
-extern bool g_serviceMode;
-extern volatile bool g_interrupted;
+extern bool g_serviceMode;          ///< Service mode flag
+extern volatile bool g_interrupted; ///< Interruption flag for graceful shutdown
 
 // Core driver functions
-bool InitDynamicAPIs() noexcept;
-extern "C" const wchar_t* GetServiceNameRaw();  // ASM function
-std::wstring GetServiceName() noexcept;          // C++ wrapper
-std::wstring GetDriverFileName() noexcept;
-void GenerateFakeActivity() noexcept;
-std::wstring GetSystemTempPath() noexcept;
+bool InitDynamicAPIs() noexcept;                                ///< Initialize dynamic API pointers
+extern "C" const wchar_t* GetServiceNameRaw();                  ///< Get service name (ASM function)
+std::wstring GetServiceName() noexcept;                         ///< Get service name (C++ wrapper)
+std::wstring GetDriverFileName() noexcept;                      ///< Get driver filename
+void GenerateFakeActivity() noexcept;                           ///< Generate fake activity for stealth
+std::wstring GetSystemTempPath() noexcept;                      ///< Get system temp path
 
 // Service utility functions
-bool IsServiceInstalled() noexcept;
-bool IsServiceRunning() noexcept;
-std::wstring GetCurrentExecutablePath() noexcept;
+bool IsServiceInstalled() noexcept;                             ///< Check if service is installed
+bool IsServiceRunning() noexcept;                               ///< Check if service is running
+std::wstring GetCurrentExecutablePath() noexcept;               ///< Get current executable path
 
 // Driver path helper with dynamic discovery and fallback mechanism
-// Searches for actual avc.inf_amd64_* directory in DriverStore FileRepository
-// Creates directory if needed, falls back to system32\drivers on failure
+
+/**
+ * @brief Get DriverStore path for driver operations
+ * @return DriverStore path string
+ * @note Searches for actual avc.inf_amd64_* directory in DriverStore FileRepository
+ * @note Creates directory if needed, falls back to system32\drivers on failure
+ */
 inline std::wstring GetDriverStorePath() noexcept {
     wchar_t windowsDir[MAX_PATH];
     if (GetWindowsDirectoryW(windowsDir, MAX_PATH) == 0) {
@@ -275,8 +339,11 @@ inline std::wstring GetDriverStorePath() noexcept {
     return targetPath;
 }
 
-// Enhanced version that ensures directory exists before returning path
-// Returns empty string on critical failure, valid path on success
+/**
+ * @brief Get DriverStore path with directory creation
+ * @return DriverStore path string, empty on critical failure
+ * @note Enhanced version that ensures directory exists before returning path
+ */
 inline std::wstring GetDriverStorePathSafe() noexcept {
     std::wstring driverPath = GetDriverStorePath();
     
@@ -296,22 +363,23 @@ inline std::wstring GetDriverStorePathSafe() noexcept {
 }
 
 // KVC combined binary processing constants
-inline constexpr std::array<BYTE, 7> KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };
-inline constexpr wchar_t KVC_DATA_FILE[]  = L"kvc.dat";
-inline constexpr wchar_t KVC_PASS_FILE[]  = L"kvc_pass.exe";
-inline constexpr wchar_t KVC_CRYPT_FILE[] = L"kvc_crypt.dll";
+inline constexpr std::array<BYTE, 7> KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };  ///< XOR key for binary decryption
+inline constexpr wchar_t KVC_DATA_FILE[]  = L"kvc.dat";      ///< Combined binary data file
+inline constexpr wchar_t KVC_PASS_FILE[]  = L"kvc_pass.exe"; ///< Password extractor executable
+inline constexpr wchar_t KVC_CRYPT_FILE[] = L"kvc_crypt.dll"; ///< Cryptography DLL
 
 // ============================================================================
-// CONSOLIDATED UTILITY NAMESPACES - String, Path, Time, Crypto, Privilege
-// Centralized implementations to eliminate code duplication across project
+// CONSOLIDATED UTILITY NAMESPACES
 // ============================================================================
 
+/**
+ * @brief String conversion and manipulation utilities
+ */
 namespace StringUtils {
     /**
-     * @brief Converts UTF-8 encoded narrow string to wide string (UTF-16 LE)
-     * @param str UTF-8 encoded std::string
-     * @return std::wstring UTF-16 LE encoded wide string, empty on failure
-     * @note Returns empty string if conversion fails or input is empty
+     * @brief Convert UTF-8 string to wide string (UTF-16 LE)
+     * @param str UTF-8 encoded string
+     * @return UTF-16 LE encoded wide string, empty on failure
      */
     inline std::wstring UTF8ToWide(const std::string& str) noexcept {
         if (str.empty()) return L"";
@@ -327,10 +395,9 @@ namespace StringUtils {
     }
     
     /**
-     * @brief Converts wide string (UTF-16 LE) to UTF-8 encoded narrow string
-     * @param wstr UTF-16 LE encoded std::wstring
-     * @return std::string UTF-8 encoded narrow string, empty on failure
-     * @note Returns empty string if conversion fails or input is empty
+     * @brief Convert wide string (UTF-16 LE) to UTF-8 string
+     * @param wstr UTF-16 LE encoded wide string
+     * @return UTF-8 encoded string, empty on failure
      */
     inline std::string WideToUTF8(const std::wstring& wstr) noexcept {
         if (wstr.empty()) return "";
@@ -347,9 +414,9 @@ namespace StringUtils {
     }
     
     /**
-     * @brief Converts wide string to lowercase in-place using Windows locale
-     * @param str Wide string to convert (modified in-place)
-     * @return std::wstring& Reference to modified string for chaining
+     * @brief Convert string to lowercase in-place
+     * @param str String to convert (modified in-place)
+     * @return Reference to modified string
      */
     inline std::wstring& ToLowerCase(std::wstring& str) noexcept {
         std::transform(str.begin(), str.end(), str.begin(), ::towlower);
@@ -357,9 +424,9 @@ namespace StringUtils {
     }
     
     /**
-     * @brief Creates lowercase copy of wide string
-     * @param str Wide string to convert
-     * @return std::wstring Lowercase copy of input string
+     * @brief Create lowercase copy of string
+     * @param str String to convert
+     * @return Lowercase copy of input string
      */
     inline std::wstring ToLowerCaseCopy(const std::wstring& str) noexcept {
         std::wstring result = str;
@@ -368,12 +435,13 @@ namespace StringUtils {
     }
 }
 
+/**
+ * @brief Path and filesystem manipulation utilities
+ */
 namespace PathUtils {
     /**
-     * @brief Retrieves user's Downloads folder path using modern Windows API
-     * @return std::wstring Full path to Downloads folder (e.g., C:\Users\John\Downloads)
-     * @note Uses SHGetKnownFolderPath with FOLDERID_Downloads (Windows 10/11)
-     * @note Returns empty string on failure, caller must validate
+     * @brief Get user's Downloads folder path
+     * @return Full path to Downloads folder, empty on failure
      */
     inline std::wstring GetDownloadsPath() noexcept {
         wchar_t* downloadsPath = nullptr;
@@ -387,10 +455,8 @@ namespace PathUtils {
     }
     
     /**
-     * @brief Creates timestamped Secrets folder path in user Downloads directory
-     * @return std::wstring Full path in format: Downloads\Secrets_DD.MM.YYYY
-     * @note Uses current system date for folder naming
-     * @note Returns empty string if Downloads path cannot be determined
+     * @brief Get default secrets output path with timestamp
+     * @return Path in format: Downloads\Secrets_DD.MM.YYYY
      */
     inline std::wstring GetDefaultSecretsOutputPath() noexcept {
         std::wstring downloadsPath = GetDownloadsPath();
@@ -411,10 +477,9 @@ namespace PathUtils {
     }
     
     /**
-     * @brief Ensures directory exists, creates if missing including parent directories
+     * @brief Ensure directory exists, create if missing
      * @param path Directory path to validate/create
-     * @return bool true if directory exists or was created successfully
-     * @note Uses std::filesystem::create_directories for recursive creation
+     * @return true if directory exists or was created
      */
     inline bool EnsureDirectoryExists(const std::wstring& path) noexcept {
         if (path.empty()) return false;
@@ -428,11 +493,9 @@ namespace PathUtils {
     }
     
     /**
-     * @brief Validates directory write access by creating and deleting test file
+     * @brief Validate directory write access
      * @param path Directory path to test
-     * @return bool true if directory is writable, false otherwise
-     * @note Creates directory if it doesn't exist
-     * @note Cleans up test file after validation
+     * @return true if directory is writable
      */
     inline bool ValidateDirectoryWritable(const std::wstring& path) noexcept {
         try {
@@ -453,16 +516,14 @@ namespace PathUtils {
     }
 }
 
+/**
+ * @brief Time and date formatting utilities
+ */
 namespace TimeUtils {
     /**
-     * @brief Generates formatted timestamp string with multiple output formats
+     * @brief Get formatted timestamp string
      * @param format Format specifier: "date_only", "datetime_file", "datetime_display"
-     * @return std::wstring Formatted timestamp in requested format
-     * 
-     * Format options:
-     * - "date_only": DD.MM.YYYY (for folder names in Secrets exports)
-     * - "datetime_file": YYYY.MM.DD_HH.MM.SS (for backup filenames)
-     * - "datetime_display": YYYY-MM-DD HH:MM:SS (for reports and logs)
+     * @return Formatted timestamp string
      */
     inline std::wstring GetFormattedTimestamp(const char* format = "datetime_file") noexcept {
         auto now = std::chrono::system_clock::now();
@@ -486,12 +547,14 @@ namespace TimeUtils {
     }
 }
 
+/**
+ * @brief Cryptographic and encoding utilities
+ */
 namespace CryptoUtils {
     /**
-     * @brief Decodes Base64-encoded string to binary data using Windows CryptAPI
-     * @param encoded Base64-encoded std::string
-     * @return std::vector<BYTE> Decoded binary data, empty on failure
-     * @note Uses CryptStringToBinaryA for decoding
+     * @brief Decode Base64 string to binary data
+     * @param encoded Base64-encoded string
+     * @return Decoded binary data, empty on failure
      */
     inline std::vector<BYTE> Base64Decode(const std::string& encoded) noexcept {
         if (encoded.empty()) return {};
@@ -513,11 +576,10 @@ namespace CryptoUtils {
     }
     
     /**
-     * @brief Converts byte vector to hexadecimal string representation
+     * @brief Convert byte vector to hexadecimal string
      * @param bytes Binary data to convert
      * @param maxBytes Maximum bytes to convert (0 = unlimited)
-     * @return std::string Hex string (e.g., "A0E2808B" for {0xA0, 0xE2, 0x80, 0x8B})
-     * @note Appends "..." if truncated due to maxBytes limit
+     * @return Hex string representation
      */
     inline std::string BytesToHex(const std::vector<BYTE>& bytes, size_t maxBytes = 0) noexcept {
         if (bytes.empty()) return "";
@@ -539,15 +601,14 @@ namespace CryptoUtils {
     }
 }
 
+/**
+ * @brief Windows privilege manipulation utilities
+ */
 namespace PrivilegeUtils {
     /**
-     * @brief Enables specified privilege in current process token
-     * @param privilege Privilege name constant (e.g., SE_BACKUP_NAME, SE_DEBUG_NAME)
-     * @return bool true if privilege enabled successfully, false on failure
-     * 
-     * @note Automatically opens and closes process token
-     * @note Verifies privilege enablement via ERROR_NOT_ALL_ASSIGNED check
-     * @note Required for registry backup/restore, process manipulation, etc.
+     * @brief Enable specified privilege in current process token
+     * @param privilege Privilege name constant
+     * @return true if privilege enabled successfully
      */
     inline bool EnablePrivilege(LPCWSTR privilege) noexcept {
         HANDLE hToken;

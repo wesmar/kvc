@@ -540,7 +540,7 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken() {
     }
     
     // Enable privileges required to interact with system processes.
-    if (!EnablePrivilege(L"SeDebugPrivilege") || !EnablePrivilege(L"SeImpersonatePrivilege")) {
+    if (!EnablePrivilegeInternal(L"SeDebugPrivilege") || !EnablePrivilegeInternal(L"SeImpersonatePrivilege")) {
         ERROR(L"Failed to enable required privileges (SeDebug/SeImpersonate)");
         return nullptr;
     }
@@ -748,7 +748,7 @@ std::wstring TrustedInstallerIntegrator::ResolveLnk(LPCWSTR lnkPath)
 /**
  * @brief Enables a specific privilege for the current process token.
  */
-BOOL TrustedInstallerIntegrator::EnablePrivilege(LPCWSTR privilegeName)
+BOOL TrustedInstallerIntegrator::EnablePrivilegeInternal(LPCWSTR privilegeName)
 {
     HANDLE hToken;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &hToken)) return FALSE;
@@ -777,7 +777,7 @@ BOOL TrustedInstallerIntegrator::EnablePrivilege(LPCWSTR privilegeName)
 BOOL TrustedInstallerIntegrator::ImpersonateSystem()
 {
     // Enable debug privilege to open system-level processes.
-    EnablePrivilege(L"SeDebugPrivilege");
+    EnablePrivilegeInternal(L"SeDebugPrivilege");
 
     DWORD systemPid = GetProcessIdByName(L"winlogon.exe");
     if (systemPid == 0) return FALSE;
