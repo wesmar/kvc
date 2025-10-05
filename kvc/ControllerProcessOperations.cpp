@@ -1129,15 +1129,16 @@ bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept
         }
     }
     
-    if (!foundAny) {
-        std::wcout << L"\nNo processes found with signer type: " << signerName << L"\n";
-        return false;
-    }
-    
-    std::wcout << Utils::ProcessColors::GREEN
-        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
-        << Utils::ProcessColors::RESET;
-    return true;
+	if (!foundAny) {
+			std::wcout << Utils::ProcessColors::RESET  // RESET koloru przed komunikatem!
+					   << L"\nNo processes found with signer type: " << signerName << L"\n";
+			return false;
+		}
+		
+		std::wcout << Utils::ProcessColors::GREEN
+			<< L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
+			<< Utils::ProcessColors::RESET;
+		return true;
 }
 
 /**
@@ -1176,48 +1177,37 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept
     auto sigLevelOffset = m_of->GetOffset(Offset::ProcessSignatureLevel);
     auto secSigLevelOffset = m_of->GetOffset(Offset::ProcessSectionSignatureLevel);
     
-    UCHAR signatureLevel = sigLevelOffset ? m_rtc->Read8(kernelAddr.value() + sigLevelOffset.value()).value_or(0) : 0;
-    UCHAR sectionSignatureLevel = secSigLevelOffset ? m_rtc->Read8(kernelAddr.value() + secSigLevelOffset.value()).value_or(0) : 0;
+    UCHAR signatureLevel = sigLevelOffset ? 
+        m_rtc->Read8(kernelAddr.value() + sigLevelOffset.value()).value_or(0) : 0;
+    UCHAR sectionSignatureLevel = secSigLevelOffset ? 
+        m_rtc->Read8(kernelAddr.value() + secSigLevelOffset.value()).value_or(0) : 0;
 
     std::wstring processName = Utils::GetProcessName(pid);
     
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-    GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
-    WORD originalColor = consoleInfo.wAttributes;
-
-	if (protLevel == 0) {
-		wprintf(L"[*] PID %d (%s) is not protected\n", pid, processName.c_str());
-	} else {
-		WORD protectionColor;
-		if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
-			protectionColor = FOREGROUND_RED | FOREGROUND_INTENSITY;
-		}
-		else if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) ||
-				 signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem) ||
-				 signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows)) {
-			protectionColor = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-		}
-		else if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Antimalware)) {
-			protectionColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-		}
-		else {
-			protectionColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-		}
-		
-		SetConsoleTextAttribute(hConsole, protectionColor);
-		wprintf(L"[*] PID %d (%s) protection: %s-%s (raw: 0x%02x)\n", 
-				pid, processName.c_str(),
-				Utils::GetProtectionLevelAsString(protLevel),
-				Utils::GetSignerTypeAsString(signerType),
-				currentProtection.value());
-		SetConsoleTextAttribute(hConsole, originalColor);
-	}
+    // Enable ANSI colors
+    if (!Utils::EnableConsoleVirtualTerminal()) {
+        ERROR(L"Failed to enable console colors");
+    }
+    
+    if (protLevel == 0) {
+        std::wcout << L"[*] PID " << pid << L" (" << processName << L") is not protected\n";
+    } else {
+        // Use GetProcessDisplayColor() for consistent colors with "kvc list"
+        const wchar_t* color = Utils::GetProcessDisplayColor(
+            signerType, signatureLevel, sectionSignatureLevel);
+        
+        std::wcout << color 
+                   << L"[*] PID " << pid << L" (" << processName << L") protection: "
+                   << Utils::GetProtectionLevelAsString(protLevel) << L"-"
+                   << Utils::GetSignerTypeAsString(signerType)
+                   << L" (raw: 0x" << std::hex << std::uppercase << (int)currentProtection.value() 
+                   << std::dec << L")\n"
+                   << Utils::ProcessColors::RESET;
+    }
     
     EndDriverSession(true);
     return true;
 }
-
 // ============================================================================
 // PROCESS INFORMATION BY NAME
 // ============================================================================
