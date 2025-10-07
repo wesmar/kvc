@@ -987,36 +987,40 @@ bool EnableConsoleVirtualTerminal() noexcept
 const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel, 
                                      UCHAR sectionSignatureLevel) noexcept
 {
-    // Special case: System process (PID 4)
+    // First, check the most specific cases
     if (signatureLevel == 0x1e && sectionSignatureLevel == 0x1c) {
-        return ProcessColors::PURPLE;
+        return ProcessColors::PURPLE;  // Kernel process
     }
-
-    // PRIORITY 1: Signer type (shows protection level you set)
+    
+    // Then check signerType from most to least restrictive
     if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
         return ProcessColors::RED;
     }
-
-    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb) ||
-        signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem)) {
+    
+    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinTcb)) {
         return ProcessColors::GREEN;
     }
-
+    
+    if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::WinSystem)) {
+        return ProcessColors::BLUE;
+    }
+    
     if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Windows)) {
         return ProcessColors::CYAN;
     }
-
+    
     if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Antimalware)) {
         return ProcessColors::YELLOW;
     }
-
-    // PRIORITY 2: Unchecked signatures (fallback for None/Unknown signer)
+    
+    // Finally, check for unsigned/unverified signatures
     bool hasUncheckedSignatures = (signatureLevel == 0x00 || sectionSignatureLevel == 0x00);
     if (hasUncheckedSignatures) {
         return ProcessColors::BLUE;
     }
-
-    // Default for authenticated processes
+    
+    // Default color for all remaining cases
     return ProcessColors::YELLOW;
 }
+
 } // namespace Utils
