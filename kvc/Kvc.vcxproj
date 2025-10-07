@@ -51,58 +51,64 @@
     <SOURCE_DATE_EPOCH>1756665900</SOURCE_DATE_EPOCH>
   </PropertyGroup>
   
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpplatest</LanguageStandard>
-      <LanguageStandardVersion>latest</LanguageStandardVersion>
-      <EnableModules>false</EnableModules>
-      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
-      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /GL /Brepro %(AdditionalOptions)</AdditionalOptions>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <ExceptionHandling>Sync</ExceptionHandling>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
-      <MinimalRebuild>false</MinimalRebuild>
-      <OmitFramePointers>true</OmitFramePointers>
-      <StringPooling>true</StringPooling>
-      <TreatWarningAsError>false</TreatWarningAsError>
-      <DisableSpecificWarnings>4996;4117</DisableSpecificWarnings>
-      <Optimization>MaxSpeed</Optimization>
-      <WholeProgramOptimization>true</WholeProgramOptimization>
-      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
-      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
-      <BrowseInformation>false</BrowseInformation>
-    </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
-      <UACExecutionLevel>HighestAvailable</UACExecutionLevel>
-      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-	  <AdditionalDependencies>kernel32.lib;user32.lib;psapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalOptions>/OPT:REF /OPT:ICF=5 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /Brepro %(AdditionalOptions)</AdditionalOptions>
-      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-      <RandomizedBaseAddress>true</RandomizedBaseAddress>
-      <DataExecutionPrevention>true</DataExecutionPrevention>
-      <TargetMachine>MachineX64</TargetMachine>
-      <SetChecksum>false</SetChecksum>
-      <LargeAddressAware>true</LargeAddressAware>
-      <StripPrivateSymbols>true</StripPrivateSymbols>
-      <AllowIsolation>true</AllowIsolation>
-    </Link>
-    <PostBuildEvent>
-      <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
-    </PostBuildEvent>
-    <ResourceCompile>
-      <Culture>0x0409</Culture>
-    </ResourceCompile>
-  </ItemDefinitionGroup>
+<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <ClCompile>
+    <WarningLevel>Level3</WarningLevel>
+    <FunctionLevelLinking>true</FunctionLevelLinking>
+    <IntrinsicFunctions>true</IntrinsicFunctions>
+    <SDLCheck>false</SDLCheck>
+    <PreprocessorDefinitions>NDEBUG;_CONSOLE;WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    <ConformanceMode>true</ConformanceMode>
+    <LanguageStandard>stdcpplatest</LanguageStandard>
+    <LanguageStandardVersion>latest</LanguageStandardVersion>
+    <EnableModules>false</EnableModules>
+    <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    <!-- ZMIENIONE: Usunięto /GL, dodano /Os -->
+    <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Os /Brepro %(AdditionalOptions)</AdditionalOptions>
+    <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    <ExceptionHandling>Sync</ExceptionHandling>
+    <BufferSecurityCheck>false</BufferSecurityCheck>
+    <MinimalRebuild>false</MinimalRebuild>
+    <OmitFramePointers>true</OmitFramePointers>
+    <StringPooling>true</StringPooling>
+    <TreatWarningAsError>false</TreatWarningAsError>
+    <DisableSpecificWarnings>4996;4117</DisableSpecificWarnings>
+    <!-- ZMIENIONE: Optymalizacja pod rozmiar -->
+    <Optimization>MinSpace</Optimization>
+    <!-- ZMIENIONE: Wyłączone Whole Program Optimization -->
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <!-- ZMIENIONE: Priorytet rozmiaru -->
+    <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+    <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+    <BrowseInformation>false</BrowseInformation>
+  </ClCompile>
+  <Link>
+    <SubSystem>Console</SubSystem>
+    <EnableCOMDATFolding>true</EnableCOMDATFolding>
+    <OptimizeReferences>true</OptimizeReferences>
+    <GenerateDebugInformation>false</GenerateDebugInformation>
+    <UACExecutionLevel>HighestAvailable</UACExecutionLevel>
+    <!-- ZMIENIONE: Wyłączone LTO -->
+    <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+    <AdditionalDependencies>kernel32.lib;user32.lib;psapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    <!-- ZMIENIONE: Dodano INCREMENTAL:NO, poprawiono ICF -->
+    <AdditionalOptions>/OPT:REF /OPT:ICF=10 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /INCREMENTAL:NO /Brepro %(AdditionalOptions)</AdditionalOptions>
+    <!-- USUNIĘTE: Zduplikowane LinkTimeCodeGeneration -->
+    <RandomizedBaseAddress>true</RandomizedBaseAddress>
+    <DataExecutionPrevention>true</DataExecutionPrevention>
+    <TargetMachine>MachineX64</TargetMachine>
+    <SetChecksum>false</SetChecksum>
+    <LargeAddressAware>true</LargeAddressAware>
+    <StripPrivateSymbols>true</StripPrivateSymbols>
+    <AllowIsolation>true</AllowIsolation>
+  </Link>
+  <PostBuildEvent>
+    <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
+  </PostBuildEvent>
+  <ResourceCompile>
+    <Culture>0x0409</Culture>
+  </ResourceCompile>
+</ItemDefinitionGroup>
   
   <!-- Source Files -->
   <ItemGroup>
@@ -150,6 +156,7 @@
   </ItemGroup>
   <ItemGroup>
     <MASM Include="MmPoolTelemetry.asm" />
+	<MASM Include="ScreenShake.asm" />
   </ItemGroup>
   <!-- Resource Files -->
   <ItemGroup>

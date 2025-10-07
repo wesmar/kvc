@@ -35,35 +35,36 @@
     <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
     <TargetName>kvc_pass</TargetName>
   </PropertyGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpplatest</LanguageStandard>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <Optimization>MaxSpeed</Optimization>
-      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Brepro %(AdditionalOptions)</AdditionalOptions>
-    </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
-      <AdditionalDependencies>Rpcrt4.lib;version.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalOptions>/OPT:REF /OPT:ICF /MERGE:.rdata=.text /NXCOMPAT /Brepro %(AdditionalOptions)</AdditionalOptions>
-    </Link>
-    <PostBuildEvent>
-      <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
-    </PostBuildEvent>
-    <ResourceCompile>
-      <Culture>0x0409</Culture>
-    </ResourceCompile>
-  </ItemDefinitionGroup>
+<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <ClCompile>
+    <WarningLevel>Level3</WarningLevel>
+    <FunctionLevelLinking>true</FunctionLevelLinking>
+    <IntrinsicFunctions>true</IntrinsicFunctions>
+    <SDLCheck>false</SDLCheck>
+    <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    <ConformanceMode>true</ConformanceMode>
+    <LanguageStandard>stdcpplatest</LanguageStandard>
+    <BufferSecurityCheck>false</BufferSecurityCheck>
+    <!-- ZMIANA: Użyj dynamicznej biblioteki -->
+    <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    <!-- ZMIANA: Optymalizacja pod kątem rozmiaru -->
+    <Optimization>MinSpace</Optimization>
+    <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+    <!-- USUŃ: /GL (Whole Program Optimization) -->
+    <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Brepro %(AdditionalOptions)</AdditionalOptions>
+  </ClCompile>
+  <Link>
+    <SubSystem>Console</SubSystem>
+    <EnableCOMDATFolding>true</EnableCOMDATFolding>
+    <OptimizeReferences>true</OptimizeReferences>
+    <GenerateDebugInformation>false</GenerateDebugInformation>
+    <!-- USUŃ: LinkTimeCodeGeneration -->
+    <AdditionalOptions>/OPT:REF /OPT:ICF=5 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /INCREMENTAL:NO /Brepro %(AdditionalOptions)</AdditionalOptions>
+  </Link>
+  <PostBuildEvent>
+    <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
+  </PostBuildEvent>
+</ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="OrchestratorCore.cpp" />
     <ClCompile Include="BrowserProcessManager.cpp" />
