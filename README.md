@@ -2,6 +2,50 @@
 
 <div align="center">
 
+## ⚠️ **NEW FEATURE: Driver Signature Enforcement Control** ⚠️
+
+### 🔴 DSE ON/OFF - Experimental Feature with Stability Considerations
+
+</div>
+
+---
+
+**Latest Update:** KVC now supports runtime **Driver Signature Enforcement (DSE)** manipulation via `kvc.exe dse on|off` commands.
+
+**⚠️ STABILITY WARNING:**
+
+DSE manipulation may cause **BSOD (Blue Screen of Death)** on certain hardware configurations. Stability testing reveals hardware-dependent behavior:
+
+- ✅ **Hyper-V VMs**: Stable operation confirmed
+- ❌ **Dell XPS 7590 (Author's Unit)**: BSOD observed - hardware has damaged VRM MOSFETs (CPU power delivery section), requiring disabled C-States/SpeedShift in BIOS, making debugging extremely difficult
+- ✅ **Dell XPS 7590 (Identical Model)**: Perfectly stable operation even with **SecureBoot enabled** on hardware without power section damage
+
+**Key Finding:** The same laptop model (Dell XPS 7590) shows completely different DSE stability - working flawlessly on healthy hardware, even with SecureBoot, but causing BSODs on units with VRM damage.
+
+**🤝 Community Testing Needed:**
+
+Due to hardware-specific interactions and power delivery dependencies, comprehensive testing across diverse platforms is essential. Please report your results (working configs, BSOD occurrences, system specs) to help improve stability.
+
+**Usage:**
+```powershell
+kvc.exe dse off    # Disable signature enforcement
+kvc.exe dse on     # Re-enable signature enforcement
+kvc.exe dse status # Query current state
+```
+
+**📖 Documentation Status:**
+
+The complete README update with detailed DSE documentation, technical implementation details, and comprehensive stability guidelines is **currently in progress** and will be published shortly.
+
+**For now, use:**
+```powershell
+kvc.exe help       # View all available commands and options
+```
+
+---
+
+<div align="center">
+
 [![License](https://img.shields.io/badge/license-Educational-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey.svg)]()
 [![Architecture](https://img.shields.io/badge/arch-x64-red.svg)]()
