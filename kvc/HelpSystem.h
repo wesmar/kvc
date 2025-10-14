@@ -281,6 +281,20 @@ public:
      * @note Advanced system modification - use with caution
      */
     static void PrintSecurityEngineCommands() noexcept;
+
+	/**
+	 * @brief Print DSE (Driver Signature Enforcement) command documentation
+	 * 
+	 * Commands covered:
+	 * - dse off: Disable Driver Signature Enforcement
+	 * - dse on: Enable Driver Signature Enforcement
+	 * - dse:  Check DSE status
+	 * 
+	 * @note Modifying DSE is an advanced system operation and may cause instability or BSOD. Use with extreme caution.
+	 */	
+	 
+	 static void PrintDSECommands() noexcept;
+
     
     /**
      * @brief Print session management documentation

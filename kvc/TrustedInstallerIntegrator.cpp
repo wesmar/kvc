@@ -416,7 +416,7 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(const std::wstring&
     CloseHandle(hFile);
     RevertToSelf();
 
-    SUCCESS(L"File written successfully: %s (%zu bytes)", filePath.c_str(), data.size());
+    DEBUG(L"File written successfully: %s (%zu bytes)", filePath.c_str(), data.size());
     return true;
 }
 
@@ -444,7 +444,7 @@ bool TrustedInstallerIntegrator::DeleteFileAsTrustedInstaller(const std::wstring
     RevertToSelf();
 
     if (result) {
-        SUCCESS(L"File deleted: %s", filePath.c_str());
+        DEBUG(L"File deleted: %s", filePath.c_str());
     } else {
         ERROR(L"Failed to delete file: %s (error: %d)", filePath.c_str(), error);
     }

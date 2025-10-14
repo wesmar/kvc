@@ -14,6 +14,7 @@
 
 #include "SessionManager.h"
 #include "kvcDrv.h"
+#include "DSEBypass.h"
 #include "OffsetFinder.h"
 #include "TrustedInstallerIntegrator.h"
 #include "Utils.h"
@@ -152,6 +153,67 @@ public:
     // Enable move semantics
     Controller(Controller&&) noexcept = default;              ///< Move constructor
     Controller& operator=(Controller&&) noexcept = default;   ///< Move assignment
+
+	// DSE Bypass methods
+
+	/**
+	 * @brief Disables Driver Signature Enforcement (DSE) on the system
+	 * 
+	 * This method bypasses kernel-mode code signing protection by:
+	 * - Locating the CiEnabled/CI!g_CiOptions global variable in kernel memory
+	 * - Modifying its value to disable signature enforcement checks
+	 * - Bypassing PatchGuard protection mechanisms
+	 * 
+	 * @return true if DSE was successfully disabled, false otherwise
+	 * @note Requires kernel driver to be loaded and elevated privileges
+	 * @warning This exposes the system to unsigned driver loading - use with caution
+	 * @note Automatically handles CiEnabled (Win7) and g_CiOptions (Win8+) variants
+	 */
+	bool DisableDSE() noexcept;
+
+	/**
+	 * @brief Restores Driver Signature Enforcement to its original state
+	 * 
+	 * Reverts the changes made by DisableDSE() by:
+	 * - Restoring the original value of CiOptions/CiEnabled
+	 * - Re-enforcing kernel-mode code signing requirements
+	 * - Ensuring system integrity is maintained
+	 * 
+	 * @return true if DSE was successfully restored, false otherwise
+	 * @note Should be called before driver unload to maintain system security
+	 * @warning Failure to restore DSE may leave the system in an insecure state
+	 */
+	bool RestoreDSE() noexcept;
+
+	/**
+	 * @brief Retrieves the kernel address of CI!g_CiOptions or CiEnabled variable
+	 * 
+	 * Locates the critical kernel structure that controls DSE by:
+	 * - Scanning kernel memory for known patterns
+	 * - Using exported kernel symbols when available
+	 * - Employing heuristic search methods as fallback
+	 * 
+	 * @return ULONG_PTR Virtual address of CiOptions in kernel space, 0 if not found
+	 * @note The address is used for direct memory modification to bypass DSE
+	 * @note Returns different addresses based on Windows version (Win7 vs Win8+)
+	 */
+	ULONG_PTR GetCiOptionsAddress() const noexcept;
+
+	/**
+	 * @brief Retrieves current DSE status including g_CiOptions address and value
+	 * 
+	 * Queries the kernel for current Driver Signature Enforcement state by:
+	 * - Locating ci.dll module in kernel space
+	 * - Finding g_CiOptions variable address
+	 * - Reading current enforcement flags
+	 * 
+	 * @param outAddress Reference to store g_CiOptions kernel address
+	 * @param outValue Reference to store current g_CiOptions value
+	 * @return true if status retrieved successfully, false otherwise
+	 * @note Requires driver session with kernel memory access
+	 * @note outValue bits 1-2 indicate DSE state (set = enabled)
+	 */
+	bool GetDSEStatus(ULONG_PTR& outAddress, DWORD& outValue) noexcept;
 
     // === Memory Dumping Operations ===
     
@@ -674,6 +736,7 @@ private:
     TrustedInstallerIntegrator m_trustedInstaller;  ///< TrustedInstaller integration component
 	std::unique_ptr<kvc> m_rtc;                     ///< Kernel driver communication interface
     std::unique_ptr<OffsetFinder> m_of;             ///< Kernel offset finder
+	std::unique_ptr<DSEBypass> m_dseBypass;			///< Kernel code signing enforcement bypass
     SQLiteAPI m_sqlite;                             ///< SQLite API for browser database operations
 
     // === Privilege and System Management ===

@@ -278,7 +278,7 @@ bool Controller::InstallDriver() noexcept {
         return false;
     }
 
-    SUCCESS(L"Driver file written successfully: %s (%zu bytes)", driverPath.c_str(), driverData.size());
+    DEBUG(L"Driver file written successfully: %s (%zu bytes)", driverPath.c_str(), driverData.size());
 
     // ========================================================================
     // SERVICE REGISTRATION

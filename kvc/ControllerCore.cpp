@@ -156,7 +156,7 @@ bool Controller::EnsureDriverAvailable() noexcept {
         return false;
     }
 
-    SUCCESS(L"Kernel driver component initialized successfully");
+    DEBUG(L"Kernel driver component initialized successfully");
     return true;
 }
 

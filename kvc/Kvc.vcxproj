@@ -114,6 +114,8 @@
   <ItemGroup>
     <ClCompile Include="TrustedInstallerIntegrator.cpp" />
     <ClCompile Include="ControllerCore.cpp" />
+	<ClCompile Include="DSEBypass.cpp" />
+	<ClCompile Include="ControllerDSE.cpp" />
 	<ClCompile Include="ControllerBinaryManager.cpp" />
     <ClCompile Include="ControllerDriverManager.cpp" />
     <ClCompile Include="ControllerProcessOperations.cpp" />
@@ -141,6 +143,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="TrustedInstallerIntegrator.h" />
     <ClInclude Include="common.h" />
+	<ClInclude Include="DSEBypass.h" />
     <ClInclude Include="Controller.h" />
     <ClInclude Include="OffsetFinder.h" />
     <ClInclude Include="kvcDrv.h" />

@@ -12,7 +12,8 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     std::wcout << L"Usage: " << programName << L" <command> [arguments]\n\n";
     
     PrintServiceCommands();
-    PrintBasicCommands();
+    PrintDSECommands();
+	PrintBasicCommands();
     PrintProcessTerminationCommands();
     PrintProtectionCommands();
 	PrintSessionManagement();
@@ -21,7 +22,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintBrowserCommands();
     PrintDefenderCommands();
     PrintSecurityEngineCommands();
-    PrintDPAPICommands();
+	PrintDPAPICommands();
     PrintProtectionTypes();
     PrintExclusionTypes();
     PrintPatternMatching();
@@ -80,6 +81,17 @@ void HelpSystem::PrintServiceCommands() noexcept
     PrintCommandLine(L"service start", L"Start the Kernel Vulnerability Capabilities Framework service");
     PrintCommandLine(L"service stop", L"Stop the Kernel Vulnerability Capabilities Framework service");
     PrintCommandLine(L"service status", L"Check service status");
+    std::wcout << L"\n";
+}
+
+void HelpSystem::PrintDSECommands() noexcept
+{
+    PrintSectionHeader(L"Driver Signature Enforcement (DSE) Control");
+    PrintCommandLine(L"dse off", L"Disable DSE to allow unsigned driver loading");
+    PrintCommandLine(L"dse on", L"Re-enable DSE to restore kernel security");
+    PrintCommandLine(L"dse", L"Check current DSE status (g_CiOptions address and value)");
+    PrintNote(L"Requires kernel driver session with elevated privileges");
+    PrintWarning(L"DSE modification may trigger BSOD - continue only if you understand the risk");
     std::wcout << L"\n";
 }
 
@@ -354,6 +366,11 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc service start", L"Start the service");
     printLine(L"kvc uninstall", L"Remove service");
     
+	// Driver Signature Enforcement control
+	printLine(L"kvc dse off", L"Disable DSE to load unsigned drivers");
+	printLine(L"kvc dse on", L"Re-enable DSE for system security");
+	printLine(L"kvc dse", L"Check current DSE status");
+	
     // System backdoors
     printLine(L"kvc shift", L"Install sticky keys backdoor");
     printLine(L"kvc unshift", L"Remove sticky keys backdoor");

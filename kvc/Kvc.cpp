@@ -17,6 +17,7 @@
 
 #include "common.h"
 #include "Controller.h"
+#include "DSEBypass.h"
 #include "HelpSystem.h"
 #include "DefenderManager.h"
 #include "ProcessManager.h"
@@ -312,8 +313,80 @@ int wmain(int argc, wchar_t* argv[])
             
             return success ? 0 : 1;
         }
-        
-        else if (command == L"service") {
+		
+		// ============================================================================
+		// DSE (DRIVER SIGNATURE ENFORCEMENT) COMMANDS
+		// ============================================================================
+
+		else if (command == L"dse") {
+			// No parameter = check status
+			if (argc < 3) {
+				INFO(L"Checking Driver Signature Enforcement status...");
+				
+				ULONG_PTR ciOptionsAddr = 0;
+				DWORD value = 0;
+				
+				if (!g_controller->GetDSEStatus(ciOptionsAddr, value)) {
+					ERROR(L"Failed to retrieve DSE status");
+					return 2;
+				}
+				
+				bool dseEnabled = (value & 0x6) != 0;  // Bit 1 and 2 = DSE
+				
+				std::wcout << L"\n";
+				INFO(L"DSE Status Information:");
+				INFO(L"  g_CiOptions address: 0x%llX", ciOptionsAddr);
+				INFO(L"  g_CiOptions value: 0x%08X", value);
+				INFO(L"  Bit 1 (Test signing): %s", (value & 0x2) ? L"SET" : L"CLEAR");
+				INFO(L"  Bit 2 (Unsigned drivers): %s", (value & 0x4) ? L"SET" : L"CLEAR");
+				std::wcout << L"\n";
+				
+				if (dseEnabled) {
+					SUCCESS(L"Driver Signature Enforcement: ENABLED");
+					INFO(L"System is protected - only signed drivers can load");
+				} else {
+					ERROR(L"Driver Signature Enforcement: DISABLED");
+					INFO(L"WARNING: Unsigned drivers can be loaded!");
+				}
+				
+				std::wcout << L"\n";
+				return 0;
+			}
+			
+			std::wstring_view subCmd = argv[2];
+			
+			if (subCmd == L"off") {
+				INFO(L"Disabling Driver Signature Enforcement...");
+				
+				if (!g_controller->DisableDSE()) {
+					ERROR(L"Failed to disable DSE");
+					return 2;
+				}
+				
+				SUCCESS(L"DSE disabled successfully!");
+				INFO(L"You can now load unsigned drivers");
+				INFO(L"g_CiOptions address: 0x%llX", g_controller->GetCiOptionsAddress());
+				return 0;
+			}
+			else if (subCmd == L"on") {
+				INFO(L"Restoring Driver Signature Enforcement...");
+				
+				if (!g_controller->RestoreDSE()) {
+					ERROR(L"Failed to restore DSE");
+					return 2;
+				}
+				
+				SUCCESS(L"DSE restored successfully!");
+				return 0;
+			}
+			else {
+				ERROR(L"Unknown DSE command: %s", subCmd.data());
+				ERROR(L"Usage: kvc dse [off|on]  or  kvc dse  (status)");
+				return 1;
+			}
+		}
+		
+		else if (command == L"service") {
             if (argc < 3) {
                 ERROR(L"Missing service command: start, stop, restart");
                 return 1;
