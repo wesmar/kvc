@@ -17,7 +17,7 @@
 DSE manipulation may cause **BSOD (Blue Screen of Death)** on certain hardware configurations. Stability testing reveals hardware-dependent behavior:
 
 - ✅ **Hyper-V VMs**: Stable operation confirmed
-- ❌ **Dell XPS 7590 (Author's Unit)**: BSOD observed - hardware has damaged VRM MOSFETs (CPU power delivery section), requiring disabled C-States/SpeedShift in BIOS, making debugging extremely difficult
+- ❌ **Dell XPS 7590 (Author's Unit)**: BSOD observed with `kvc dse off` - hardware has pre-existing damaged VRM MOSFETs (CPU power delivery section, from summer heat exposure), requiring disabled C-States/SpeedShift in BIOS, making DSE debugging extremely difficult
 - ✅ **Dell XPS 7590 (Identical Model)**: Perfectly stable operation even with **SecureBoot enabled** on hardware without power section damage
 
 **Key Finding:** The same laptop model (Dell XPS 7590) shows completely different DSE stability - working flawlessly on healthy hardware, even with SecureBoot, but causing BSODs on units with VRM damage.
