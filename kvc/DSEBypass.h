@@ -28,8 +28,10 @@ public:
 
 private:
     // Internal PE parsing helpers
-    std::optional<std::pair<ULONG_PTR, SIZE_T>> GetTextSection(ULONG_PTR moduleBase) noexcept;
     std::optional<std::pair<ULONG_PTR, SIZE_T>> GetDataSection(ULONG_PTR moduleBase) noexcept;
-    bool IsValidDataPointer(ULONG_PTR moduleBase, ULONG_PTR addr) noexcept;
-    DWORD GetWindowsBuild() noexcept;
+    
+    // HVCI/VBS detection
+    bool IsHVCIEnabled(DWORD ciOptionsValue) const noexcept {
+        return (ciOptionsValue & 0x0001C000) != 0;
+    }
 };

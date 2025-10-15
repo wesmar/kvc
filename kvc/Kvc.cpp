@@ -332,6 +332,7 @@ int wmain(int argc, wchar_t* argv[])
 				}
 				
 				bool dseEnabled = (value & 0x6) != 0;  // Bit 1 and 2 = DSE
+				bool hvciEnabled = (value & 0x0001C000) != 0;  // HVCI/VBS flags
 				
 				std::wcout << L"\n";
 				INFO(L"DSE Status Information:");
@@ -341,12 +342,22 @@ int wmain(int argc, wchar_t* argv[])
 				INFO(L"  Bit 2 (Unsigned drivers): %s", (value & 0x4) ? L"SET" : L"CLEAR");
 				std::wcout << L"\n";
 				
-				if (dseEnabled) {
+				// Check for HVCI/VBS first
+				if (hvciEnabled) {
+					SUCCESS(L"Driver Signature Enforcement: ENABLED");
+					std::wcout << L"\n";
+					ERROR(L"[!] HVCI/VBS detected (flags: 0x%05X)", (value & 0x0001C000));
+					ERROR(L"[!] System uses VBS with hypervisor protection (Ring -1 below kernel)");
+					ERROR(L"[!] DSE bypass not available - kernel memory protected by Secure Kernel");
+				}
+				else if (dseEnabled) {
 					SUCCESS(L"Driver Signature Enforcement: ENABLED");
 					INFO(L"System is protected - only signed drivers can load");
+					INFO(L"DSE bypass available - use 'kvc dse off' to disable");
 				} else {
 					ERROR(L"Driver Signature Enforcement: DISABLED");
 					INFO(L"WARNING: Unsigned drivers can be loaded!");
+					INFO(L"Use 'kvc dse on' to restore protection");
 				}
 				
 				std::wcout << L"\n";
