@@ -4,40 +4,31 @@
 
 ## ⚠️ **NEW FEATURE: Driver Signature Enforcement Control** ⚠️
 
-### 🔴 DSE ON/OFF - Experimental Feature with Stability Considerations
+### 🔴 DSE ON/OFF - Runtime Kernel Memory Manipulation
 
 </div>
 
 ---
 
-**Latest Update:** KVC now supports runtime **Driver Signature Enforcement (DSE)** manipulation via `kvc.exe dse on|off` commands.
+**Latest Update:** KVC now supports runtime **Driver Signature Enforcement (DSE)** manipulation via `kvc.exe dse` commands.
 
-**⚠️ STABILITY WARNING:**
+**⚠️ HVCI/VBS LIMITATION:**
 
-DSE manipulation may cause **BSOD (Blue Screen of Death)** on certain hardware configurations. Stability testing reveals hardware-dependent behavior:
+DSE bypass is **only available on systems without HVCI/VBS** (Hypervisor-Protected Code Integrity / Virtualization-Based Security). 
 
-- ✅ **Hyper-V VMs**: Stable operation confirmed
-- ❌ **Dell XPS 7590 (Author's Unit)**: BSOD observed with `kvc dse off` - hardware has pre-existing damaged VRM MOSFETs (CPU power delivery section, from summer heat exposure), requiring disabled C-States/SpeedShift in BIOS, making DSE debugging extremely difficult
-- ✅ **Dell XPS 7590 (Identical Model)**: Perfectly stable operation even with **SecureBoot enabled** on hardware without power section damage
-
-**Key Finding:** The same laptop model (Dell XPS 7590) shows completely different DSE stability - working flawlessly on healthy hardware, even with SecureBoot, but causing BSODs on units with VRM damage.
-
-**🤝 Community Testing Needed:**
-
-Due to hardware-specific interactions and power delivery dependencies, comprehensive testing across diverse platforms is essential. Please report your results (working configs, BSOD occurrences, system specs) to help improve stability.
+- ✅ **Standard systems** (`g_CiOptions = 0x00000006`): DSE bypass available
+- ❌ **HVCI/VBS enabled** (`g_CiOptions = 0x0001C006` or flags `0x0001C000`): DSE bypass **not available** - kernel memory protected by Secure Kernel (Ring -1)
 
 **Usage:**
+
 ```powershell
-kvc.exe dse off    # Disable signature enforcement
+kvc.exe dse        # Check current DSE status and system compatibility
+kvc.exe dse off    # Disable signature enforcement (if HVCI/VBS not active)
 kvc.exe dse on     # Re-enable signature enforcement
-kvc.exe dse status # Query current state
 ```
 
-**📖 Documentation Status:**
+**📖 For complete documentation:**
 
-The complete README update with detailed DSE documentation, technical implementation details, and comprehensive stability guidelines is **currently in progress** and will be published shortly.
-
-**For now, use:**
 ```powershell
 kvc.exe help       # View all available commands and options
 ```
