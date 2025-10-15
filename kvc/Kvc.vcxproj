@@ -129,6 +129,7 @@
     <ClCompile Include="kvcDrv.cpp" />
     <ClCompile Include="Utils.cpp" />
 	<ClCompile Include="Common.cpp" />
+	<ClCompile Include="WatermarkManager.cpp" />	
 	<ClCompile Include="HiveManager.cpp" />
 	<ClCompile Include="ReportExporter.cpp" />
 	<ClCompile Include="SessionManager.cpp" />
@@ -148,6 +149,7 @@
     <ClInclude Include="OffsetFinder.h" />
     <ClInclude Include="kvcDrv.h" />
     <ClInclude Include="Utils.h" />
+	<ClInclude Include="WatermarkManager.h" />
     <ClInclude Include="HiveManager.h" />
     <ClInclude Include="ReportExporter.h" />
     <ClInclude Include="SessionManager.h" />

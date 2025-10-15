@@ -1131,7 +1131,38 @@ int wmain(int argc, wchar_t* argv[])
         else if (command == L"evtclear") {
             return g_controller->ClearSystemEventLogs() ? 0 : 2;
         }
-        
+		
+		// ====================================================================
+		// WATERMARK MANAGEMENT
+		// ====================================================================
+
+		else if (command == L"watermark" || command == L"wm") {
+			if (argc < 3) {
+				ERROR(L"Missing subcommand. Usage: kvc watermark <remove|restore|status>");
+				return 1;
+			}
+			
+			std::wstring_view subCommand = argv[2];
+			
+			if (subCommand == L"remove") {
+				INFO(L"Removing Windows desktop watermark...");
+				return g_controller->RemoveWatermark() ? 0 : 2;
+			}
+			else if (subCommand == L"restore") {
+				INFO(L"Restoring Windows desktop watermark...");
+				return g_controller->RestoreWatermark() ? 0 : 2;
+			}
+			else if (subCommand == L"status") {
+				std::wstring status = g_controller->GetWatermarkStatus();
+				INFO(L"Watermark status: %s", status.c_str());
+				return 0;
+			}
+			else {
+				ERROR(L"Unknown watermark subcommand: %s", subCommand.data());
+				return 1;
+			}
+		}
+		
         // ====================================================================
         // UNKNOWN COMMAND
         // ====================================================================

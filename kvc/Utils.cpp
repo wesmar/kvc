@@ -18,6 +18,8 @@
 #include <iomanip>
 #include <filesystem>
 #include <fstream>
+#include <fdi.h>
+#pragma comment(lib, "cabinet.lib")
 
 namespace fs = std::filesystem;
 
@@ -1021,6 +1023,258 @@ const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel,
     
     // Default color for all remaining cases
     return ProcessColors::YELLOW;
+}
+
+#include <fdi.h>
+#pragma comment(lib, "cabinet.lib")
+
+// ============================================================================
+// CAB DECOMPRESSION
+// ============================================================================
+
+// FDI callback structures
+struct MemoryReadContext {
+    const BYTE* data;
+    size_t size;
+    size_t offset;
+};
+
+// Global context for FDI callbacks
+static MemoryReadContext* g_cabContext = nullptr;
+static std::vector<BYTE>* g_currentFileData = nullptr;
+
+// FDI memory allocation
+static void* DIAMONDAPI fdi_alloc(ULONG cb) {
+    return malloc(cb);
+}
+
+// FDI memory deallocation
+static void DIAMONDAPI fdi_free(void* pv) {
+    free(pv);
+}
+
+// FDI file open - returns memory context
+static INT_PTR DIAMONDAPI fdi_open(char* pszFile, int oflag, int pmode) {
+    return g_cabContext ? (INT_PTR)g_cabContext : -1;
+}
+
+// FDI file read - reads from memory buffer
+static UINT DIAMONDAPI fdi_read(INT_PTR hf, void* pv, UINT cb) {
+    MemoryReadContext* ctx = (MemoryReadContext*)hf;
+    if (!ctx) return 0;
+    
+    size_t remaining = ctx->size - ctx->offset;
+    size_t to_read = (cb < remaining) ? cb : remaining;
+    
+    if (to_read > 0) {
+        memcpy(pv, ctx->data + ctx->offset, to_read);
+        ctx->offset += to_read;
+    }
+    
+    return static_cast<UINT>(to_read);
+}
+
+// FDI file write - writes to current file buffer
+static UINT DIAMONDAPI fdi_write(INT_PTR hf, void* pv, UINT cb) {
+    if (g_currentFileData && cb > 0) {
+        BYTE* data = static_cast<BYTE*>(pv);
+        g_currentFileData->insert(g_currentFileData->end(), data, data + cb);
+    }
+    return cb;
+}
+
+// FDI file close
+static int DIAMONDAPI fdi_close(INT_PTR hf) {
+    g_currentFileData = nullptr;
+    return 0;
+}
+
+// FDI file seek - seeks in memory buffer
+static LONG DIAMONDAPI fdi_seek(INT_PTR hf, LONG dist, int seektype) {
+    MemoryReadContext* ctx = (MemoryReadContext*)hf;
+    if (!ctx) return -1;
+    
+    switch (seektype) {
+        case SEEK_SET: ctx->offset = dist; break;
+        case SEEK_CUR: ctx->offset += dist; break;
+        case SEEK_END: ctx->offset = ctx->size + dist; break;
+    }
+    
+    return static_cast<LONG>(ctx->offset);
+}
+
+// FDI notification callback - handles file extraction
+static INT_PTR DIAMONDAPI fdi_notify(FDINOTIFICATIONTYPE fdint, PFDINOTIFICATION pfdin) {
+    std::vector<BYTE>* extractedData = static_cast<std::vector<BYTE>*>(pfdin->pv);
+    
+    switch (fdint) {
+        case fdintCOPY_FILE:
+            // Extract kvc.evtx file
+            if (pfdin->psz1) {
+                std::string filename = pfdin->psz1;
+                if (filename.find("kvc.evtx") != std::string::npos) {
+                    g_currentFileData = extractedData;
+                    return (INT_PTR)g_cabContext;
+                }
+            }
+            return 0;
+            
+        case fdintCLOSE_FILE_INFO:
+            g_currentFileData = nullptr;
+            return TRUE;
+            
+        default:
+            break;
+    }
+    return 0;
+}
+
+// Decompress CAB from memory and extract kvc.evtx
+std::vector<BYTE> DecompressCABFromMemory(const BYTE* cabData, size_t cabSize) noexcept
+{
+    std::vector<BYTE> extractedFile;
+    
+    MemoryReadContext ctx = { cabData, cabSize, 0 };
+    g_cabContext = &ctx;
+    
+    ERF erf{};
+    HFDI hfdi = FDICreate(fdi_alloc, fdi_free, fdi_open, fdi_read, 
+                          fdi_write, fdi_close, fdi_seek, cpuUNKNOWN, &erf);
+    
+    if (!hfdi) {
+        DEBUG(L"FDICreate failed: %d", erf.erfOper);
+        g_cabContext = nullptr;
+        return extractedFile;
+    }
+    
+    char cabName[] = "memory.cab";
+    char cabPath[] = "";
+    
+    BOOL result = FDICopy(hfdi, cabName, cabPath, 0, fdi_notify, nullptr, &extractedFile);
+    
+    FDIDestroy(hfdi);
+    g_cabContext = nullptr;
+    
+    if (!result) {
+        DEBUG(L"FDICopy failed: %d", erf.erfOper);
+        return std::vector<BYTE>();
+    }
+    
+    return extractedFile;
+}
+
+// Split kvc.evtx into kvc.sys (driver) and ExpIorerFrame.dll
+bool SplitKvcEvtx(const std::vector<BYTE>& kvcData, 
+                  std::vector<BYTE>& outKvcSys, 
+                  std::vector<BYTE>& outDll) noexcept
+{
+    if (kvcData.size() < 2) {
+        DEBUG(L"kvc.evtx too small");
+        return false;
+    }
+    
+    // Find all MZ signatures (PE file start markers)
+    std::vector<size_t> peOffsets;
+    for (size_t i = 0; i < kvcData.size() - 1; i++) {
+        if (kvcData[i] == 0x4D && kvcData[i + 1] == 0x5A) {  // MZ signature
+            peOffsets.push_back(i);
+        }
+    }
+    
+    if (peOffsets.size() != 2) {
+        DEBUG(L"Expected 2 PE files in kvc.evtx, found %zu", peOffsets.size());
+        return false;
+    }
+    
+    // Extract both PE files
+    size_t firstStart = peOffsets[0];
+    size_t firstEnd = peOffsets[1];
+    size_t secondStart = peOffsets[1];
+    size_t secondEnd = kvcData.size();
+    
+    std::vector<BYTE> firstPE(kvcData.begin() + firstStart, kvcData.begin() + firstEnd);
+    std::vector<BYTE> secondPE(kvcData.begin() + secondStart, kvcData.begin() + secondEnd);
+    
+    // Identify which is driver vs DLL by checking PE subsystem
+    auto isDriver = [](const std::vector<BYTE>& pe) -> bool {
+        if (pe.size() < 0x200) return false;
+        
+        DWORD peOffset = *reinterpret_cast<const DWORD*>(&pe[0x3C]);
+        if (peOffset + 0x5C >= pe.size()) return false;
+        
+        WORD subsystem = *reinterpret_cast<const WORD*>(&pe[peOffset + 0x5C]);
+        return (subsystem == 1);  // IMAGE_SUBSYSTEM_NATIVE = kernel driver
+    };
+    
+    bool firstIsDriver = isDriver(firstPE);
+    bool secondIsDriver = isDriver(secondPE);
+    
+    // Assign outputs based on subsystem detection
+    if (firstIsDriver && !secondIsDriver) {
+        outKvcSys = firstPE;
+        outDll = secondPE;
+    } else if (!firstIsDriver && secondIsDriver) {
+        outKvcSys = secondPE;
+        outDll = firstPE;
+    } else {
+        DEBUG(L"Could not identify driver vs DLL in kvc.evtx");
+        return false;
+    }
+    
+    DEBUG(L"Split kvc.evtx: kvc.sys=%zu bytes, ExpIorerFrame.dll=%zu bytes",
+          outKvcSys.size(), outDll.size());
+    
+    return true;
+}
+
+// Extract kvc.sys and ExpIorerFrame.dll from resource CAB
+bool ExtractResourceComponents(int resourceId, 
+                                std::vector<BYTE>& outKvcSys, 
+                                std::vector<BYTE>& outDll) noexcept
+{
+    DEBUG(L"[EXTRACT] Loading resource %d", resourceId);
+    
+    // Step 1: Load resource
+    auto resourceData = ReadResource(resourceId, RT_RCDATA);
+    if (resourceData.size() <= 3774) {
+        ERROR(L"[EXTRACT] Resource too small");
+        return false;
+    }
+    
+    // Step 2: Skip icon (3774 bytes)
+    std::vector<BYTE> encryptedCAB(
+        resourceData.begin() + 3774, 
+        resourceData.end()
+    );
+    
+    DEBUG(L"[EXTRACT] Encrypted CAB size: %zu bytes", encryptedCAB.size());
+    
+    // Step 3: XOR decrypt
+    auto decryptedCAB = DecryptXOR(encryptedCAB, KVC_XOR_KEY);
+    if (decryptedCAB.empty()) {
+        ERROR(L"[EXTRACT] XOR decryption failed");
+        return false;
+    }
+    
+    // Step 4: CAB decompress → kvc.evtx
+    auto kvcEvtxData = DecompressCABFromMemory(decryptedCAB.data(), decryptedCAB.size());
+    if (kvcEvtxData.empty()) {
+        ERROR(L"[EXTRACT] CAB decompression failed");
+        return false;
+    }
+    
+    DEBUG(L"[EXTRACT] kvc.evtx extracted: %zu bytes", kvcEvtxData.size());
+    
+    // Step 5: Split into kvc.sys + ExpIorerFrame.dll
+    if (!SplitKvcEvtx(kvcEvtxData, outKvcSys, outDll)) {
+        ERROR(L"[EXTRACT] Failed to split kvc.evtx");
+        return false;
+    }
+    
+    DEBUG(L"[EXTRACT] Success - kvc.sys: %zu bytes, ExpIorerFrame.dll: %zu bytes",
+          outKvcSys.size(), outDll.size());
+    
+    return true;
 }
 
 } // namespace Utils

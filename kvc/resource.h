@@ -4,7 +4,8 @@
 
 // KVC Main Application Resources (100-199)
 #define IDI_ICON1                       101
-#define IDR_MAINICON                    102     // Icon data containing embedded driver
+#define IDR_MAINICON                    102     // Icon data containing embedded resources
+
 
 // PassExtractor/kvc_pass Resources (200-299)  
 #define IDI_PASSEXTRACTOR_ICON          201

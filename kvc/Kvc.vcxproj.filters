@@ -57,19 +57,22 @@
   <ClCompile Include="ControllerPasswordManager.cpp">
     <Filter>Source Files\Controller</Filter>
   </ClCompile>
-  <ClCompile Include="ControllerEventLogOperations.cpp">
+  <ClCompile Include="DSEBypass.cpp">
+    <Filter>Source Files</Filter>
+  </ClCompile>
+  <ClCompile Include="ControllerDSE.cpp">
     <Filter>Source Files\Controller</Filter>
   </ClCompile>
   <ClCompile Include="ControllerBinaryManager.cpp">
     <Filter>Source Files\Controller</Filter>
   </ClCompile>
-  <ClCompile Include="ControllerDSE.cpp">
+  <ClCompile Include="ControllerEventLogOperations.cpp">
     <Filter>Source Files\Controller</Filter>
   </ClCompile>
-  <ClCompile Include="DSEBypass.cpp">
+  <ClCompile Include="ProcessManager.cpp">
     <Filter>Source Files</Filter>
   </ClCompile>
-  <ClCompile Include="ProcessManager.cpp">
+  <ClCompile Include="WatermarkManager.cpp">
     <Filter>Source Files</Filter>
   </ClCompile>
   <ClCompile Include="HiveManager.cpp">
@@ -116,6 +119,12 @@
   <ClInclude Include="ReportExporter.h">
     <Filter>Header Files</Filter>
   </ClInclude>
+  <ClInclude Include="DSEBypass.h">
+    <Filter>Header Files</Filter>
+  </ClInclude>
+  <ClInclude Include="WatermarkManager.h">
+    <Filter>Header Files</Filter>
+  </ClInclude>
   <ClInclude Include="HiveManager.h">
     <Filter>Header Files</Filter>
   </ClInclude>
@@ -137,17 +146,6 @@
   <ClInclude Include="ProcessManager.h">
     <Filter>Header Files</Filter>
   </ClInclude>
-  <ClInclude Include="DSEBypass.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-</ItemGroup>
-<ItemGroup>
-  <MASM Include="MmPoolTelemetry.asm">
-    <Filter>Source Files</Filter>
-  </MASM>
-  <MASM Include="ScreenShake.asm">
-    <Filter>Source Files</Filter>
-  </MASM>
 </ItemGroup>
 <ItemGroup>
   <Image Include="ICON\kvc.ico">
@@ -159,9 +157,4 @@
     <Filter>Resource Files</Filter>
   </ResourceCompile>
 </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="kvc.rc">
-      <Filter>Resource Files</Filter>
-    </ResourceCompile>
-  </ItemGroup>
 </Project>

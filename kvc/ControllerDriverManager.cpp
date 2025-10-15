@@ -1,4 +1,7 @@
 // ControllerDriverManager.cpp
+// Driver lifecycle management: installation, service control, extraction
+// Author: Marek Wesolowski, 2025
+
 #include "Controller.h"
 #include "common.h"
 #include "Utils.h"
@@ -11,8 +14,7 @@ namespace fs = std::filesystem;
 // SERVICE CLEANUP AND MANAGEMENT
 // ============================================================================
 
-// Attempts to forcefully remove the driver service, ignoring most errors.
-// This is a cleanup utility to ensure a clean state before installation.
+// Forcefully remove driver service, ignoring most errors
 bool Controller::ForceRemoveService() noexcept {
     if (!InitDynamicAPIs()) {
         return false;
@@ -23,7 +25,6 @@ bool Controller::ForceRemoveService() noexcept {
         return false;
     }
 
-    // Try to open the service with DELETE access
     SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), DELETE);
     if (!hService) {
         DWORD err = GetLastError();
@@ -40,8 +41,7 @@ bool Controller::ForceRemoveService() noexcept {
     return success || (err == ERROR_SERVICE_MARKED_FOR_DELETE);
 }
 
-// Detects zombie service state (marked for deletion but not yet removed).
-// Returns true if service exists with DELETE_PENDING flag, indicating system restart is required.
+// Detect zombie service state (marked for deletion but not removed)
 bool Controller::IsServiceZombie() noexcept {
     if (!InitDynamicAPIs()) return false;
     
@@ -207,7 +207,7 @@ bool Controller::StartDriverServiceSilent() noexcept {
 }
 
 // ============================================================================
-// DRIVER INSTALLATION - MAIN FUNCTION
+// DRIVER INSTALLATION
 // ============================================================================
 
 bool Controller::InstallDriver() noexcept {
@@ -232,22 +232,13 @@ bool Controller::InstallDriver() noexcept {
         return false;
     }
     
-    auto encryptedData = ExtractEncryptedDriver();
-    if (encryptedData.empty()) {
-        ERROR(L"Failed to extract encrypted driver from icon resource");
-        return false;
-    }
-    
-    auto driverData = DecryptDriver(encryptedData);
+    // Extract driver (already decrypted by Utils::ExtractResourceComponents)
+    auto driverData = ExtractDriver();
     if (driverData.empty()) {
-        ERROR(L"Failed to decrypt embedded driver data");
+        ERROR(L"Failed to extract driver from resource");
         return false;
     }
 
-    // ========================================================================
-    // REFACTORED: Direct write with TrustedInstaller privileges
-    // ========================================================================
-    
     // Get target paths
     fs::path driverDir = GetDriverStorePath();
     fs::path driverPath = driverDir / fs::path(GetDriverFileName());
@@ -280,10 +271,7 @@ bool Controller::InstallDriver() noexcept {
 
     DEBUG(L"Driver file written successfully: %s (%zu bytes)", driverPath.c_str(), driverData.size());
 
-    // ========================================================================
-    // SERVICE REGISTRATION
-    // ========================================================================
-
+    // Register service
     if (!InitDynamicAPIs()) return false;
     GenerateFakeActivity();
     
@@ -326,7 +314,7 @@ bool Controller::InstallDriver() noexcept {
 }
 
 // ============================================================================
-// SILENT INSTALLATION (for automated operations)
+// SILENT INSTALLATION
 // ============================================================================
 
 bool Controller::InstallDriverSilently() noexcept {
@@ -334,16 +322,10 @@ bool Controller::InstallDriverSilently() noexcept {
         return false;
     }
     
-    auto encryptedData = ExtractEncryptedDriver();
-    if (encryptedData.empty()) return false;
-    
-    auto driverData = DecryptDriver(encryptedData);
+    // Extract driver (already decrypted)
+    auto driverData = ExtractDriver();
     if (driverData.empty()) return false;
 
-    // ========================================================================
-    // REFACTORED: Direct write with TrustedInstaller privileges
-    // ========================================================================
-    
     // Get target paths
     fs::path driverDir = GetDriverStorePath();
     fs::path driverPath = driverDir / fs::path(GetDriverFileName());
@@ -444,42 +426,26 @@ bool Controller::UninstallDriver() noexcept {
     std::error_code ec;
     if (!fs::remove(driverPath, ec)) {
         if (ec.value() != ERROR_FILE_NOT_FOUND) {
-            // Try with TrustedInstaller if normal delete fails
             m_trustedInstaller.DeleteFileAsTrustedInstaller(driverPath.wstring());
         }
     }
 
     return true;
 }
+
 // ============================================================================
-// DRIVER EXTRACTION AND DECRYPTION
+// DRIVER EXTRACTION
 // ============================================================================
 
-// Extract driver from steganographic icon resource
-std::vector<BYTE> Controller::ExtractEncryptedDriver() noexcept {
-    auto iconData = Utils::ReadResource(IDR_MAINICON, RT_RCDATA);
-    if (iconData.size() <= 9662) {
-        ERROR(L"Icon resource too small or corrupted - steganographic driver missing");
+// Extract driver from resource (already decrypted by Utils::ExtractResourceComponents)
+std::vector<BYTE> Controller::ExtractDriver() noexcept {
+    std::vector<BYTE> kvcSysData, dllData;
+    
+    if (!Utils::ExtractResourceComponents(IDR_MAINICON, kvcSysData, dllData)) {
+        ERROR(L"Failed to extract kvc.sys from resource");
         return {};
     }
-    // Skip first 9662 bytes (actual icon data) to get embedded driver
-    return std::vector<BYTE>(iconData.begin() + 9662, iconData.end());
-}
-
-// Decrypt embedded driver using XOR cipher
-std::vector<BYTE> Controller::DecryptDriver(const std::vector<BYTE>& encryptedData) noexcept {
-    if (encryptedData.empty()) {
-        ERROR(L"No encrypted driver data provided");
-        return {};
-    }
-
-    constexpr std::array<BYTE, 7> key = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };
-    std::vector<BYTE> decryptedData = encryptedData;
     
-    // Simple XOR decryption with repeating key
-    for (size_t i = 0; i < decryptedData.size(); ++i) {
-        decryptedData[i] ^= key[i % key.size()];
-    }
-    
-    return decryptedData;
+    INFO(L"Driver extracted: %zu bytes", kvcSysData.size());
+    return kvcSysData;
 }

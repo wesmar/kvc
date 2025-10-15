@@ -115,3 +115,26 @@ bool Controller::InstallStickyKeysBackdoor() noexcept {
 bool Controller::RemoveStickyKeysBackdoor() noexcept {
     return m_trustedInstaller.RemoveStickyKeysBackdoor();
 }
+
+// ============================================================================
+// WATERMARK MANAGEMENT
+// ============================================================================
+
+bool Controller::RemoveWatermark() noexcept
+{
+    WatermarkManager wmManager(m_trustedInstaller);
+    return wmManager.RemoveWatermark();
+}
+
+bool Controller::RestoreWatermark() noexcept
+{
+    WatermarkManager wmManager(m_trustedInstaller);
+    return wmManager.RestoreWatermark();
+}
+
+std::wstring Controller::GetWatermarkStatus() noexcept
+{
+    WatermarkManager wmManager(m_trustedInstaller);
+    return wmManager.GetWatermarkStatus();
+}
+

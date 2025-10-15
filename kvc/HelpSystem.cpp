@@ -23,6 +23,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintDefenderCommands();
     PrintSecurityEngineCommands();
 	PrintDPAPICommands();
+	PrintWatermarkCommands();
     PrintProtectionTypes();
     PrintExclusionTypes();
     PrintPatternMatching();
@@ -226,6 +227,17 @@ void HelpSystem::PrintDPAPICommands() noexcept
     std::wcout << L"\n";
 }
 
+void HelpSystem::PrintWatermarkCommands() noexcept
+{
+    PrintSectionHeader(L"Watermark Management");
+    PrintCommandLine(L"watermark remove", L"Remove Windows desktop watermark (alias: wm remove)");
+    PrintCommandLine(L"watermark restore", L"Restore Windows desktop watermark (alias: wm restore)");
+    PrintCommandLine(L"watermark status", L"Check current watermark status (alias: wm status)");
+    PrintNote(L"Hijacks ExplorerFrame.dll via registry redirection");
+    PrintNote(L"Requires Administrator privileges and TrustedInstaller access");
+    std::wcout << L"\n";
+}
+
 void HelpSystem::PrintProtectionTypes() noexcept
 {
     PrintSectionHeader(L"Protection Types");
@@ -370,6 +382,12 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
 	printLine(L"kvc dse off", L"Disable DSE to load unsigned drivers");
 	printLine(L"kvc dse on", L"Re-enable DSE for system security");
 	printLine(L"kvc dse", L"Check current DSE status");
+	
+	// Watermark management
+	printLine(L"kvc wm status", L"Check if watermark is removed or active");
+	printLine(L"kvc wm remove", L"Remove Windows desktop watermark");
+	printLine(L"kvc wm restore", L"Restore original Windows watermark");
+	printLine(L"kvc watermark remove", L"Full command syntax (same as 'wm remove')");
 	
     // System backdoors
     printLine(L"kvc shift", L"Install sticky keys backdoor");
