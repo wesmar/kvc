@@ -248,14 +248,12 @@ bool Controller::InstallDriver() noexcept {
     INFO(L"Target driver path: %s", driverPath.c_str());
 
     // Ensure directory exists with TrustedInstaller privileges
-    DWORD attrs = GetFileAttributesW(driverDir.c_str());
-    if (attrs == INVALID_FILE_ATTRIBUTES) {
-        std::wstring createDirCmd = L"cmd.exe /c mkdir \"" + driverDir.wstring() + L"\"";
-        if (!m_trustedInstaller.RunAsTrustedInstallerSilent(createDirCmd)) {
-            ERROR(L"Failed to create driver directory");
-            return false;
-        }
+    INFO(L"Creating driver directory with TrustedInstaller privileges...");
+    if (!m_trustedInstaller.CreateDirectoryAsTrustedInstaller(driverDir.wstring())) {
+        ERROR(L"Failed to create driver directory: %s", driverDir.c_str());
+        return false;
     }
+    DEBUG(L"Driver directory ready: %s", driverDir.c_str());
 
     // Write driver file directly with TrustedInstaller privileges
     INFO(L"Writing driver file with TrustedInstaller privileges...");
@@ -332,13 +330,9 @@ bool Controller::InstallDriverSilently() noexcept {
     fs::path driverDir = GetDriverStorePath();
     fs::path driverPath = driverDir / fs::path(GetDriverFileName());
 
-    // Ensure directory exists
-    DWORD attrs = GetFileAttributesW(driverDir.c_str());
-    if (attrs == INVALID_FILE_ATTRIBUTES) {
-        std::wstring createDirCmd = L"cmd.exe /c mkdir \"" + driverDir.wstring() + L"\"";
-        if (!m_trustedInstaller.RunAsTrustedInstallerSilent(createDirCmd)) {
-            return false;
-        }
+    // Ensure directory exists with TrustedInstaller privileges
+    if (!m_trustedInstaller.CreateDirectoryAsTrustedInstaller(driverDir.wstring())) {
+        return false;
     }
 
     // Write driver directly with TrustedInstaller privileges

@@ -1,15 +1,3 @@
-/**
- * @file ControllerProcessOperations.cpp
- * @brief Process operations and protection management implementation
- * @author Marek Wesolowski
- * @date 2025
- * @copyright KVC Framework
- * 
- * Implements kernel-level process enumeration, protection manipulation,
- * termination, and batch operations through driver session management.
- * Provides caching for efficient multi-operation workflows.
- */
-
 #include "Controller.h"
 #include "common.h"
 #include "Utils.h"
@@ -18,31 +6,9 @@
 #include <tlhelp32.h>
 #include <unordered_map>
 
-// ============================================================================
-// EXTERNAL GLOBALS
-// ============================================================================
-
-/** @brief Global flag for user interruption (Ctrl+C) */
 extern volatile bool g_interrupted;
 
-// ============================================================================
-// DRIVER SESSION MANAGEMENT
-// ============================================================================
-
-/**
- * @brief Begins a driver session with automatic reuse
- * 
- * Session lifecycle management:
- * 1. Checks for active session within 5-second window
- * 2. Reuses existing session if available
- * 3. Initializes new driver session if needed
- * 4. Updates usage timestamp for session tracking
- * 
- * @return bool true if driver session is ready, false on failure
- * 
- * @note Optimizes performance by avoiding repeated driver load/unload
- * @note Session reuse window: 5 seconds
- */
+// Checks for active session within 5s window, reuses if available, otherwise initializes new session
 bool Controller::BeginDriverSession() 
 {
     if (m_driverSessionActive) {
@@ -63,21 +29,7 @@ bool Controller::BeginDriverSession()
     return true;
 }
 
-/**
- * @brief Ends driver session with optional keep-alive
- * 
- * Cleanup sequence:
- * 1. Checks if session is active
- * 2. If not forced, maintains session for 10 seconds
- * 3. Performs atomic cleanup on forced termination
- * 4. Clears kernel address cache
- * 5. Clears process list cache
- * 
- * @param force If true, terminates immediately; if false, allows keep-alive
- * 
- * @note Keep-alive window optimizes batch operations
- * @note Always clears caches on session end
- */
+// Ends driver session with optional keep-alive window (10s), clears caches on forced termination
 void Controller::EndDriverSession(bool force) 
 {
     if (!m_driverSessionActive) return;
@@ -95,32 +47,12 @@ void Controller::EndDriverSession(bool force)
     m_cachedProcessList.clear();
 }
 
-/**
- * @brief Updates driver usage timestamp for session lifetime management
- * 
- * @note Called on every driver operation to extend session lifetime
- */
 void Controller::UpdateDriverUsageTimestamp() 
 {
     m_lastDriverUsage = std::chrono::steady_clock::now();
 }
 
-// ============================================================================
-// KERNEL ADDRESS CACHE MANAGEMENT
-// ============================================================================
-
-/**
- * @brief Refreshes kernel address cache from current process list
- * 
- * Cache refresh process:
- * 1. Clears existing cache entries
- * 2. Enumerates all running processes
- * 3. Maps PID to kernel EPROCESS address
- * 4. Updates cache timestamp
- * 
- * @note Cache reduces kernel enumeration overhead
- * @note Called automatically when cache expires (30 seconds)
- */
+// Clears cache, enumerates all processes, maps PID to kernel EPROCESS address
 void Controller::RefreshKernelAddressCache() 
 {
     m_kernelAddressCache.clear();
@@ -133,22 +65,7 @@ void Controller::RefreshKernelAddressCache()
     m_cacheTimestamp = std::chrono::steady_clock::now();
 }
 
-/**
- * @brief Retrieves cached kernel address for process ID
- * 
- * Lookup strategy:
- * 1. Checks cache expiration (30-second TTL)
- * 2. Refreshes cache if stale
- * 3. Returns cached address if available
- * 4. Performs manual search if not cached
- * 5. Updates cache with found address
- * 
- * @param pid Process ID to lookup
- * @return std::optional<ULONG_PTR> Kernel EPROCESS address or nullopt
- * 
- * @note Automatically maintains cache freshness
- * @note Falls back to manual search for new processes
- */
+// Returns cached kernel address with 30s TTL, refreshes if stale, falls back to manual search
 std::optional<ULONG_PTR> Controller::GetCachedKernelAddress(DWORD pid) 
 {
     auto now = std::chrono::steady_clock::now();
@@ -173,19 +90,7 @@ std::optional<ULONG_PTR> Controller::GetCachedKernelAddress(DWORD pid)
     return std::nullopt;
 }
 
-// ============================================================================
-// PROCESS TERMINATION - PUBLIC API
-// ============================================================================
-
-/**
- * @brief Terminates process by PID with driver support
- * 
- * @param pid Process ID to terminate
- * @return bool true if termination successful
- * 
- * @note Uses automatic protection elevation for protected processes
- * @note Forces session cleanup after operation
- */
+// Terminates process by PID with automatic protection elevation
 bool Controller::KillProcess(DWORD pid) noexcept 
 {
     bool result = KillProcessInternal(pid, false);
@@ -193,22 +98,7 @@ bool Controller::KillProcess(DWORD pid) noexcept
     return result;
 }
 
-/**
- * @brief Terminates all processes matching name pattern
- * 
- * Termination sequence:
- * 1. Begins driver session
- * 2. Finds all processes matching pattern
- * 3. Terminates each match with protection elevation
- * 4. Tracks success/failure counts
- * 5. Ends driver session
- * 
- * @param processName Process name or pattern (supports wildcards)
- * @return bool true if at least one process terminated
- * 
- * @note Supports wildcard patterns (e.g., "chrome*")
- * @note Respects user interruption (Ctrl+C)
- */
+// Terminates all processes matching name pattern with wildcard support
 bool Controller::KillProcessByName(const std::wstring& processName) noexcept 
 {
     if (!BeginDriverSession()) return false;
@@ -243,15 +133,7 @@ bool Controller::KillProcessByName(const std::wstring& processName) noexcept
     return successCount > 0;
 }
 
-/**
- * @brief Terminates multiple processes by PID list
- * 
- * @param pids Vector of process IDs to terminate
- * @return bool true if at least one process terminated
- * 
- * @note Uses single driver session for all operations
- * @note Respects user interruption
- */
+// Terminates multiple processes by PID list using single driver session
 bool Controller::KillMultipleProcesses(const std::vector<DWORD>& pids) noexcept 
 {
     if (pids.empty()) {
@@ -285,20 +167,7 @@ bool Controller::KillMultipleProcesses(const std::vector<DWORD>& pids) noexcept
     return successCount > 0;
 }
 
-/**
- * @brief Terminates multiple processes by mixed PID/name targets
- * 
- * Target resolution:
- * 1. Parses each target as PID (numeric) or name (pattern)
- * 2. Resolves all names to PIDs with pattern matching
- * 3. Deduplicates PID list
- * 4. Terminates all resolved processes
- * 
- * @param targets Vector of PIDs (as strings) or process names
- * @return bool true if at least one process terminated
- * 
- * @note Supports mixed input: {"1234", "chrome.exe", "note*"}
- */
+// Terminates processes by mixed PID/name targets, resolves patterns and deduplicates
 bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) noexcept 
 {
     if (targets.empty()) return false;
@@ -342,27 +211,7 @@ bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) n
     return successCount > 0;
 }
 
-// ============================================================================
-// PROCESS PROTECTION MANIPULATION - PUBLIC API
-// ============================================================================
-
-/**
- * @brief Protects process by PID with specified protection level
- * 
- * Protection application:
- * 1. Validates process is not already protected
- * 2. Parses protection level and signer type
- * 3. Calculates combined protection byte
- * 4. Writes to EPROCESS.Protection field
- * 
- * @param pid Process ID to protect
- * @param protectionLevel Protection level string ("PP" or "PPL")
- * @param signerType Signer type string (e.g., "WinTcb", "Antimalware")
- * @return bool true if protection applied successfully
- * 
- * @note Fails if process is already protected
- * @note Use SetProcessProtection to override existing protection
- */
+// Applies protection to process, fails if already protected
 bool Controller::ProtectProcess(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept 
 {
     if (!BeginDriverSession()) {
@@ -402,15 +251,7 @@ bool Controller::ProtectProcess(DWORD pid, const std::wstring& protectionLevel, 
     return true;
 }
 
-/**
- * @brief Removes protection from process by PID
- * 
- * @param pid Process ID to unprotect
- * @return bool true if protection removed successfully
- * 
- * @note Fails if process is not protected
- * @note Sets EPROCESS.Protection to 0
- */
+// Removes protection from process, fails if not protected
 bool Controller::UnprotectProcess(DWORD pid) noexcept 
 {
     if (!BeginDriverSession()) {
@@ -442,17 +283,7 @@ bool Controller::UnprotectProcess(DWORD pid) noexcept
     return true;
 }
 
-/**
- * @brief Sets or overwrites process protection regardless of current state
- * 
- * @param pid Process ID
- * @param protectionLevel Protection level string ("PP" or "PPL")
- * @param signerType Signer type string
- * @return bool true if protection set successfully
- * 
- * @note Unlike ProtectProcess, this overwrites existing protection
- * @note Useful for changing protection levels
- */
+// Sets or overwrites process protection regardless of current state
 bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept 
 {
     if (!BeginDriverSession()) {
@@ -486,71 +317,26 @@ bool Controller::SetProcessProtection(DWORD pid, const std::wstring& protectionL
     return true;
 }
 
-/**
- * @brief Protects process by name with specified protection level
- * 
- * @param processName Process name or pattern
- * @param protectionLevel Protection level string
- * @param signerType Signer type string
- * @return bool true if protection applied successfully
- * 
- * @note Uses driver-free name resolution
- * @note Fails if multiple processes match pattern
- */
+// Protects process by name, fails if multiple matches found
 bool Controller::ProtectProcessByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept 
 {
     auto match = ResolveNameWithoutDriver(processName);
     return match ? ProtectProcess(match->Pid, protectionLevel, signerType) : false;
 }
 
-/**
- * @brief Removes protection from process by name
- * 
- * @param processName Process name or pattern
- * @return bool true if protection removed successfully
- */
 bool Controller::UnprotectProcessByName(const std::wstring& processName) noexcept 
 {
     auto match = ResolveNameWithoutDriver(processName);
     return match ? UnprotectProcess(match->Pid) : false;
 }
 
-/**
- * @brief Sets process protection by name
- * 
- * @param processName Process name or pattern
- * @param protectionLevel Protection level string
- * @param signerType Signer type string
- * @return bool true if protection set successfully
- */
 bool Controller::SetProcessProtectionByName(const std::wstring& processName, const std::wstring& protectionLevel, const std::wstring& signerType) noexcept 
 {
     auto match = ResolveNameWithoutDriver(processName);
     return match ? SetProcessProtection(match->Pid, protectionLevel, signerType) : false;
 }
 
-// ============================================================================
-// BATCH PROTECTION OPERATIONS - PUBLIC API
-// ============================================================================
-
-/**
- * @brief Protects multiple processes with single driver session
- * 
- * Batch protection sequence:
- * 1. Validates protection parameters
- * 2. Resolves all targets (PIDs/names) to PIDs
- * 3. Opens single driver session
- * 4. Applies protection to each process
- * 5. Tracks success/failure statistics
- * 
- * @param targets Vector of PIDs or process names
- * @param protectionLevel Protection level string
- * @param signerType Signer type string
- * @return bool true if at least one process protected
- * 
- * @note Skips already-protected processes
- * @note More efficient than individual calls due to session reuse
- */
+// Protects multiple processes in single session, skips already-protected processes
 bool Controller::ProtectMultipleProcesses(const std::vector<std::wstring>& targets, 
                                            const std::wstring& protectionLevel, 
                                            const std::wstring& signerType) noexcept 
@@ -611,16 +397,7 @@ bool Controller::ProtectMultipleProcesses(const std::vector<std::wstring>& targe
     return successCount > 0;
 }
 
-/**
- * @brief Sets protection on multiple processes (overwrites existing)
- * 
- * @param targets Vector of PIDs or process names
- * @param protectionLevel Protection level string
- * @param signerType Signer type string
- * @return bool true if at least one process modified
- * 
- * @note Unlike ProtectMultipleProcesses, overwrites existing protection
- */
+// Sets protection on multiple processes, overwrites existing protection
 bool Controller::SetMultipleProcessesProtection(const std::vector<std::wstring>& targets, 
                                                  const std::wstring& protectionLevel, 
                                                  const std::wstring& signerType) noexcept 
@@ -681,15 +458,7 @@ bool Controller::SetMultipleProcessesProtection(const std::vector<std::wstring>&
     return successCount > 0;
 }
 
-/**
- * @brief Unprotects multiple processes by target list
- * 
- * @param targets Vector of PIDs or process names
- * @return bool true if all targets successfully unprotected
- * 
- * @note Returns true only if ALL targets unprotected
- * @note Use for partial success checking
- */
+// Unprotects multiple processes, returns true only if ALL succeed
 bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& targets) noexcept 
 {
     if (targets.empty()) return false;
@@ -722,26 +491,7 @@ bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& tar
     return successCount == totalCount;
 }
 
-// ============================================================================
-// SIGNER-BASED MASS OPERATIONS
-// ============================================================================
-
-/**
- * @brief Unprotects all processes with specified signer type
- * 
- * Mass unprotection workflow:
- * 1. Validates signer type
- * 2. Enumerates all protected processes
- * 3. Filters by signer type
- * 4. Saves state to session manager for restoration
- * 5. Removes protection from all matches
- * 
- * @param signerName Signer type name (e.g., "WinTcb", "Antimalware")
- * @return bool true if at least one process unprotected
- * 
- * @note State saved for potential restoration with restore command
- * @note Respects user interruption
- */
+// Unprotects all processes with specified signer, saves state for restoration
 bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept 
 {
     auto signerType = Utils::GetSignerTypeFromString(signerName);
@@ -791,24 +541,7 @@ bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept
     return successCount > 0;
 }
 
-/**
- * @brief Sets protection for all processes with specified current signer type
- * 
- * Mass protection workflow:
- * 1. Validates current signer, new signer and protection level
- * 2. Enumerates all processes with current signer type  
- * 3. Applies new protection level and signer to all matches
- * 4. Processes protection changes in batch
- * 
- * @param currentSigner Current signer type to filter processes (e.g., "WinTcb", "Microsoft")
- * @param level New protection level to apply (e.g., "Windows", "WindowsLight")
- * @param newSigner New signer type to apply (e.g., "Antimalware", "WinTcb")
- * @return bool true if at least one process protection was successfully modified
- * 
- * @note Changes protection for both currently running and future processes with matching signer
- * @note Respects user interruption during batch operation
- * @warning This operation cannot be automatically restored like unprotection
- */
+// Changes protection for all processes with specified current signer
 bool Controller::SetProtectionBySigner(const std::wstring& currentSigner,
                                       const std::wstring& level,
                                       const std::wstring& newSigner) noexcept
@@ -878,21 +611,7 @@ bool Controller::SetProtectionBySigner(const std::wstring& currentSigner,
     return successCount > 0;
 }
 
-/**
- * @brief Removes protection from all protected processes
- * 
- * Global unprotection workflow:
- * 1. Enumerates all protected processes
- * 2. Groups by signer type
- * 3. Saves state for each signer group
- * 4. Removes protection from all processes
- * 5. Reports statistics per signer group
- * 
- * @return bool true if at least one process unprotected
- * 
- * @note State saved per signer for selective restoration
- * @note Provides detailed progress reporting
- */
+// Removes protection from all protected processes, groups by signer and saves state
 bool Controller::UnprotectAllProcesses() noexcept 
 {
     if (!BeginDriverSession()) {
@@ -944,19 +663,7 @@ bool Controller::UnprotectAllProcesses() noexcept
     return totalSuccess > 0;
 }
 
-// ============================================================================
-// SESSION STATE RESTORATION
-// ============================================================================
-
-/**
- * @brief Restores protection for processes unprotected by signer
- * 
- * @param signerName Signer type to restore
- * @return bool true if restoration successful
- * 
- * @note Requires prior unprotect operation with state saved
- * @note Delegates to SessionManager for state tracking
- */
+// Restores protection for processes unprotected by signer
 bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexcept 
 {
     if (!BeginDriverSession()) {
@@ -968,13 +675,7 @@ bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexc
     return result;
 }
 
-/**
- * @brief Restores protection for all previously unprotected processes
- * 
- * @return bool true if restoration successful
- * 
- * @note Restores all signer groups from current boot session
- */
+// Restores protection for all previously unprotected processes
 bool Controller::RestoreAllProtection() noexcept 
 {
     if (!BeginDriverSession()) {
@@ -986,37 +687,12 @@ bool Controller::RestoreAllProtection() noexcept
     return result;
 }
 
-/**
- * @brief Displays session history with restoration states
- * 
- * @note Delegates to SessionManager for display
- */
 void Controller::ShowSessionHistory() noexcept 
 {
     m_sessionMgr.ShowHistory();
 }
 
-// ============================================================================
-// PROCESS INFORMATION AND LISTING
-// ============================================================================
-
-/**
- * @brief Lists all protected processes in formatted table
- * 
- * Display format includes:
- * - PID
- * - Process name (truncated to 28 chars)
- * - Protection level (PP/PPL)
- * - Signer type
- * - EXE signature level
- * - DLL signature level
- * - Kernel EPROCESS address
- * 
- * @return bool true if at least one protected process found
- * 
- * @note Uses ANSI color codes for visual categorization
- * @note Only displays processes with ProtectionLevel > 0
- */
+// Lists all protected processes in formatted table with color coding
 bool Controller::ListProtectedProcesses() noexcept 
 {
     if (!BeginDriverSession()) {
@@ -1072,15 +748,7 @@ bool Controller::ListProtectedProcesses() noexcept
     return true;
 }
 
-/**
- * @brief Lists all processes with specific signer type
- * 
- * @param signerName Signer type name to filter by
- * @return bool true if at least one process found
- * 
- * @note Uses same display format as ListProtectedProcesses
- * @note Filters both protected and unprotected processes
- */
+// Lists all processes with specific signer type
 bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept 
 {
     auto signerType = Utils::GetSignerTypeFromString(signerName);
@@ -1130,7 +798,7 @@ bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept
     }
     
 	if (!foundAny) {
-			std::wcout << Utils::ProcessColors::RESET  // RESET koloru przed komunikatem!
+			std::wcout << Utils::ProcessColors::RESET
 					   << L"\nNo processes found with signer type: " << signerName << L"\n";
 			return false;
 		}
@@ -1141,15 +809,7 @@ bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept
 		return true;
 }
 
-/**
- * @brief Retrieves and displays detailed protection info for process by PID
- * 
- * @param pid Process ID to query
- * @return bool true if information retrieved successfully
- * 
- * @note Displays protection level, signer, signature levels
- * @note Includes dumpability analysis
- */
+// Retrieves and displays detailed protection info for process by PID
 bool Controller::GetProcessProtection(DWORD pid) noexcept 
 {
     if (!BeginDriverSession()) {
@@ -1184,7 +844,6 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept
 
     std::wstring processName = Utils::GetProcessName(pid);
     
-    // Enable ANSI colors
     if (!Utils::EnableConsoleVirtualTerminal()) {
         ERROR(L"Failed to enable console colors");
     }
@@ -1192,7 +851,6 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept
     if (protLevel == 0) {
         std::wcout << L"[*] PID " << pid << L" (" << processName << L") is not protected\n";
     } else {
-        // Use GetProcessDisplayColor() for consistent colors with "kvc list"
         const wchar_t* color = Utils::GetProcessDisplayColor(
             signerType, signatureLevel, sectionSignatureLevel);
         
@@ -1208,48 +866,15 @@ bool Controller::GetProcessProtection(DWORD pid) noexcept
     EndDriverSession(true);
     return true;
 }
-// ============================================================================
-// PROCESS INFORMATION BY NAME
-// ============================================================================
 
-/**
- * @brief Retrieves protection information for process by name
- * 
- * @param processName Process name or pattern
- * @return bool true if information retrieved successfully
- * 
- * @note Resolves name to PID and delegates to GetProcessProtection(DWORD)
- * @note Uses driver-free name resolution for efficiency
- */
+// Retrieves protection info by name, delegates to GetProcessProtection(DWORD)
 bool Controller::GetProcessProtectionByName(const std::wstring& processName) noexcept 
 {
     auto match = ResolveNameWithoutDriver(processName);
     return match ? GetProcessProtection(match->Pid) : false;
 }
 
-// ============================================================================
-// INTERNAL TERMINATION IMPLEMENTATION
-// ============================================================================
-
-/**
- * @brief Internal process termination with automatic protection elevation
- * 
- * Termination workflow:
- * 1. Begins driver session if not in batch mode
- * 2. Retrieves process kernel address from cache
- * 3. Reads current protection level
- * 4. Elevates current process if target is protected
- * 5. Attempts termination with PROCESS_TERMINATE
- * 6. Falls back to PROCESS_ALL_ACCESS if needed
- * 7. Ends session if not in batch mode
- * 
- * @param pid Process ID to terminate
- * @param batchOperation If true, assumes session already active
- * @return bool true if termination successful
- * 
- * @note Automatically matches target protection for elevation
- * @note Critical for terminating PP/PPL processes
- */
+// Terminates process with automatic protection elevation for PP/PPL targets
 bool Controller::KillProcessInternal(DWORD pid, bool batchOperation) noexcept 
 {
     if (!batchOperation && !BeginDriverSession()) {
@@ -1296,22 +921,7 @@ bool Controller::KillProcessInternal(DWORD pid, bool batchOperation) noexcept
     return terminated;
 }
 
-// ============================================================================
-// INTERNAL PROTECTION MANIPULATION - BATCH SUPPORT
-// ============================================================================
-
-/**
- * @brief Internal process protection with batch operation support
- * 
- * @param pid Process ID to protect
- * @param protectionLevel Protection level string
- * @param signerType Signer type string
- * @param batchOperation If true, assumes session active
- * @return bool true if protection applied
- * 
- * @note Skips already-protected processes with info message
- * @note Optimized for batch operations with session reuse
- */
+// Applies protection in batch mode, skips already-protected processes
 bool Controller::ProtectProcessInternal(DWORD pid, const std::wstring& protectionLevel, 
                                          const std::wstring& signerType, bool batchOperation) noexcept 
 {
@@ -1354,17 +964,7 @@ bool Controller::ProtectProcessInternal(DWORD pid, const std::wstring& protectio
     return result;
 }
 
-/**
- * @brief Internal protection setter with batch support (overwrites existing)
- * 
- * @param pid Process ID
- * @param protectionLevel Protection level string
- * @param signerType Signer type string
- * @param batchOperation If true, assumes session active
- * @return bool true if protection set successfully
- * 
- * @note Unlike ProtectProcessInternal, always overwrites protection
- */
+// Sets protection in batch mode, always overwrites existing protection
 bool Controller::SetProcessProtectionInternal(DWORD pid, const std::wstring& protectionLevel, 
                                                const std::wstring& signerType, bool batchOperation) noexcept 
 {
@@ -1400,31 +1000,7 @@ bool Controller::SetProcessProtectionInternal(DWORD pid, const std::wstring& pro
     return result;
 }
 
-// ============================================================================
-// KERNEL-LEVEL PROCESS ENUMERATION
-// ============================================================================
-
-/**
- * @brief Enumerates all processes by walking kernel EPROCESS linked list
- * 
- * Enumeration algorithm:
- * 1. Obtains PsInitialSystemProcess address
- * 2. Reads required structure offsets from OffsetFinder
- * 3. Walks ActiveProcessLinks circular list
- * 4. For each EPROCESS:
- *    - Reads UniqueProcessId (PID)
- *    - Reads Protection byte
- *    - Reads SignatureLevel bytes
- *    - Resolves process name
- * 5. Respects user interruption at multiple checkpoints
- * 6. Safety limit: 10,000 processes maximum
- * 
- * @return std::vector<ProcessEntry> All discovered processes with metadata
- * 
- * @note Returns empty vector if interrupted or initialization fails
- * @note Resolves unknown process names using kernel data
- * @note Critical for all protection operations
- */
+// Enumerates all processes by walking kernel EPROCESS linked list with 10k limit
 std::vector<ProcessEntry> Controller::GetProcessList() noexcept 
 {
     std::vector<ProcessEntry> processes;
@@ -1498,13 +1074,7 @@ std::vector<ProcessEntry> Controller::GetProcessList() noexcept
     return processes;
 }
 
-/**
- * @brief Retrieves kernel address of PsInitialSystemProcess
- * 
- * @return std::optional<ULONG_PTR> System process EPROCESS address
- * 
- * @note Entry point for EPROCESS linked list traversal
- */
+// Returns kernel address of PsInitialSystemProcess
 std::optional<ULONG_PTR> Controller::GetInitialSystemProcessAddress() noexcept 
 {
     auto kernelBase = Utils::GetKernelBaseAddress();
@@ -1515,14 +1085,7 @@ std::optional<ULONG_PTR> Controller::GetInitialSystemProcessAddress() noexcept
     return m_rtc->ReadPtr(pPsInitialSystemProcess);
 }
 
-/**
- * @brief Retrieves kernel EPROCESS address for process ID
- * 
- * @param pid Process ID to lookup
- * @return std::optional<ULONG_PTR> Kernel address or nullopt if not found
- * 
- * @note Enumerates entire process list - consider using cache
- */
+// Retrieves kernel EPROCESS address for PID by enumerating process list
 std::optional<ULONG_PTR> Controller::GetProcessKernelAddress(DWORD pid) noexcept 
 {
     auto processes = GetProcessList();
@@ -1534,54 +1097,21 @@ std::optional<ULONG_PTR> Controller::GetProcessKernelAddress(DWORD pid) noexcept
     return std::nullopt;
 }
 
-/**
- * @brief Reads protection byte from EPROCESS structure
- * 
- * @param addr Kernel EPROCESS address
- * @return std::optional<UCHAR> Protection byte value
- * 
- * @note Reads EPROCESS.Protection field at dynamic offset
- */
+// Reads EPROCESS.Protection byte at dynamic offset
 std::optional<UCHAR> Controller::GetProcessProtection(ULONG_PTR addr) noexcept 
 {
     auto offset = m_of->GetOffset(Offset::ProcessProtection);
     return offset ? m_rtc->Read8(addr + offset.value()) : std::nullopt;
 }
 
-/**
- * @brief Writes protection byte to EPROCESS structure
- * 
- * @param addr Kernel EPROCESS address
- * @param protection New protection value to write
- * @return bool true if write successful
- * 
- * @warning Direct kernel memory modification - use with caution
- */
+// Writes protection byte to EPROCESS structure
 bool Controller::SetProcessProtection(ULONG_PTR addr, UCHAR protection) noexcept 
 {
     auto offset = m_of->GetOffset(Offset::ProcessProtection);
     return offset ? m_rtc->Write8(addr + offset.value(), protection) : false;
 }
 
-// ============================================================================
-// PROCESS NAME RESOLUTION AND PATTERN MATCHING
-// ============================================================================
-
-/**
- * @brief Resolves process name to single match with driver support
- * 
- * Resolution workflow:
- * 1. Begins driver session
- * 2. Finds all processes matching pattern
- * 3. Validates single match (fails on ambiguity)
- * 4. Returns ProcessMatch with PID, name, kernel address
- * 
- * @param processName Process name or pattern
- * @return std::optional<ProcessMatch> Single match or nullopt
- * 
- * @note Fails if multiple matches found - requires specific pattern
- * @note Uses driver for accurate kernel address retrieval
- */
+// Resolves name to single match with driver, fails on ambiguity
 std::optional<ProcessMatch> Controller::ResolveProcessName(const std::wstring& processName) noexcept 
 {
     if (!BeginDriverSession()) return std::nullopt;
@@ -1605,15 +1135,7 @@ std::optional<ProcessMatch> Controller::ResolveProcessName(const std::wstring& p
     return std::nullopt;
 }
 
-/**
- * @brief Finds all processes matching name pattern with driver
- * 
- * @param pattern Process name pattern (supports wildcards)
- * @return std::vector<ProcessMatch> All matching processes
- * 
- * @note Pattern matching: exact, substring, regex with wildcards
- * @note Case-insensitive matching
- */
+// Finds all processes matching pattern with case-insensitive wildcard support
 std::vector<ProcessMatch> Controller::FindProcessesByName(const std::wstring& pattern) noexcept 
 {
     std::vector<ProcessMatch> matches;
@@ -1625,16 +1147,7 @@ std::vector<ProcessMatch> Controller::FindProcessesByName(const std::wstring& pa
     return matches;
 }
 
-/**
- * @brief Resolves process name without driver initialization
- * 
- * @param processName Process name or pattern
- * @return std::optional<ProcessMatch> Single match (without kernel address)
- * 
- * @note Uses CreateToolhelp32Snapshot for enumeration
- * @note Kernel address will be 0 - requires driver lookup if needed
- * @note Faster for operations that don't need kernel access
- */
+// Resolves name without driver using Toolhelp snapshot, kernel address will be 0
 std::optional<ProcessMatch> Controller::ResolveNameWithoutDriver(const std::wstring& processName) noexcept 
 {
     auto matches = FindProcessesByNameWithoutDriver(processName);
@@ -1655,15 +1168,7 @@ std::optional<ProcessMatch> Controller::ResolveNameWithoutDriver(const std::wstr
     return std::nullopt;
 }
 
-/**
- * @brief Finds processes by pattern without driver
- * 
- * @param pattern Process name pattern
- * @return std::vector<ProcessMatch> Matches (kernel addresses will be 0)
- * 
- * @note Uses Windows Toolhelp API for snapshot enumeration
- * @note Useful for pre-driver operations
- */
+// Finds processes by pattern using Toolhelp API without driver
 std::vector<ProcessMatch> Controller::FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept 
 {
     std::vector<ProcessMatch> matches;
@@ -1685,23 +1190,7 @@ std::vector<ProcessMatch> Controller::FindProcessesByNameWithoutDriver(const std
     return matches;
 }
 
-/**
- * @brief Checks if process name matches pattern (case-insensitive)
- * 
- * Pattern matching modes:
- * 1. Exact match: "chrome.exe" matches "chrome.exe"
- * 2. Substring: "chrome" matches "chrome.exe"
- * 3. Wildcard: "chr*" matches "chrome.exe"
- * 4. Complex regex: "ch[ro]me*" uses full regex engine
- * 
- * @param processName Process name to test
- * @param pattern Pattern to match against
- * @return bool true if pattern matches
- * 
- * @note Case-insensitive comparison
- * @note Escapes regex special characters except asterisk
- * @note Asterisk (*) converts to regex ".*" for wildcard matching
- */
+// Case-insensitive pattern matching with exact, substring, and wildcard support
 bool Controller::IsPatternMatch(const std::wstring& processName, const std::wstring& pattern) noexcept 
 {
     std::wstring lowerProcessName = processName;

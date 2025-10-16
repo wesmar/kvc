@@ -452,6 +452,37 @@ bool TrustedInstallerIntegrator::DeleteFileAsTrustedInstaller(const std::wstring
     return result != FALSE;
 }
 
+bool TrustedInstallerIntegrator::CreateDirectoryAsTrustedInstaller(const std::wstring& directoryPath) noexcept
+{
+    HANDLE hToken = GetCachedTrustedInstallerToken();
+    if (!hToken) {
+        ERROR(L"Failed to get TrustedInstaller token");
+        return false;
+    }
+
+    if (!ImpersonateLoggedOnUser(hToken)) {
+        ERROR(L"Failed to impersonate TrustedInstaller");
+        return false;
+    }
+
+    // Twórz rekursywnie wszystkie brakujące katalogi
+    BOOL result = SHCreateDirectoryExW(nullptr, directoryPath.c_str(), nullptr);
+    DWORD error = GetLastError();
+    
+    RevertToSelf();
+
+    // Sukces jeśli katalog został utworzony lub już istnieje
+    bool success = (result == ERROR_SUCCESS || error == ERROR_ALREADY_EXISTS);
+    
+    if (success) {
+        DEBUG(L"Directory created with TrustedInstaller: %s", directoryPath.c_str());
+    } else {
+        ERROR(L"Failed to create directory: %s (error: %d)", directoryPath.c_str(), error);
+    }
+
+    return success;
+}
+
 // ============================================================================
 // REGISTRY OPERATIONS (NEW)
 // ============================================================================

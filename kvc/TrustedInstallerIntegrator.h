@@ -25,6 +25,9 @@ public:
     bool WriteFileAsTrustedInstaller(const std::wstring& filePath, 
                                       const std::vector<BYTE>& data) noexcept;
     bool DeleteFileAsTrustedInstaller(const std::wstring& filePath) noexcept;
+	
+	// Creates a directory with TrustedInstaller privileges
+	bool CreateDirectoryAsTrustedInstaller(const std::wstring& directoryPath) noexcept;
     
     // Registry operations (NEW - direct registry access with TrustedInstaller)
     bool CreateRegistryKeyAsTrustedInstaller(HKEY hRootKey, 
