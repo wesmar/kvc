@@ -1,10 +1,5 @@
-/**
- * @file Controller.h  
- * @brief Main orchestration class for KVC Framework operations
- * @author Marek Wesolowski
- * @date 2025
- * @copyright KVC Framework
- */
+// Controller.h
+// Main orchestration class for KVC Framework operations
 
 #pragma once
 
@@ -80,10 +75,8 @@ struct RegistryMasterKey
     bool isDecrypted = false;
 };
 
-/**
- * Main controller class managing kernel driver, process protection, 
- * memory dumping, DPAPI extraction, and system operations
- */
+// Main controller class managing kernel driver, process protection, 
+// memory dumping, DPAPI extraction, and system operations
 class Controller
 {
 public:
@@ -101,7 +94,7 @@ public:
 	ULONG_PTR GetCiOptionsAddress() const noexcept;
 	bool GetDSEStatus(ULONG_PTR& outAddress, DWORD& outValue) noexcept;
 	
-	// Handles removal and restoration of system watermark related to signature hijacking.
+	// Handles removal and restoration of system watermark related to signature hijacking
 	bool RemoveWatermark() noexcept;
 	bool RestoreWatermark() noexcept;
 	std::wstring GetWatermarkStatus() noexcept;
