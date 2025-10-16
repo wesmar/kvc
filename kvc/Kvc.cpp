@@ -1,19 +1,4 @@
-/**
- * @file kvc.cpp
- * @brief Kernel Vulnerability Capabilities Framework - Main Application Entry Point
- * @author Marek Wesolowski
- * @date 2025
- * @copyright KVC Framework
- * 
- * Main command-line interface for the KVC framework providing:
- * - Process protection manipulation (PP/PPL)
- * - Memory dumping operations
- * - Browser password extraction
- * - Windows Defender management
- * - Registry operations
- * - System service integration
- * - TrustedInstaller privilege escalation
- */
+// Kernel Vulnerability Capabilities Framework - Main Application Entry Point
 
 #include "common.h"
 #include "Controller.h"
@@ -33,10 +18,10 @@
 // GLOBAL STATE
 // ============================================================================
 
-/** @brief Global controller instance for driver and system operations */
+// Global controller instance for driver and system operations
 std::unique_ptr<Controller> g_controller;
 
-/** @brief Signal handler flag for graceful shutdown */
+// Signal handler flag for graceful shutdown
 volatile bool g_interrupted = false;
 
 // ============================================================================
@@ -54,13 +39,7 @@ bool InitiateSystemRestart() noexcept;
 // SIGNAL HANDLERS
 // ============================================================================
 
-/**
- * @brief Emergency signal handler for Ctrl+C interruption
- * 
- * Ensures proper driver cleanup on emergency exit to prevent system instability.
- * 
- * @param signum Signal number (SIGINT)
- */
+// Emergency signal handler for Ctrl+C - ensures proper driver cleanup to prevent system instability
 void SignalHandler(int signum)
 {
     if (signum == SIGINT) {
@@ -75,15 +54,7 @@ void SignalHandler(int signum)
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * @brief Robust PID parsing with comprehensive validation
- * 
- * @param pidStr String view containing PID value
- * @return std::optional<DWORD> Parsed PID or nullopt on invalid input
- * 
- * @note Uses std::from_chars for efficient and safe parsing
- * @note Rejects non-ASCII characters
- */
+// Robust PID parsing with validation using std::from_chars, rejects non-ASCII characters
 std::optional<DWORD> ParsePid(std::wstring_view pidStr) noexcept
 {
     if (pidStr.empty()) return std::nullopt;
@@ -106,12 +77,7 @@ std::optional<DWORD> ParsePid(std::wstring_view pidStr) noexcept
            std::make_optional(result) : std::nullopt;
 }
 
-/**
- * @brief Checks if string contains only digits
- * 
- * @param str String to validate
- * @return bool true if string is purely numeric
- */
+// Checks if string contains only digits
 bool IsNumeric(std::wstring_view str) noexcept
 {
     if (str.empty()) return false;
@@ -124,14 +90,7 @@ bool IsNumeric(std::wstring_view str) noexcept
     return true;
 }
 
-/**
- * @brief Recognizes various help flag formats for user convenience
- * 
- * Supports: /?, /help, /h, -?, -help, -h, --help, --h, help, ?
- * 
- * @param arg Argument to check
- * @return bool true if argument is a help flag
- */
+// Recognizes various help flag formats: /?, /help, /h, -?, -help, -h, --help, --h, help, ?
 bool IsHelpFlag(std::wstring_view arg) noexcept
 {
     if (arg == L"/?" || arg == L"/help" || arg == L"/h")
@@ -149,11 +108,7 @@ bool IsHelpFlag(std::wstring_view arg) noexcept
     return false;
 }
 
-/**
- * @brief Checks if kvc_pass.exe exists in current directory or System32
- * 
- * @return bool true if kvc_pass.exe is found
- */
+// Checks if kvc_pass.exe exists in current directory or System32
 bool CheckKvcPassExists() noexcept
 {
     // Check current directory
@@ -170,13 +125,7 @@ bool CheckKvcPassExists() noexcept
     return false;
 }
 
-/**
- * @brief Initiates system restart with proper privilege escalation
- * 
- * Used after security engine changes that require reboot.
- * 
- * @return bool true if restart initiated successfully
- */
+// Initiates system restart with SE_SHUTDOWN_NAME privilege for security engine changes
 bool InitiateSystemRestart() noexcept
 {
     HANDLE token;
@@ -211,11 +160,7 @@ bool InitiateSystemRestart() noexcept
                         SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != 0;
 }
 
-/**
- * @brief Emergency cleanup for driver resources
- * 
- * Called on exit or Ctrl+C to prevent system instability.
- */
+// Emergency cleanup for driver resources - called on exit or Ctrl+C
 void CleanupDriver() noexcept
 {
     if (g_controller) {
@@ -227,23 +172,7 @@ void CleanupDriver() noexcept
 // MAIN APPLICATION ENTRY POINT
 // ============================================================================
 
-/**
- * @brief Main application entry point with comprehensive command handling
- * 
- * Supported commands:
- * - Service management: install, uninstall, service
- * - Process operations: list, protect, unprotect, set, dump, kill
- * - Browser extraction: browser-passwords, bp, export
- * - System integration: trusted, install-context, add-exclusion
- * - Security operations: shift, unshift, disable-defender, enable-defender
- * - Registry: registry backup/restore/defrag
- * - Session management: restore, history, cleanup-sessions
- * - Advanced: setup, evtclear
- * 
- * @param argc Argument count
- * @param argv Argument vector
- * @return int Exit code (0=success, 1=error, 2=operation failed, 3=exception)
- */
+// Main entry point with comprehensive command handling for service management, process operations, browser extraction, security operations and more
 int wmain(int argc, wchar_t* argv[])
 {
     // Install signal handler for emergency cleanup on Ctrl+C
@@ -510,7 +439,7 @@ int wmain(int argc, wchar_t* argv[])
             }
         }
         
-				else if (command == L"get") {
+		else if (command == L"get") {
 			if (argc < 3) {
 				ERROR(L"Missing PID/process name argument");
 				return 1;
@@ -977,7 +906,8 @@ int wmain(int argc, wchar_t* argv[])
                 return g_controller->AddToDefenderExclusions(path) ? 0 : 2;
             }
         }
-				else if (command == L"remove-exclusion") {
+		
+		else if (command == L"remove-exclusion") {
 			// Legacy: no args = remove self
 			if (argc < 3) {
 				wchar_t exePath[MAX_PATH];
@@ -1012,6 +942,7 @@ int wmain(int argc, wchar_t* argv[])
 				return g_controller->RemoveFromDefenderExclusions(path) ? 0 : 2;
 			}
 		}
+		
 	    else if (command == L"disable-defender") {
             INFO(L"Disabling Windows Defender (requires restart)...");
             bool result = DefenderManager::DisableSecurityEngine();

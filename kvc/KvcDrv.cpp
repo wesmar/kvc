@@ -1,13 +1,4 @@
-/**
- * @file kvcDrv.cpp
- * @brief KVC kernel driver communication implementation
- * @author Marek Wesolowski
- * @date 2025
- * @copyright KVC Framework
- * 
- * Implements low-level IOCTL communication with the KVC kernel driver
- * for safe memory read/write operations in kernel space.
- */
+// KVC kernel driver communication implementation- Implements low-level IOCTL communication with the KVC kernel driver
 
 #include "kvcDrv.h"
 #include "common.h"
@@ -16,24 +7,20 @@
 // IOCTL COMMAND CODES (DRIVER-SPECIFIC)
 // ============================================================================
 
-/** @brief IOCTL code for kernel memory read operations */
+// IOCTL code for kernel memory read operations
 constexpr DWORD RTC_IOCTL_MEMORY_READ = 0x80002048;
 
-/** @brief IOCTL code for kernel memory write operations */
+// IOCTL code for kernel memory write operations
 constexpr DWORD RTC_IOCTL_MEMORY_WRITE = 0x8000204c;
 
 // ============================================================================
 // CONSTRUCTION AND DESTRUCTION
 // ============================================================================
 
-/**
- * @brief Default constructor - initializes empty driver object
- */
+// Default constructor - initializes empty driver object
 kvc::kvc() = default;
 
-/**
- * @brief Destructor - ensures proper resource cleanup
- */
+// Destructor - ensures proper resource cleanup
 kvc::~kvc() 
 {
     Cleanup();
@@ -43,17 +30,7 @@ kvc::~kvc()
 // DRIVER CONNECTION MANAGEMENT
 // ============================================================================
 
-/**
- * @brief Cleans up driver resources with proper flushing
- * 
- * Performs orderly shutdown:
- * 1. Flushes file buffers to ensure all pending operations complete
- * 2. Resets smart handle (automatically calls CloseHandle)
- * 3. Clears device name
- * 
- * @note Safe to call multiple times - idempotent operation
- * @note Critical for system stability - prevents hanging IOCTL operations
- */
+// Cleans up driver resources by flushing buffers, closing handle and clearing device name
 void kvc::Cleanup() noexcept 
 {
     DEBUG(L"kvc::Cleanup() called");
@@ -72,32 +49,13 @@ void kvc::Cleanup() noexcept
     DEBUG(L"kvc cleanup completed");
 }
 
-/**
- * @brief Checks if driver connection is active
- * 
- * @return bool true if device handle is valid and not INVALID_HANDLE_VALUE
- */
+// Checks if driver connection is active
 bool kvc::IsConnected() const noexcept 
 {
     return m_deviceHandle && m_deviceHandle.get() != INVALID_HANDLE_VALUE;
 }
 
-/**
- * @brief Establishes connection to KVC kernel driver
- * 
- * Connection sequence:
- * 1. Checks if already connected (idempotent)
- * 2. Constructs device name from service name
- * 3. Initializes dynamic APIs for CreateFileW
- * 4. Opens device handle with read/write access
- * 5. Wraps raw handle in smart pointer for RAII
- * 
- * @return bool true if driver device opened successfully
- * 
- * @note Does NOT perform test operations - just opens device
- * @note Silently fails if driver not loaded (expected behavior)
- * @note Requires dynamic API initialization for CreateFileW
- */
+// Establishes connection to KVC kernel driver by opening device handle with read/write access
 bool kvc::Initialize() noexcept 
 {
     // Idempotent check - return early if already connected
@@ -145,14 +103,7 @@ bool kvc::Initialize() noexcept
 // MEMORY READ OPERATIONS (TYPE-SAFE WRAPPERS)
 // ============================================================================
 
-/**
- * @brief Reads 8-bit value from kernel memory
- * 
- * @param address Target kernel address
- * @return std::optional<BYTE> Read value or nullopt on failure
- * 
- * @note Extracts lowest byte from 32-bit read result
- */
+// Reads 8-bit value from kernel memory by extracting lowest byte from 32-bit read
 std::optional<BYTE> kvc::Read8(ULONG_PTR address) noexcept 
 {
     auto value = Read32(address);
@@ -162,14 +113,7 @@ std::optional<BYTE> kvc::Read8(ULONG_PTR address) noexcept
     return static_cast<BYTE>(value.value() & 0xFF);
 }
 
-/**
- * @brief Reads 16-bit value from kernel memory
- * 
- * @param address Target kernel address
- * @return std::optional<WORD> Read value or nullopt on failure
- * 
- * @note Extracts lowest 2 bytes from 32-bit read result
- */
+// Reads 16-bit value from kernel memory by extracting lowest 2 bytes from 32-bit read
 std::optional<WORD> kvc::Read16(ULONG_PTR address) noexcept 
 {
     auto value = Read32(address);
@@ -179,30 +123,13 @@ std::optional<WORD> kvc::Read16(ULONG_PTR address) noexcept
     return static_cast<WORD>(value.value() & 0xFFFF);
 }
 
-/**
- * @brief Reads 32-bit value from kernel memory
- * 
- * @param address Target kernel address
- * @return std::optional<DWORD> Read value or nullopt on failure
- * 
- * @note Direct call to low-level Read() function
- */
+// Reads 32-bit value from kernel memory via direct IOCTL call
 std::optional<DWORD> kvc::Read32(ULONG_PTR address) noexcept 
 {
     return Read(address, sizeof(DWORD));
 }
 
-/**
- * @brief Reads 64-bit value from kernel memory
- * 
- * @param address Target kernel address
- * @return std::optional<DWORD64> Read value or nullopt on failure
- * 
- * @note Performs two 32-bit reads and combines them:
- *       - Low DWORD at address
- *       - High DWORD at address + 4
- * @note Both reads must succeed for operation to succeed
- */
+// Reads 64-bit value from kernel memory by performing two 32-bit reads and combining them
 std::optional<DWORD64> kvc::Read64(ULONG_PTR address) noexcept 
 {
     auto low = Read32(address);
@@ -216,16 +143,7 @@ std::optional<DWORD64> kvc::Read64(ULONG_PTR address) noexcept
     return (static_cast<DWORD64>(high.value()) << 32) | low.value();
 }
 
-/**
- * @brief Reads pointer-sized value from kernel memory
- * 
- * @param address Target kernel address
- * @return std::optional<ULONG_PTR> Read value or nullopt on failure
- * 
- * @note Platform-dependent:
- *       - x64: Uses Read64
- *       - x86: Uses Read32
- */
+// Reads pointer-sized value from kernel memory (64-bit on x64, 32-bit on x86)
 std::optional<ULONG_PTR> kvc::ReadPtr(ULONG_PTR address) noexcept 
 {
 #ifdef _WIN64
@@ -247,63 +165,25 @@ std::optional<ULONG_PTR> kvc::ReadPtr(ULONG_PTR address) noexcept
 // MEMORY WRITE OPERATIONS (TYPE-SAFE WRAPPERS)
 // ============================================================================
 
-/**
- * @brief Writes 8-bit value to kernel memory
- * 
- * @param address Target kernel address
- * @param value Value to write
- * @return bool true if write successful
- * 
- * @warning Kernel memory writes can cause system instability
- */
+// Writes 8-bit value to kernel memory (WARNING: can cause system instability)
 bool kvc::Write8(ULONG_PTR address, BYTE value) noexcept 
 {
     return Write(address, sizeof(value), value);
 }
 
-/**
- * @brief Writes 16-bit value to kernel memory
- * 
- * @param address Target kernel address
- * @param value Value to write
- * @return bool true if write successful
- * 
- * @warning Kernel memory writes can cause system instability
- */
+// Writes 16-bit value to kernel memory (WARNING: can cause system instability)
 bool kvc::Write16(ULONG_PTR address, WORD value) noexcept 
 {
     return Write(address, sizeof(value), value);
 }
 
-/**
- * @brief Writes 32-bit value to kernel memory
- * 
- * @param address Target kernel address
- * @param value Value to write
- * @return bool true if write successful
- * 
- * @warning Kernel memory writes can cause system instability
- */
+// Writes 32-bit value to kernel memory (WARNING: can cause system instability)
 bool kvc::Write32(ULONG_PTR address, DWORD value) noexcept 
 {
     return Write(address, sizeof(value), value);
 }
 
-/**
- * @brief Writes 64-bit value to kernel memory
- * 
- * @param address Target kernel address
- * @param value Value to write
- * @return bool true if write successful
- * 
- * @note Performs two 32-bit writes:
- *       - Low DWORD at address
- *       - High DWORD at address + 4
- * @note Both writes must succeed for operation to succeed
- * 
- * @warning Kernel memory writes can cause system instability
- * @warning Non-atomic operation - system may observe partial write
- */
+// Writes 64-bit value to kernel memory via two 32-bit writes (WARNING: non-atomic, can cause system instability)
 bool kvc::Write64(ULONG_PTR address, DWORD64 value) noexcept 
 {
     DWORD low = static_cast<DWORD>(value & 0xFFFFFFFF);
@@ -317,22 +197,7 @@ bool kvc::Write64(ULONG_PTR address, DWORD64 value) noexcept
 // LOW-LEVEL IOCTL COMMUNICATION
 // ============================================================================
 
-/**
- * @brief Low-level kernel memory read via IOCTL
- * 
- * Communication sequence:
- * 1. Ensures driver connection is initialized
- * 2. Constructs RTC_MEMORY_READ request structure
- * 3. Sends IOCTL_MEMORY_READ command to driver
- * 4. Extracts returned value from response
- * 
- * @param address Kernel address to read from
- * @param valueSize Size of value to read (1/2/4 bytes)
- * @return std::optional<DWORD> Read value or nullopt on failure
- * 
- * @note Uses aligned structure for IOCTL communication
- * @note Driver returns value in response structure
- */
+// Low-level kernel memory read via IOCTL using aligned RTC_MEMORY_READ structure
 std::optional<DWORD> kvc::Read(ULONG_PTR address, DWORD valueSize) noexcept 
 {
     // Construct read request with proper alignment
@@ -369,23 +234,7 @@ std::optional<DWORD> kvc::Read(ULONG_PTR address, DWORD valueSize) noexcept
     return memoryRead.Value;
 }
 
-/**
- * @brief Low-level kernel memory write via IOCTL
- * 
- * Communication sequence:
- * 1. Ensures driver connection is initialized
- * 2. Constructs RTC_MEMORY_WRITE request structure
- * 3. Sends IOCTL_MEMORY_WRITE command to driver
- * 4. Checks for successful completion
- * 
- * @param address Kernel address to write to
- * @param valueSize Size of value to write (1/2/4 bytes)
- * @param value Value to write
- * @return bool true if write successful
- * 
- * @note Uses aligned structure for IOCTL communication
- * @warning Kernel writes can cause BSOD if address is invalid
- */
+// Low-level kernel memory write via IOCTL (WARNING: can cause BSOD if address is invalid)
 bool kvc::Write(ULONG_PTR address, DWORD valueSize, DWORD value) noexcept 
 {
     // Construct write request with proper alignment
