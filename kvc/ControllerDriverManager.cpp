@@ -20,6 +20,8 @@ bool Controller::ForceRemoveService() noexcept {
         return false;
     }
 
+    StopDriverService();
+    	
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (!hSCM) {
         return false;
