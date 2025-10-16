@@ -7,7 +7,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>16.0</VCProjectVersion>
+    <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{87654321-4321-4321-4321-123456789DEF}</ProjectGuid>
     <RootNamespace>chromedecrypt</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
@@ -63,7 +63,6 @@
     <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
     <StripPrivateSymbols>true</StripPrivateSymbols>
     <TargetMachine>MachineX64</TargetMachine>
-    <!-- DODANO TYLKO TĘ LINIĘ -->
     <IgnoreSpecificDefaultLibraries>msvcprt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
   </Link>
   <PostBuildEvent>

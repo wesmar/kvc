@@ -1,13 +1,4 @@
-/**
- * @file Utils.cpp
- * @brief Core utility functions for process management, memory operations, and system utilities
- * @author Marek Wesolowski
- * @date 2025
- * @copyright KVC Framework
- * 
- * This module provides essential utility functions used throughout the KVC framework,
- * including process resolution, protection level management, and memory operations.
- */
+// Utils.cpp - Core utility functions for process management, memory operations, and system utilities
 
 #include "Utils.h"
 #include "common.h"
@@ -63,38 +54,22 @@ namespace Utils {
 // CONSTANTS AND DEFINITIONS
 // ============================================================================
 
-/** @brief Maximum process name length for resolution */
 constexpr int MAX_PROCESS_NAME_LENGTH = 256;
-
-/** @brief Maximum path length for system operations */
 constexpr int MAX_PATH_LENGTH = 32767;
-
-/** @brief Buffer size for kernel address resolution */
 constexpr int KERNEL_BUFFER_SIZE = 4096;
 
 // ============================================================================
 // PROCESS MANAGEMENT UTILITIES
 // ============================================================================
 
-/**
- * @brief Resolves process name from PID with comprehensive fallback mechanisms
- * 
- * Attempts multiple resolution strategies:
- * 1. Toolhelp32Snapshot API (primary)
- * 2. OpenProcess + GetModuleFileNameEx (fallback)  
- * 3. Kernel address resolution (last resort)
- * 
- * @param pid Process ID to resolve
- * @return std::wstring Process name or "[Unknown]" if resolution fails
- * 
- * @note This function handles protected processes that may resist standard enumeration
- */
+// Resolves process name from PID using multiple fallback strategies
+// Tries Toolhelp32Snapshot first, then OpenProcess, handles protected processes
 std::wstring GetProcessName(DWORD pid) noexcept
 {
     if (pid == 0) return L"System Idle Process";
     if (pid == 4) return L"System";
     
-    // Check cache first
+    // Simple cache to avoid repeated lookups, expires after 30 seconds
     static std::unordered_map<DWORD, std::wstring> processCache;
     static DWORD lastCacheUpdate = 0;
     
@@ -109,7 +84,7 @@ std::wstring GetProcessName(DWORD pid) noexcept
         return cacheIt->second;
     }
     
-    // Primary resolution: Toolhelp32Snapshot
+    // Primary method: enumerate all processes via snapshot
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot != INVALID_HANDLE_VALUE) {
         PROCESSENTRY32W pe;
@@ -128,7 +103,7 @@ std::wstring GetProcessName(DWORD pid) noexcept
         CloseHandle(hSnapshot);
     }
     
-    // Secondary resolution: OpenProcess method
+    // Fallback: try opening process directly for protected processes
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (hProcess) {
         wchar_t processName[MAX_PATH_LENGTH] = {0};
@@ -137,7 +112,7 @@ std::wstring GetProcessName(DWORD pid) noexcept
         if (GetProcessImageFileNameW(hProcess, processName, size) > 0) {
             CloseHandle(hProcess);
             
-            // Extract filename from full path
+            // Extract just the filename from the full NT path
             std::wstring fullPath(processName);
             size_t lastSlash = fullPath.find_last_of(L'\\');
             if (lastSlash != std::wstring::npos) {
@@ -154,15 +129,8 @@ std::wstring GetProcessName(DWORD pid) noexcept
     return L"[Unknown]";
 }
 
-/**
- * @brief Resolves unknown processes using kernel address and protection info
- * 
- * @param pid Process ID
- * @param kernelAddress Kernel address of EPROCESS structure
- * @param protectionLevel Current protection level
- * @param signerType Digital signature authority
- * @return std::wstring Resolved process name or descriptive identifier
- */
+// Generates descriptive identifier for processes that resist normal enumeration
+// Includes PID, protection info, and kernel address when available
 std::wstring ResolveUnknownProcessLocal(DWORD pid, ULONG_PTR kernelAddress, 
                                        UCHAR protectionLevel, UCHAR signerType) noexcept
 {
@@ -186,14 +154,7 @@ std::wstring ResolveUnknownProcessLocal(DWORD pid, ULONG_PTR kernelAddress,
 // PROTECTION LEVEL MANAGEMENT
 // ============================================================================
 
-/**
- * @brief Converts protection byte to human-readable level string
- * 
- * @param protection Raw protection byte from EPROCESS structure
- * @return const wchar_t* String representation ("None", "PPL", "PP")
- * 
- * @see PS_PROTECTED_TYPE for protection level definitions
- */
+// Converts raw protection byte to readable string (None/PPL/PP)
 const wchar_t* GetProtectionLevelAsString(UCHAR protection) noexcept
 {
     UCHAR level = GetProtectionLevel(protection);
@@ -206,12 +167,7 @@ const wchar_t* GetProtectionLevelAsString(UCHAR protection) noexcept
     }
 }
 
-/**
- * @brief Converts signer type to human-readable string
- * 
- * @param signerType Raw signer type byte
- * @return const wchar_t* String representation ("Windows", "Antimalware", etc.)
- */
+// Converts signer type enum to readable string
 const wchar_t* GetSignerTypeAsString(UCHAR signerType) noexcept
 {
     switch (static_cast<PS_PROTECTED_SIGNER>(signerType)) {
@@ -228,12 +184,7 @@ const wchar_t* GetSignerTypeAsString(UCHAR signerType) noexcept
     }
 }
 
-/**
- * @brief Converts signature level to human-readable string with detailed mapping
- * 
- * @param signatureLevel Raw signature level byte
- * @return const wchar_t* String representation describing signature level
- */
+// Maps signature level byte to descriptive string
 const wchar_t* GetSignatureLevelAsString(UCHAR signatureLevel) noexcept
 {
     static const std::unordered_map<UCHAR, const wchar_t*> levelMap = {
@@ -261,24 +212,13 @@ const wchar_t* GetSignatureLevelAsString(UCHAR signatureLevel) noexcept
     return (it != levelMap.end()) ? it->second : L"Custom";
 }
 
-/**
- * @brief Converts section signature level to human-readable string
- * 
- * @param sectionSignatureLevel Raw section signature level byte
- * @return const wchar_t* String representation describing section signature level
- */
+// Section signature uses same mapping as regular signature level
 const wchar_t* GetSectionSignatureLevelAsString(UCHAR sectionSignatureLevel) noexcept
 {
-    // Use the same mapping as signature level for consistency
     return GetSignatureLevelAsString(sectionSignatureLevel);
 }
 
-/**
- * @brief Converts protection level string to enumeration value
- * 
- * @param levelStr Protection level string ("PP", "PPL", "None")
- * @return std::optional<UCHAR> Protection level value or nullopt on invalid input
- */
+// Parses protection level string (PP/PPL/None) to enum value
 std::optional<UCHAR> GetProtectionLevelFromString(const std::wstring& levelStr) noexcept
 {
 	std::wstring lower = StringUtils::ToLowerCaseCopy(levelStr);
@@ -294,12 +234,7 @@ std::optional<UCHAR> GetProtectionLevelFromString(const std::wstring& levelStr) 
     return (it != levelMap.end()) ? std::make_optional(it->second) : std::nullopt;
 }
 
-/**
- * @brief Converts signer type string to enumeration value
- * 
- * @param signerStr Signer type string ("Windows", "Antimalware", etc.)
- * @return std::optional<UCHAR> Signer type value or nullopt on invalid input
- */
+// Parses signer type string to enum value
 std::optional<UCHAR> GetSignerTypeFromString(const std::wstring& signerStr) noexcept
 {
 	std::wstring lower = StringUtils::ToLowerCaseCopy(signerStr);
@@ -320,12 +255,7 @@ std::optional<UCHAR> GetSignerTypeFromString(const std::wstring& signerStr) noex
     return (it != signerMap.end()) ? std::make_optional(it->second) : std::nullopt;
 }
 
-/**
- * @brief Gets recommended signature level for signer type
- * 
- * @param signerType Signer type enumeration value
- * @return std::optional<UCHAR> Signature level or nullopt
- */
+// Returns appropriate signature level for given signer type
 std::optional<UCHAR> GetSignatureLevel(UCHAR signerType) noexcept
 {
     switch (static_cast<PS_PROTECTED_SIGNER>(signerType)) {
@@ -342,12 +272,7 @@ std::optional<UCHAR> GetSignatureLevel(UCHAR signerType) noexcept
     }
 }
 
-/**
- * @brief Gets recommended section signature level for signer type
- * 
- * @param signerType Signer type enumeration value
- * @return std::optional<UCHAR> Section signature level or nullopt
- */
+// Returns appropriate section signature level for given signer type
 std::optional<UCHAR> GetSectionSignatureLevel(UCHAR signerType) noexcept
 {
     // Usually same as signature level for most processes
@@ -358,28 +283,15 @@ std::optional<UCHAR> GetSectionSignatureLevel(UCHAR signerType) noexcept
 // MEMORY OPERATION UTILITIES  
 // ============================================================================
 
-/**
- * @brief Comprehensive process dumpability analysis
- * 
- * Evaluates multiple factors to determine if a process can be successfully dumped:
- * - Protection level and signer type
- * - System process restrictions
- * - Known undumpable processes
- * - Memory access permissions
- * 
- * @param pid Target process ID
- * @param processName Process name for additional validation
- * @param protectionLevel Current protection level
- * @param signerType Digital signature authority
- * @return ProcessDumpability Structured result with boolean and reason
- */
+// Analyzes if a process can be dumped based on protection level and type
+// Returns detailed reason why dumping may fail or what privileges are needed
 ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName, 
                                   UCHAR protectionLevel, UCHAR signerType) noexcept
 {
     ProcessDumpability result;
     result.CanDump = false;
 
-    // Known undumpable system processes
+    // System kernel processes that cannot be dumped under any circumstances
     static const std::unordered_set<DWORD> undumpablePids = {
         4, 188, 232, 3052
     };
@@ -409,7 +321,7 @@ ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName,
         return result;
     }
 
-    // Handle Windows Defender processes - dynamically generate required protection
+    // Windows Defender components - show required protection dynamically
     if (processName == L"MsMpEng.exe" || processName == L"MpDefenderCoreService.exe" || 
         processName == L"NisSrv.exe") {
         result.CanDump = true;
@@ -418,14 +330,14 @@ ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName,
         return result;
     }
 
-    // SecurityHealthService
+    // Security Health Service
     if (processName == L"SecurityHealthService.exe") {
         result.CanDump = true;
         result.Reason = L"Protected - requires PPL-Windows or higher";
         return result;
     }
 
-    // Generic protected process - use actual signer
+    // Any other protected process - show actual signer requirement
     if (protectionLevel > 0) {
         result.CanDump = true;
         std::wstring signerName = GetSignerTypeAsString(signerType);
@@ -433,27 +345,17 @@ ProcessDumpability CanDumpProcess(DWORD pid, const std::wstring& processName,
         return result;
     }
 
-    // Default - unprotected process
+    // Unprotected process - standard privileges work
     result.CanDump = true;
     result.Reason = L"Unprotected process - standard dump privileges sufficient";
     return result;
 }
-
 // ============================================================================
 // KERNEL ADDRESS RESOLUTION
 // ============================================================================
 
-/**
- * @brief Resolves kernel base address using multiple detection methods
- * 
- * Attempts resolution in order:
- * 1. NtQuerySystemInformation with SystemModuleInformation
- * 2. Cached value (expires after 60 seconds)
- * 
- * @return std::optional<ULONG_PTR> Kernel base address or nullopt on failure
- * 
- * @warning Requires administrator privileges for accurate resolution
- */
+// Resolves kernel base address using NtQuerySystemInformation
+// Caches result for 60 seconds to avoid repeated system calls
 std::optional<ULONG_PTR> GetKernelBaseAddress() noexcept
 {
     static ULONG_PTR cachedBase = 0;
@@ -476,6 +378,7 @@ std::optional<ULONG_PTR> GetKernelBaseAddress() noexcept
         return std::nullopt;
     }
 
+    // Query required buffer size first
     ULONG bufferSize = 0;
     NTSTATUS status = pNtQuerySystemInformation(
         SystemModuleInformation, 
@@ -496,10 +399,11 @@ std::optional<ULONG_PTR> GetKernelBaseAddress() noexcept
         &bufferSize
     );
 
-    if (status != 0) { // NT_SUCCESS check
+    if (status != 0) {
         return std::nullopt;
     }
 
+    // First module is always ntoskrnl.exe (kernel)
     auto modules = reinterpret_cast<PSYSTEM_MODULE_INFORMATION>(buffer.data());
     if (modules->Count > 0) {
         cachedBase = reinterpret_cast<ULONG_PTR>(modules->Modules[0].ImageBase);
@@ -514,12 +418,7 @@ std::optional<ULONG_PTR> GetKernelBaseAddress() noexcept
 // FILE OPERATION UTILITIES
 // ============================================================================
 
-/**
- * @brief Reads entire file into byte vector
- * 
- * @param filePath Path to file to read
- * @return std::vector<BYTE> File contents or empty vector on failure
- */
+// Reads entire file into memory with 256MB size limit for safety
 std::vector<BYTE> ReadFile(const std::wstring& filePath) noexcept
 {
     HANDLE hFile = CreateFileW(
@@ -544,7 +443,7 @@ std::vector<BYTE> ReadFile(const std::wstring& filePath) noexcept
         return {};
     }
 
-    if (fileSize.QuadPart == 0 || fileSize.QuadPart > 0x10000000) { // 256MB limit
+    if (fileSize.QuadPart == 0 || fileSize.QuadPart > 0x10000000) {
         DEBUG(L"Invalid file size: %lld", fileSize.QuadPart);
         CloseHandle(hFile);
         return {};
@@ -565,13 +464,7 @@ std::vector<BYTE> ReadFile(const std::wstring& filePath) noexcept
     return buffer;
 }
 
-/**
- * @brief Reads embedded resource from executable
- * 
- * @param resourceId Resource identifier
- * @param resourceType Resource type (e.g., RT_RCDATA)
- * @return std::vector<BYTE> Resource data or empty vector on failure
- */
+// Loads embedded resource from executable's resource section
 std::vector<BYTE> ReadResource(int resourceId, const wchar_t* resourceType)
 {
     const HRSRC hRes = FindResource(nullptr, MAKEINTRESOURCE(resourceId), resourceType);
@@ -602,32 +495,25 @@ std::vector<BYTE> ReadResource(int resourceId, const wchar_t* resourceType)
                             static_cast<const BYTE*>(pData) + dataSize);
 }
 
-/**
- * @brief Force delete a file, handling read-only, system, and hidden attributes
- * 
- * @param path File path to delete
- * @return bool true if file deleted successfully
- */
+// Aggressively deletes file, removing attributes and scheduling delayed deletion if needed
 bool ForceDeleteFile(const std::wstring& path) noexcept
 {
-    // First, try normal delete
+    // Try normal deletion first
     if (DeleteFileW(path.c_str())) {
         return true;
     }
 
-    // If that fails, try to remove attributes and delete again
+    // Remove read-only/system/hidden attributes and retry
     DWORD attrs = GetFileAttributesW(path.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES) {
-        // Remove read-only, system, hidden attributes
         SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_NORMAL);
     }
 
-    // Try delete again
     if (DeleteFileW(path.c_str())) {
         return true;
     }
 
-    // Final attempt: move to temp and delete after reboot if needed
+    // Last resort: move to temp and schedule deletion on reboot
     wchar_t tempPath[MAX_PATH];
     if (GetTempPathW(MAX_PATH, tempPath)) {
         wchar_t tempFile[MAX_PATH];
@@ -642,13 +528,7 @@ bool ForceDeleteFile(const std::wstring& path) noexcept
     return false;
 }
 
-/**
- * @brief Writes byte vector to file with comprehensive error handling
- * 
- * @param filePath Path to output file
- * @param data Data to write
- * @return bool true if write successful
- */
+// Writes data to file in 64KB chunks to handle large files efficiently
 bool WriteFile(const std::wstring& filePath, const std::vector<BYTE>& data) noexcept
 {
     if (data.empty()) {
@@ -656,15 +536,15 @@ bool WriteFile(const std::wstring& filePath, const std::vector<BYTE>& data) noex
         return false;
     }
     
-    // Ensure parent directory exists
+    // Create parent directories if needed
     const fs::path path = filePath;
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
     
-    // First, try to delete existing file if it exists
+    // Try to delete existing file first
     if (fs::exists(path)) {
         if (!ForceDeleteFile(filePath)) {
-            // If we can't delete, try to overwrite by opening with FILE_FLAG_BACKUP_SEMANTICS
+            // Attempt overwrite with backup semantics if delete fails
             HANDLE hFile = CreateFileW(filePath.c_str(), 
                                     GENERIC_WRITE, 
                                     0,
@@ -681,10 +561,9 @@ bool WriteFile(const std::wstring& filePath, const std::vector<BYTE>& data) noex
         }
     }
 
-    // Primary write attempt with optimized flags
     HANDLE hFile = CreateFileW(filePath.c_str(), 
                                GENERIC_WRITE, 
-                               0,  // No sharing during write
+                               0,
                                nullptr, 
                                CREATE_ALWAYS, 
                                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
@@ -695,8 +574,8 @@ bool WriteFile(const std::wstring& filePath, const std::vector<BYTE>& data) noex
         return false;
     }
     
-    // Write data in chunks for large files to handle memory pressure
-    constexpr DWORD CHUNK_SIZE = 64 * 1024; // 64KB chunks
+    // Write in chunks to handle memory pressure on large files
+    constexpr DWORD CHUNK_SIZE = 64 * 1024;
     DWORD totalWritten = 0;
     const DWORD totalSize = static_cast<DWORD>(data.size());
     
@@ -728,13 +607,7 @@ bool WriteFile(const std::wstring& filePath, const std::vector<BYTE>& data) noex
 // CRYPTOGRAPHIC UTILITIES
 // ============================================================================
 
-/**
- * @brief Decrypts data using XOR cipher with provided key
- * 
- * @param encryptedData Data to decrypt
- * @param key XOR key for decryption
- * @return std::vector<BYTE> Decrypted data or empty vector on failure
- */
+// Simple XOR decryption using repeating key
 std::vector<BYTE> DecryptXOR(const std::vector<BYTE>& encryptedData, 
                             const std::array<BYTE, 7>& key) noexcept
 {
@@ -751,13 +624,7 @@ std::vector<BYTE> DecryptXOR(const std::vector<BYTE>& encryptedData,
     return decryptedData;
 }
 
-/**
- * @brief Gets PE file length from data with proper validation
- * 
- * @param data Binary data containing PE file
- * @param offset Starting offset in data
- * @return std::optional<size_t> PE file length or nullopt on invalid PE
- */
+// Calculates actual PE file size by examining section headers
 std::optional<size_t> GetPEFileLength(const std::vector<BYTE>& data, size_t offset) noexcept
 {
     if (offset + sizeof(IMAGE_DOS_HEADER) > data.size()) {
@@ -782,7 +649,7 @@ std::optional<size_t> GetPEFileLength(const std::vector<BYTE>& data, size_t offs
         return std::nullopt;
     }
     
-    // Calculate total file size from sections
+    // Find highest section end offset
     DWORD maxOffset = 0;
     const IMAGE_SECTION_HEADER* sections = IMAGE_FIRST_SECTION(ntHeaders);
     
@@ -796,14 +663,7 @@ std::optional<size_t> GetPEFileLength(const std::vector<BYTE>& data, size_t offs
     return maxOffset;
 }
 
-/**
- * @brief Splits combined PE binary into separate components
- * 
- * @param combinedData Combined PE data containing multiple binaries
- * @param firstPE Output for first PE component
- * @param secondPE Output for second PE component
- * @return bool true if splitting successful
- */
+// Splits concatenated PE files into separate components
 bool SplitCombinedPE(const std::vector<BYTE>& combinedData,
                     std::vector<BYTE>& firstPE, 
                     std::vector<BYTE>& secondPE) noexcept
@@ -813,7 +673,7 @@ bool SplitCombinedPE(const std::vector<BYTE>& combinedData,
         return false;
     }
 
-    // Get length of first PE
+    // Parse first PE to find where it ends
     auto firstLength = GetPEFileLength(combinedData, 0);
     if (!firstLength) {
         DEBUG(L"Failed to parse first PE file");
@@ -825,7 +685,7 @@ bool SplitCombinedPE(const std::vector<BYTE>& combinedData,
         return false;
     }
     
-    // Validate second PE
+    // Validate second PE starts where first ends
     auto secondLength = GetPEFileLength(combinedData, *firstLength);
     if (!secondLength) {
         DEBUG(L"Failed to parse second PE file");
@@ -837,7 +697,7 @@ bool SplitCombinedPE(const std::vector<BYTE>& combinedData,
         return false;
     }
     
-    // Extract both PE files
+    // Extract both files
     firstPE.assign(combinedData.begin(), combinedData.begin() + *firstLength);
     secondPE.assign(combinedData.begin() + *firstLength, 
                    combinedData.begin() + *firstLength + *secondLength);
@@ -852,12 +712,7 @@ bool SplitCombinedPE(const std::vector<BYTE>& combinedData,
 // STRING AND VALIDATION UTILITIES
 // ============================================================================
 
-/**
- * @brief Checks if string represents a numeric value
- * 
- * @param str String to check
- * @return bool true if string contains only digits
- */
+// Checks if string contains only decimal digits
 bool IsNumeric(const std::wstring& str) noexcept
 {
     if (str.empty()) return false;
@@ -867,12 +722,7 @@ bool IsNumeric(const std::wstring& str) noexcept
     });
 }
 
-/**
- * @brief Parses PID from string with validation
- * 
- * @param pidStr String containing PID
- * @return std::optional<DWORD> Parsed PID or nullopt on failure
- */
+// Safely parses PID string to DWORD with validation
 std::optional<DWORD> ParsePid(const std::wstring& pidStr) noexcept
 {
     if (!IsNumeric(pidStr)) {
@@ -888,13 +738,7 @@ std::optional<DWORD> ParsePid(const std::wstring& pidStr) noexcept
     }
 }
 
-/**
- * @brief Converts hex string to byte array
- * 
- * @param hexString Hex string to convert (supports 0x prefix and separators)
- * @param bytes Output byte vector
- * @return bool true if conversion successful
- */
+// Converts hex string to bytes, handles 0x prefix and common separators
 bool HexStringToBytes(const std::wstring& hexString, std::vector<BYTE>& bytes) noexcept
 {
     if (hexString.empty()) {
@@ -902,14 +746,14 @@ bool HexStringToBytes(const std::wstring& hexString, std::vector<BYTE>& bytes) n
         return true;
     }
     
-    // Handle common prefixes: 0x, 0X
+    // Skip 0x or 0X prefix if present
     size_t startPos = 0;
     if (hexString.length() >= 2 && hexString[0] == L'0' && 
         (hexString[1] == L'x' || hexString[1] == L'X')) {
         startPos = 2;
     }
     
-    // Build clean hex string - filter out common separators
+    // Filter out separators (spaces, commas, dashes)
     std::wstring cleanHex;
     cleanHex.reserve(hexString.length());
     
@@ -920,7 +764,6 @@ bool HexStringToBytes(const std::wstring& hexString, std::vector<BYTE>& bytes) n
             (c >= L'A' && c <= L'F')) {
             cleanHex += c;
         }
-        // Skip spaces, commas, dashes, etc.
     }
     
     if (cleanHex.empty() || (cleanHex.length() % 2) != 0) {
@@ -945,23 +788,14 @@ bool HexStringToBytes(const std::wstring& hexString, std::vector<BYTE>& bytes) n
     return true;
 }
 
-/**
- * @brief Validates hex string format
- * 
- * @param hexString String to validate
- * @return bool true if valid hex string
- */
+// Validates hex string format without allocating bytes
 bool IsValidHexString(const std::wstring& hexString) noexcept
 {
     std::vector<BYTE> dummy;
     return HexStringToBytes(hexString, dummy);
 }
 
-/**
- * @brief Enables console virtual terminal processing for colors
- * 
- * @return bool true if virtual terminal enabled successfully
- */
+// Enables ANSI color codes in Windows console
 bool EnableConsoleVirtualTerminal() noexcept
 {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -978,23 +812,16 @@ bool EnableConsoleVirtualTerminal() noexcept
     return SetConsoleMode(hConsole, consoleMode);
 }
 
-/**
- * @brief Gets display color for process based on protection and signature
- * 
- * @param signerType Process signer type
- * @param signatureLevel Executable signature level
- * @param sectionSignatureLevel DLL signature level
- * @return const wchar_t* ANSI color code for console output
- */
+// Returns appropriate ANSI color code for process based on protection attributes
 const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel, 
                                      UCHAR sectionSignatureLevel) noexcept
 {
-    // First, check the most specific cases
+    // Kernel processes get special purple color
     if (signatureLevel == 0x1e && sectionSignatureLevel == 0x1c) {
-        return ProcessColors::PURPLE;  // Kernel process
+        return ProcessColors::PURPLE;
     }
     
-    // Then check signerType from most to least restrictive
+    // Color by signer type from most to least restrictive
     if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
         return ProcessColors::RED;
     }
@@ -1015,13 +842,12 @@ const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel,
         return ProcessColors::YELLOW;
     }
     
-    // Finally, check for unsigned/unverified signatures
+    // Unsigned or unverified signatures
     bool hasUncheckedSignatures = (signatureLevel == 0x00 || sectionSignatureLevel == 0x00);
     if (hasUncheckedSignatures) {
         return ProcessColors::BLUE;
     }
     
-    // Default color for all remaining cases
     return ProcessColors::YELLOW;
 }
 
@@ -1032,33 +858,31 @@ const wchar_t* GetProcessDisplayColor(UCHAR signerType, UCHAR signatureLevel,
 // CAB DECOMPRESSION
 // ============================================================================
 
-// FDI callback structures
+// Context structures for FDI memory-based decompression
 struct MemoryReadContext {
     const BYTE* data;
     size_t size;
     size_t offset;
 };
 
-// Global context for FDI callbacks
 static MemoryReadContext* g_cabContext = nullptr;
 static std::vector<BYTE>* g_currentFileData = nullptr;
 
-// FDI memory allocation
+// FDI callbacks for memory allocation
 static void* DIAMONDAPI fdi_alloc(ULONG cb) {
     return malloc(cb);
 }
 
-// FDI memory deallocation
 static void DIAMONDAPI fdi_free(void* pv) {
     free(pv);
 }
 
-// FDI file open - returns memory context
+// FDI open - returns memory context pointer
 static INT_PTR DIAMONDAPI fdi_open(char* pszFile, int oflag, int pmode) {
     return g_cabContext ? (INT_PTR)g_cabContext : -1;
 }
 
-// FDI file read - reads from memory buffer
+// FDI read - reads from memory buffer instead of file
 static UINT DIAMONDAPI fdi_read(INT_PTR hf, void* pv, UINT cb) {
     MemoryReadContext* ctx = (MemoryReadContext*)hf;
     if (!ctx) return 0;
@@ -1074,7 +898,7 @@ static UINT DIAMONDAPI fdi_read(INT_PTR hf, void* pv, UINT cb) {
     return static_cast<UINT>(to_read);
 }
 
-// FDI file write - writes to current file buffer
+// FDI write - appends decompressed data to output buffer
 static UINT DIAMONDAPI fdi_write(INT_PTR hf, void* pv, UINT cb) {
     if (g_currentFileData && cb > 0) {
         BYTE* data = static_cast<BYTE*>(pv);
@@ -1083,13 +907,12 @@ static UINT DIAMONDAPI fdi_write(INT_PTR hf, void* pv, UINT cb) {
     return cb;
 }
 
-// FDI file close
 static int DIAMONDAPI fdi_close(INT_PTR hf) {
     g_currentFileData = nullptr;
     return 0;
 }
 
-// FDI file seek - seeks in memory buffer
+// FDI seek - seeks within memory buffer
 static LONG DIAMONDAPI fdi_seek(INT_PTR hf, LONG dist, int seektype) {
     MemoryReadContext* ctx = (MemoryReadContext*)hf;
     if (!ctx) return -1;
@@ -1103,13 +926,13 @@ static LONG DIAMONDAPI fdi_seek(INT_PTR hf, LONG dist, int seektype) {
     return static_cast<LONG>(ctx->offset);
 }
 
-// FDI notification callback - handles file extraction
+// FDI notification handler - extracts kvc.evtx from CAB
 static INT_PTR DIAMONDAPI fdi_notify(FDINOTIFICATIONTYPE fdint, PFDINOTIFICATION pfdin) {
     std::vector<BYTE>* extractedData = static_cast<std::vector<BYTE>*>(pfdin->pv);
     
     switch (fdint) {
         case fdintCOPY_FILE:
-            // Extract kvc.evtx file
+            // Only extract kvc.evtx file
             if (pfdin->psz1) {
                 std::string filename = pfdin->psz1;
                 if (filename.find("kvc.evtx") != std::string::npos) {
@@ -1129,7 +952,7 @@ static INT_PTR DIAMONDAPI fdi_notify(FDINOTIFICATIONTYPE fdint, PFDINOTIFICATION
     return 0;
 }
 
-// Decompress CAB from memory and extract kvc.evtx
+// Decompresses CAB file from memory and extracts kvc.evtx
 std::vector<BYTE> DecompressCABFromMemory(const BYTE* cabData, size_t cabSize) noexcept
 {
     std::vector<BYTE> extractedFile;
@@ -1163,7 +986,8 @@ std::vector<BYTE> DecompressCABFromMemory(const BYTE* cabData, size_t cabSize) n
     return extractedFile;
 }
 
-// Split kvc.evtx into kvc.sys (driver) and ExpIorerFrame.dll
+// Splits kvc.evtx container into driver (kvc.sys) and DLL (ExpIorerFrame.dll)
+// Uses PE subsystem field to distinguish driver (Native) from DLL (Windows GUI/Console)
 bool SplitKvcEvtx(const std::vector<BYTE>& kvcData, 
                   std::vector<BYTE>& outKvcSys, 
                   std::vector<BYTE>& outDll) noexcept
@@ -1173,10 +997,10 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
         return false;
     }
     
-    // Find all MZ signatures (PE file start markers)
+    // Find all MZ signatures (PE headers)
     std::vector<size_t> peOffsets;
     for (size_t i = 0; i < kvcData.size() - 1; i++) {
-        if (kvcData[i] == 0x4D && kvcData[i + 1] == 0x5A) {  // MZ signature
+        if (kvcData[i] == 0x4D && kvcData[i + 1] == 0x5A) {
             peOffsets.push_back(i);
         }
     }
@@ -1195,7 +1019,7 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
     std::vector<BYTE> firstPE(kvcData.begin() + firstStart, kvcData.begin() + firstEnd);
     std::vector<BYTE> secondPE(kvcData.begin() + secondStart, kvcData.begin() + secondEnd);
     
-    // Identify which is driver vs DLL by checking PE subsystem
+    // Detect driver vs DLL by checking PE subsystem field
     auto isDriver = [](const std::vector<BYTE>& pe) -> bool {
         if (pe.size() < 0x200) return false;
         
@@ -1203,13 +1027,12 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
         if (peOffset + 0x5C >= pe.size()) return false;
         
         WORD subsystem = *reinterpret_cast<const WORD*>(&pe[peOffset + 0x5C]);
-        return (subsystem == 1);  // IMAGE_SUBSYSTEM_NATIVE = kernel driver
+        return (subsystem == 1);  // IMAGE_SUBSYSTEM_NATIVE
     };
     
     bool firstIsDriver = isDriver(firstPE);
     bool secondIsDriver = isDriver(secondPE);
     
-    // Assign outputs based on subsystem detection
     if (firstIsDriver && !secondIsDriver) {
         outKvcSys = firstPE;
         outDll = secondPE;
@@ -1227,21 +1050,21 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
     return true;
 }
 
-// Extract kvc.sys and ExpIorerFrame.dll from resource CAB
+// Orchestrates full extraction: Resource → XOR decrypt → CAB decompress → Split PEs
 bool ExtractResourceComponents(int resourceId, 
                                 std::vector<BYTE>& outKvcSys, 
                                 std::vector<BYTE>& outDll) noexcept
 {
     DEBUG(L"[EXTRACT] Loading resource %d", resourceId);
     
-    // Step 1: Load resource
+    // Load embedded resource
     auto resourceData = ReadResource(resourceId, RT_RCDATA);
     if (resourceData.size() <= 3774) {
         ERROR(L"[EXTRACT] Resource too small");
         return false;
     }
     
-    // Step 2: Skip icon (3774 bytes)
+    // Skip icon header (first 3774 bytes)
     std::vector<BYTE> encryptedCAB(
         resourceData.begin() + 3774, 
         resourceData.end()
@@ -1249,14 +1072,14 @@ bool ExtractResourceComponents(int resourceId,
     
     DEBUG(L"[EXTRACT] Encrypted CAB size: %zu bytes", encryptedCAB.size());
     
-    // Step 3: XOR decrypt
+    // XOR decrypt the CAB
     auto decryptedCAB = DecryptXOR(encryptedCAB, KVC_XOR_KEY);
     if (decryptedCAB.empty()) {
         ERROR(L"[EXTRACT] XOR decryption failed");
         return false;
     }
     
-    // Step 4: CAB decompress → kvc.evtx
+    // Decompress CAB to get kvc.evtx
     auto kvcEvtxData = DecompressCABFromMemory(decryptedCAB.data(), decryptedCAB.size());
     if (kvcEvtxData.empty()) {
         ERROR(L"[EXTRACT] CAB decompression failed");
@@ -1265,7 +1088,7 @@ bool ExtractResourceComponents(int resourceId,
     
     DEBUG(L"[EXTRACT] kvc.evtx extracted: %zu bytes", kvcEvtxData.size());
     
-    // Step 5: Split into kvc.sys + ExpIorerFrame.dll
+    // Split kvc.evtx into driver and DLL
     if (!SplitKvcEvtx(kvcEvtxData, outKvcSys, outDll)) {
         ERROR(L"[EXTRACT] Failed to split kvc.evtx");
         return false;
