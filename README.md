@@ -12,18 +12,30 @@
 
 **Latest Update:** KVC now supports runtime **Driver Signature Enforcement (DSE)** manipulation via `kvc.exe dse` commands.
 
-**⚠️ HVCI/VBS LIMITATION:**
+**⚠️ CRITICAL INFORMATION:**
 
-DSE bypass is **only available on systems without HVCI/VBS** (Hypervisor-Protected Code Integrity / Virtualization-Based Security). 
+DSE bypass works on **ALL Windows systems** including:
+- ✅ Windows 11 24H2, 25H2
+- ✅ Windows Server (latest versions)
+- ✅ Systems with **Hyper-V enabled**
+- ✅ Systems with **SecureBoot enabled**
+- ✅ Systems with **HVCI/VBS enabled** (`g_CiOptions = 0x0001C006`)
 
-- ✅ **Standard systems** (`g_CiOptions = 0x00000006`): DSE bypass available
-- ❌ **HVCI/VBS enabled** (`g_CiOptions = 0x0001C006` or flags `0x0001C000`): DSE bypass **not available** - kernel memory protected by Secure Kernel (Ring -1)
+**All scenarios supported:**
+- 💚 **Standard systems** (`g_CiOptions = 0x00000006`): DSE bypass available
+- 💚 **HVCI/VBS enabled** (`g_CiOptions = 0x0001C006` or flags `0x0001C000`): DSE bypass **AVAILABLE** - hypervisor is bypassed
+
+**When Hyper-V and SecureBoot are active:**
+- ⚠️ **System restart is required** after DSE manipulation
+- ✅ **No files are modified** after reboot - changes are purely in-memory
+- ⚠️ DSE state persists for **one boot cycle only** - hypervisor restores protection on next reboot
+- 🔄 **Coming soon:** Persistent DSE disable switch across multiple reboots
 
 **Usage:**
 
 ```powershell
 kvc.exe dse        # Check current DSE status and system compatibility
-kvc.exe dse off    # Disable signature enforcement (if HVCI/VBS not active)
+kvc.exe dse off    # Disable signature enforcement (reboot required with Hyper-V/SecureBoot)
 kvc.exe dse on     # Re-enable signature enforcement
 ```
 
