@@ -91,6 +91,7 @@ public:
 	// DSE bypass operations
 	bool DisableDSE() noexcept;
 	bool RestoreDSE() noexcept;
+	bool DisableDSEAfterReboot() noexcept;
 	ULONG_PTR GetCiOptionsAddress() const noexcept;
 	bool GetDSEStatus(ULONG_PTR& outAddress, DWORD& outValue) noexcept;
 	

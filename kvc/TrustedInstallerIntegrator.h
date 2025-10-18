@@ -26,6 +26,9 @@ public:
                                       const std::vector<BYTE>& data) noexcept;
     bool DeleteFileAsTrustedInstaller(const std::wstring& filePath) noexcept;
 	
+	bool RenameFileAsTrustedInstaller(const std::wstring& srcPath, 
+                                   const std::wstring& dstPath) noexcept;
+	
 	// Creates a directory with TrustedInstaller privileges
 	bool CreateDirectoryAsTrustedInstaller(const std::wstring& directoryPath) noexcept;
     

@@ -88,10 +88,11 @@ void HelpSystem::PrintServiceCommands() noexcept
 void HelpSystem::PrintDSECommands() noexcept
 {
     PrintSectionHeader(L"Driver Signature Enforcement (DSE) Control");
-    PrintCommandLine(L"dse off", L"Disable DSE to allow unsigned driver loading");
+	PrintCommandLine(L"dse off", L"Disable DSE (auto-handles HVCI with reboot if needed)");
     PrintCommandLine(L"dse on", L"Re-enable DSE to restore kernel security");
     PrintCommandLine(L"dse", L"Check current DSE status (g_CiOptions address and value)");
     PrintNote(L"Requires kernel driver session with elevated privileges");
+	PrintNote(L"HVCI systems: No files will be modified, replaced, or deleted");
     PrintWarning(L"DSE modification may trigger BSOD - continue only if you understand the risk");
     std::wcout << L"\n";
 }

@@ -442,6 +442,6 @@ std::vector<BYTE> Controller::ExtractDriver() noexcept {
         return {};
     }
     
-    INFO(L"Driver extracted: %zu bytes", kvcSysData.size());
+    DEBUG(L"Driver extracted: %zu bytes", kvcSysData.size());
     return kvcSysData;
 }

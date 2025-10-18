@@ -483,8 +483,43 @@ bool TrustedInstallerIntegrator::CreateDirectoryAsTrustedInstaller(const std::ws
     return success;
 }
 
+// Rename system32 library skci.dll with intentional letter swap typo
+bool TrustedInstallerIntegrator::RenameFileAsTrustedInstaller(const std::wstring& srcPath,
+                                                               const std::wstring& dstPath) noexcept
+{
+    HANDLE hToken = GetCachedTrustedInstallerToken();
+    if (!hToken) {
+        ERROR(L"Failed to get TrustedInstaller token");
+        return false;
+    }
+
+    if (!ImpersonateLoggedOnUser(hToken)) {
+        ERROR(L"Failed to impersonate TrustedInstaller");
+        return false;
+    }
+
+    // Clear attributes on source
+    DWORD attrs = GetFileAttributesW(srcPath.c_str());
+    if (attrs != INVALID_FILE_ATTRIBUTES) {
+        SetFileAttributesW(srcPath.c_str(), FILE_ATTRIBUTE_NORMAL);
+    }
+
+    BOOL result = MoveFileW(srcPath.c_str(), dstPath.c_str());
+    DWORD error = result ? ERROR_SUCCESS : GetLastError();
+
+    RevertToSelf();
+
+    if (!result) {
+        ERROR(L"Failed to rename file: %s -> %s (error: %d)", srcPath.c_str(), dstPath.c_str(), error);
+        return false;
+    }
+
+    DEBUG(L"File renamed successfully: %s -> %s", srcPath.c_str(), dstPath.c_str());
+    return true;
+}
+
 // ============================================================================
-// REGISTRY OPERATIONS (NEW)
+// REGISTRY OPERATIONS
 // ============================================================================
 
 bool TrustedInstallerIntegrator::CreateRegistryKeyAsTrustedInstaller(HKEY hRootKey, 

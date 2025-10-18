@@ -17,7 +17,7 @@ bool Controller::DisableDSE() noexcept {
     DEBUG(L"Driver handle opened successfully");
     
     if (!m_dseBypass) {
-        m_dseBypass = std::make_unique<DSEBypass>(m_rtc);
+        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     }
     
     bool result = m_dseBypass->DisableDSE();
@@ -40,9 +40,32 @@ bool Controller::RestoreDSE() noexcept {
     }
     
     // Always create new object - program starts from scratch between invocations
-    m_dseBypass = std::make_unique<DSEBypass>(m_rtc);
+    m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     
     bool result = m_dseBypass->RestoreDSE();
+    
+    EndDriverSession(true);
+    
+    return result;
+}
+
+bool Controller::DisableDSEAfterReboot() noexcept {
+    if (!BeginDriverSession()) {
+        ERROR(L"Failed to start driver session for post-reboot DSE bypass");
+        return false;
+    }
+    
+    if (!m_rtc->Initialize()) {
+        ERROR(L"Failed to initialize driver handle");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    DEBUG(L"Driver handle opened successfully");
+    
+    m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
+    
+    bool result = m_dseBypass->DisableDSEAfterReboot();
     
     EndDriverSession(true);
     
@@ -70,7 +93,7 @@ bool Controller::GetDSEStatus(ULONG_PTR& outAddress, DWORD& outValue) noexcept {
     }
     
     if (!m_dseBypass) {
-        m_dseBypass = std::make_unique<DSEBypass>(m_rtc);
+        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     }
     
     // Find ci.dll and locate g_CiOptions

@@ -265,29 +265,31 @@ int wmain(int argc, wchar_t* argv[])
 				
 				std::wcout << L"\n";
 				INFO(L"DSE Status Information:");
-				INFO(L"  g_CiOptions address: 0x%llX", ciOptionsAddr);
-				INFO(L"  g_CiOptions value: 0x%08X", value);
-				INFO(L"  Bit 1 (Test signing): %s", (value & 0x2) ? L"SET" : L"CLEAR");
-				INFO(L"  Bit 2 (Unsigned drivers): %s", (value & 0x4) ? L"SET" : L"CLEAR");
+				INFO(L"g_CiOptions address: 0x%llX", ciOptionsAddr);
+				INFO(L"g_CiOptions value: 0x%08X", value);
+				INFO(L"Bit 1 (Test signing): %s", (value & 0x2) ? L"SET" : L"CLEAR");
+				INFO(L"Bit 2 (Unsigned drivers): %s", (value & 0x4) ? L"SET" : L"CLEAR");
 				std::wcout << L"\n";
 				
-				// Check for HVCI/VBS first
-				if (hvciEnabled) {
-					SUCCESS(L"Driver Signature Enforcement: ENABLED");
-					std::wcout << L"\n";
-					ERROR(L"[!] HVCI/VBS detected (flags: 0x%05X)", (value & 0x0001C000));
-					ERROR(L"[!] System uses VBS with hypervisor protection (Ring -1 below kernel)");
-					ERROR(L"[!] DSE bypass not available - kernel memory protected by Secure Kernel");
-				}
-				else if (dseEnabled) {
-					SUCCESS(L"Driver Signature Enforcement: ENABLED");
-					INFO(L"System is protected - only signed drivers can load");
-					INFO(L"DSE bypass available - use 'kvc dse off' to disable");
-				} else {
-					ERROR(L"Driver Signature Enforcement: DISABLED");
-					INFO(L"WARNING: Unsigned drivers can be loaded!");
-					INFO(L"Use 'kvc dse on' to restore protection");
-				}
+			// Check for HVCI/VBS first
+			if (hvciEnabled) {
+				SUCCESS(L"Driver Signature Enforcement: ENABLED");
+				std::wcout << L"\n";
+				INFO(L"HVCI/Virtualization-Based Security detected (flags: 0x%05X)", (value & 0x0001C000));
+				INFO(L"Hypervisor protection active - direct memory patching blocked");
+				INFO(L"HVCI bypass available via non-invasive library method");
+				INFO(L"Requires system restart to complete bypass workflow");
+				INFO(L"Use 'kvc dse off' to initiate automated HVCI bypass");
+			}
+			else if (dseEnabled) {
+				SUCCESS(L"Driver Signature Enforcement: ENABLED");
+				INFO(L"Kernel protection active - only signed drivers allowed");
+				INFO(L"DSE bypass available without restart - use 'kvc dse off'");
+			} else {
+				INFO(L"Driver Signature Enforcement: DISABLED");
+				INFO(L"System security reduced - unsigned drivers allowed");
+				INFO(L"Use 'kvc dse on' to restore kernel protection (no restart required)");
+			}
 				
 				std::wcout << L"\n";
 				return 0;
@@ -296,11 +298,40 @@ int wmain(int argc, wchar_t* argv[])
 			std::wstring_view subCmd = argv[2];
 			
 			if (subCmd == L"off") {
-				INFO(L"Disabling Driver Signature Enforcement...");
+				// Check if this is post-reboot execution
+				HKEY hKey;
+				bool postReboot = false;
 				
-				if (!g_controller->DisableDSE()) {
-					ERROR(L"Failed to disable DSE");
-					return 2;
+				if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, 
+								  KEY_READ, &hKey) == ERROR_SUCCESS) {
+					wchar_t state[256] = {0};
+					DWORD size = sizeof(state);
+					
+					if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
+										reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
+						if (wcscmp(state, L"AwaitingRestore") == 0) {
+							postReboot = true;
+						}
+					}
+					RegCloseKey(hKey);
+				}
+				
+				if (postReboot) {
+					DEBUG(L"Post-reboot DSE disable detected");
+					INFO(L"Completing DSE bypass after reboot...");
+					
+					if (!g_controller->DisableDSEAfterReboot()) {
+						ERROR(L"Failed to complete DSE disable after reboot");
+						return 2;
+					}
+				} else {
+					DEBUG(L"Normal DSE disable request");
+					INFO(L"Disabling Driver Signature Enforcement...");
+					
+					if (!g_controller->DisableDSE()) {
+						ERROR(L"Failed to disable DSE");
+						return 2;
+					}
 				}
 				
 				SUCCESS(L"DSE disabled successfully!");
@@ -382,8 +413,8 @@ int wmain(int argc, wchar_t* argv[])
 				
 				std::wcout << L"\n";
 				INFO(L"Service Information:");
-				INFO(L"  Name: %s", ServiceConstants::SERVICE_NAME);
-				INFO(L"  Display Name: %s", ServiceConstants::SERVICE_DISPLAY_NAME);
+				INFO(L" Name: %s", ServiceConstants::SERVICE_NAME);
+				INFO(L" Display Name: %s", ServiceConstants::SERVICE_DISPLAY_NAME);
 				std::wcout << L"\n";
 				
 				if (installed) {
@@ -790,7 +821,7 @@ int wmain(int argc, wchar_t* argv[])
             // Combine remaining arguments
             std::wstring fullCommand;
             for (int i = 2; i < argc; i++) {
-                if (i > 2) fullCommand += L" ";
+                if (i > 2) fullCommand += L"";
                 fullCommand += argv[i];
             }
 
@@ -844,21 +875,21 @@ int wmain(int argc, wchar_t* argv[])
 					INFO(L"Security Engine Status: ENABLED (Active Protection)");
 					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 					SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-					std::wcout << L"  ✓ Windows Defender is actively protecting the system\n";
+					std::wcout << L" ✓ Windows Defender is actively protecting the system\n";
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 				}
 				else if (status == DefenderManager::SecurityState::DISABLED) {
 					INFO(L"Security Engine Status: DISABLED (Inactive Protection)");
 					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-					std::wcout << L"  ✗ Windows Defender protection is disabled\n";
+					std::wcout << L" ✗ Windows Defender protection is disabled\n";
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 				}
 				else {
 					INFO(L"Security Engine Status: UNKNOWN (Cannot determine state)");
 					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-					std::wcout << L"  ? Unable to determine Defender protection state\n";
+					std::wcout << L" ? Unable to determine Defender protection state\n";
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 				}
 				

