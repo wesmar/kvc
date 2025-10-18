@@ -310,10 +310,26 @@ int wmain(int argc, wchar_t* argv[])
 					if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
 										reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
 						if (wcscmp(state, L"AwaitingRestore") == 0) {
-							postReboot = true;
+							// Check if skci.dlI exists
+							wchar_t sysDir[MAX_PATH];
+							GetSystemDirectoryW(sysDir, MAX_PATH);
+							std::wstring checkPath = std::wstring(sysDir) + L"\\skci.dlI";
+							
+							DWORD attrs = GetFileAttributesW(checkPath.c_str());
+							if (attrs == INVALID_FILE_ATTRIBUTES) {
+								// skci.dlI doesn't exist - stale registry entry
+								RegCloseKey(hKey);
+								DEBUG(L"Stale registry state detected, clearing...");
+								RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE");
+								hKey = nullptr;
+							} else {
+								postReboot = true;
+							}
 						}
 					}
-					RegCloseKey(hKey);
+					if (hKey) {
+						RegCloseKey(hKey);
+					}
 				}
 				
 				if (postReboot) {
@@ -821,7 +837,7 @@ int wmain(int argc, wchar_t* argv[])
             // Combine remaining arguments
             std::wstring fullCommand;
             for (int i = 2; i < argc; i++) {
-                if (i > 2) fullCommand += L"";
+                if (i > 2) fullCommand += L" ";
                 fullCommand += argv[i];
             }
 

@@ -5,7 +5,7 @@
 #include <optional>
 #include <utility>
 
-// Forward declaration - MUSI BYĆ PRZED class DSEBypass
+// Forward declaration
 class TrustedInstallerIntegrator;
 
 class DSEBypass {
@@ -26,22 +26,24 @@ public:
     ULONG_PTR GetCiOptionsAddress() const noexcept { return m_ciOptionsAddr; }
     DWORD GetOriginalValue() const noexcept { return m_originalValue; }
     
-    // Helper functions (needed for status check from kvc.cpp)
+    // Helper functions (needed for status check from kvc.cpp AND Controller)
     std::optional<ULONG_PTR> GetKernelModuleBase(const char* moduleName) noexcept;
     ULONG_PTR FindCiOptions(ULONG_PTR ciBase) noexcept;
 
     // HVCI bypass workflow
     bool DisableDSEAfterReboot() noexcept;
+    
+    // ===== NOWE: Upublicznione dla Controller::DisableDSE() =====
+    bool RenameSkciLibrary() noexcept;
+    bool SaveDSEState(DWORD originalValue) noexcept;
+    bool CreateRunOnceEntry() noexcept;
 
 private:
     // Internal PE parsing helpers
     std::optional<std::pair<ULONG_PTR, SIZE_T>> GetDataSection(ULONG_PTR moduleBase) noexcept;
     
-    // HVCI bypass helpers
-    bool RenameSkciLibrary() noexcept;
+    // HVCI bypass helpers (RestoreSkciLibrary pozostaje private)
     bool RestoreSkciLibrary() noexcept;
-    bool CreateRunOnceEntry() noexcept;
-    bool SaveDSEState(DWORD originalValue) noexcept;
     bool LoadDSEState(std::wstring& outState, DWORD& outOriginalValue) noexcept;
     bool ClearDSEState() noexcept;
     

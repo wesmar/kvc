@@ -93,6 +93,7 @@ void PrintMessage(const wchar_t* prefix, const wchar_t* format, Args&&... args)
     
     ss << L"\r\n";
     std::wcout << ss.str();
+    std::wcout.flush();  // <--- DODAJ TO!
 }
 
 // Print critical message in red color
@@ -118,6 +119,8 @@ void PrintCriticalMessage(const wchar_t* format, Args&&... args) {
     
     ss << L"\r\n";
     std::wcout << ss.str();
+    std::wcout.flush();
+
     
     SetConsoleTextAttribute(hConsole, originalColor);
 }
