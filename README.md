@@ -1065,24 +1065,21 @@ The generated reports provide a summary and detailed tables for the extracted DP
 KVC includes functionality to install a persistent backdoor using the "Sticky Keys" accessibility feature (`sethc.exe`). This technique leverages Image File Execution Options (IFEO) in the registry to replace the execution of `sethc.exe` with a command prompt (`cmd.exe`), granting SYSTEM-level privileges from the Windows login screen without needing to log in.
 
 ### How it Works: IFEO Hijacking
-
 1.  **IFEO Registry Key:** Windows allows developers to specify a "debugger" for an executable via the registry under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\<executable_name.exe>`. When the OS attempts to launch the executable, it launches the specified debugger instead, passing the original executable's path as an argument.
 2.  **Hijacking `sethc.exe`:** KVC creates the key `...\Image File Execution Options\sethc.exe` and sets the `Debugger` value to `cmd.exe`.
 3.  **Triggering:** The Sticky Keys feature is typically invoked by pressing the Shift key five times rapidly. When triggered from the login screen (or lock screen), the OS tries to launch `sethc.exe` under the `SYSTEM` account.
 4.  **Redirection:** Due to the IFEO registry key, the OS launches `cmd.exe` instead of `sethc.exe`, inheriting the `SYSTEM` privileges.
 5.  **Defender Evasion:** To prevent Windows Defender from detecting the potentially malicious launch of `cmd.exe` in this context, KVC proactively adds `cmd.exe` to the Defender process exclusions list using TrustedInstaller privileges *before* setting the IFEO key.
 
-<!-- end list -->
-
 ```mermaid
 graph TD
-    A[User presses Shift 5x at Login Screen] --> B{Windows OS};
-    B --> C{Attempt to launch sethc.exe (as SYSTEM)};
+    A[User presses Shift 5x at Login Screen] --> B[Windows OS];
+    B --> C[Attempt to launch sethc.exe as SYSTEM];
     C --> D{Check IFEO Registry Key for sethc.exe};
-    D -- Debugger value exists? --> E{Debugger = "cmd.exe"};
-    E --> F[Launch cmd.exe instead (as SYSTEM)];
+    D -->|Debugger value exists| E[Debugger = cmd.exe];
+    E --> F[Launch cmd.exe instead as SYSTEM];
     F --> G[SYSTEM-level Command Prompt Appears];
-    D -- Debugger value absent? --> H[Launch sethc.exe normally];
+    D -->|Debugger value absent| H[Launch sethc.exe normally];
 ```
 
 ### Sticky Keys Commands
