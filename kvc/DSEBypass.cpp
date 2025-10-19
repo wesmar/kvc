@@ -127,7 +127,15 @@ bool DSEBypass::RestoreDSE() noexcept {
     DWORD currentValue = current.value();
     DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
     
-    // Step 4: Verify DSE is disabled (0x00000000)
+    // Step 4: Check if DSE is already enabled (bits 1 and 2 set)
+    bool dseEnabled = (currentValue & 0x6) != 0;
+    if (dseEnabled) {
+        INFO(L"DSE already enabled (g_CiOptions = 0x%08X) - no action required", currentValue);
+        SUCCESS(L"Driver signature enforcement is active");
+        return true;
+    }
+    
+    // Step 5: Verify DSE is disabled (0x00000000) before restoring
     if (currentValue != 0x00000000) {
         INFO(L"DSE restore failed: g_CiOptions = 0x%08X (expected: 0x00000000)", currentValue);
         INFO(L"DSE may already be enabled or system in unexpected state");
@@ -135,7 +143,7 @@ bool DSEBypass::RestoreDSE() noexcept {
         return false;
     }
     
-    // Step 5: Restore DSE bits
+    // Step 6: Restore DSE bits
     DWORD newValue = 0x00000006;
     
     if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
@@ -143,7 +151,7 @@ bool DSEBypass::RestoreDSE() noexcept {
         return false;
     }
     
-    // Step 6: Verify the change
+    // Step 7: Verify the change
     auto verify = m_rtc->Read32(m_ciOptionsAddr);
     if (!verify || verify.value() != newValue) {
         ERROR(L"Verification failed (expected: 0x%08X, got: 0x%08X)", 

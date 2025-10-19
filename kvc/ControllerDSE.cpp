@@ -115,10 +115,8 @@ bool Controller::DisableDSE() noexcept {
     bool hvciEnabled = (currentValue & 0x0001C000) != 0;
     
 if (hvciEnabled) {
-    std::wcout << L"\n";
     INFO(L"HVCI detected (g_CiOptions = 0x%08X) - hypervisor bypass required", currentValue);
     INFO(L"Preparing secure kernel deactivation (fully reversible)...");
-    std::wcout << L"\n";
     
     SUCCESS(L"Secure Kernel module prepared for temporary deactivation");
     SUCCESS(L"System configuration: hypervisor bypass prepared (fully reversible)");
