@@ -305,36 +305,33 @@ sequenceDiagram
 
 Modern Windows protects critical processes using Protected Process Light (PPL) and Protected Process (PP) mechanisms. These prevent unauthorized access, such as memory reading or termination, even by administrators. KVC overcomes these limitations by operating at the kernel level.
 
-### Understanding PP/PPL
-
+## Understanding PP/PPL
 Process protection is defined by the `_PS_PROTECTION` structure within the kernel's `EPROCESS` object for each process. It consists of:
-
-  * **Type:** Specifies the protection level (`None`, `ProtectedLight` (PPL), or `Protected` (PP)).
-  * **Signer:** Specifies the required signature type for code allowed to interact with the process (e.g., `Antimalware`, `Lsa`, `Windows`, `WinTcb`).
-
-<!-- end list -->
+* Type: Specifies the protection level (`None`, `ProtectedLight` (PPL), or `Protected` (PP)).
+* Signer: Specifies the required signature type for code allowed to interact with the process (e.g., `Antimalware`, `Lsa`, `Windows`, `WinTcb`).
 
 ```
 EPROCESS Structure (Conceptual)
-+-------------------------+
-| ...                     |
-| UniqueProcessId (PID)   |
-| ActiveProcessLinks      |
-| ...                     |
-| Protection (PS_PROTECTION)| --> Type (3 bits)
-|                         | --> Audit (1 bit)
-|                         | --> Signer (4 bits)
-| ...                     |
-| SignatureLevel          |
-| SectionSignatureLevel   |
-| ...                     |
-+-------------------------+
++---------------------------+
+| ...                       |
+| UniqueProcessId (PID)     |
+| ActiveProcessLinks        |
+| ...                       |
+| Protection                |
+|   (PS_PROTECTION)         |
+|   --> Type (3 bits)       |
+|   --> Audit (1 bit)       |
+|   --> Signer (4 bits)     |
+| ...                       |
+| SignatureLevel            |
+| SectionSignatureLevel     |
+| ...                       |
++---------------------------+
 ```
 
-Standard user-mode tools lack the privilege to even *read* the memory of highly protected processes (like `lsass.exe` which is often `PPL-WinTcb`).
+Standard user-mode tools lack the privilege to even read the memory of highly protected processes (like `lsass.exe` which is often `PPL-WinTcb`).
 
-### How KVC Manipulates Protection
-
+## How KVC Manipulates Protection
 KVC leverages its kernel driver (`kvc.sys`) to directly modify the `Protection` byte within the target process's `EPROCESS` structure in kernel memory.
 
 ```mermaid
@@ -349,15 +346,16 @@ graph TD
     F --> E;
     E --> F;
     F --> B;
-    B --> G{Calculate New Protection Byte (Level + Signer)};
+    B --> G{Calculate New Protection Byte};
     G --> H[kvcDrv: Write New Protection Byte at Address + Offset];
     H --> E;
     E --> H;
     H --> B;
-    B --> A[Success/Failure];
+    B --> I[Success/Failure];
+    I --> A;
 ```
 
-**Key Steps:**
+### Key Steps:
 
 1.  `kvc.exe` receives the command (e.g., `unprotect lsass`).
 2.  The `Controller` uses `OffsetFinder` to get the dynamic offset of the `Protection` field within the `EPROCESS` structure .
