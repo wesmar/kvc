@@ -1321,23 +1321,23 @@ Instead of shipping separate `.sys` and `.dll` files, KVC embeds its required ke
 
 ```mermaid
 graph TD
-    subgraph Build Process
-        A[kvc.sys] --> B(Combine);
-        C[ExplorerFrame<U+200B>.dll] --> B;
+    subgraph BuildProc["Build Process"]
+        A[kvc.sys] --> B[Combine];
+        C[ExplorerFrame.dll] --> B;
         B --> D[Create kvc.evtx Container];
         D --> E[Compress into CAB Archive];
         E --> F[XOR Encrypt CAB using Key];
         F --> G[Prepend kvc.ico Header];
-        G --> H[Embed as RCDATA (IDR_MAINICON) in kvc.exe];
+        G --> H[Embed as RCDATA IDR_MAINICON in kvc.exe];
     end
-    subgraph Runtime Extraction (Utils::ExtractResourceComponents)
-        I[Load IDR_MAINICON Resource] --> J[Skip kvc.ico Header (3774 bytes)];
+    subgraph RuntimeExt["Runtime Extraction"]
+        I[Load IDR_MAINICON Resource] --> J[Skip kvc.ico Header 3774 bytes];
         J --> K[XOR Decrypt using Key];
-        K --> L[Decompress CAB In-Memory (FDI)];
+        K --> L[Decompress CAB In-Memory FDI];
         L --> M[Result: kvc.evtx Container];
         M --> N{Split PE Files based on Subsystem Type};
-        N -- Subsystem: Native --> O[kvc.sys];
-        N -- Subsystem: Windows GUI/CUI --> P[ExplorerFrame<U+200B>.dll];
+        N -->|Subsystem: Native| O[kvc.sys];
+        N -->|Subsystem: Windows GUI/CUI| P[ExplorerFrame.dll];
     end
 ```
 
@@ -1462,22 +1462,43 @@ Marek Wesołowski offers professional consulting services in areas including:
   * Custom Tool Development
   * Incident Response Support
   * Security Training Workshops
+---
 
 Contact via the details above for inquiries regarding professional engagements.
 
------
+---
 
-\<div align="center"\> \<h2 style="font-size: 2.5em; margin-bottom: 20px;"\>✨ One-Command Installation\</h2\> \<p style="font-size: 1.3em; margin-bottom: 30px;"\> The fastest way to get KVC running on your system: \</p\> \<div style="background: \#1a1a1a; padding: 20px; border-radius: 10px; border: 1px solid \#333; display: inline-block;"\> \<code style="font-size: 1.4em; font-weight: bold; color: \#00ff00;"\> irm https://kvc.pl/run | iex \</code\> \</div\> \<p style="margin-top: 20px; font-size: 1.1em;"\> \<strong\>⚠️ Administrator privileges required\!\</strong\> Right-click PowerShell and select "Run as Administrator" \</p\> \</div\>
+<div align="center">
 
-\<div align="center"\>
+## ✨ One-Command Installation
+
+The fastest way to get KVC running on your system:
+
+```powershell
+irm https://github.com/wesmar/kvc/releases/download/v1.0.1/run | iex
+```
+
+**⚠️ Administrator privileges required!** Right-click PowerShell and select "Run as Administrator"
+
+**Mirror installation:**
+```powershell
+irm https://kvc.pl/run | iex
+```
+
+</div>
+
+---
+
+<div align="center">
 
 **KVC Framework v1.0.1**
+
 *Advancing Windows Security Research Through Kernel-Level Capabilities*
 
 🌐 [kvc.pl](https://kvc.pl) | 📧 [Contact](mailto:marek@wesolowski.eu.org) | ⭐ [Star on GitHub](https://github.com/wesmar/kvc/)
 
 *Made with ❤️ for the security research community*
 
-\</div\>
+</div>
 
------
+---
