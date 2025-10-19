@@ -893,40 +893,37 @@ kvc.exe remove-exclusion Processes cmd.exe
 
 Beyond managing exclusions, KVC offers a powerful, albeit drastic, method to completely disable or enable the core Windows Defender Antivirus engine (`WinDefend` service). This technique bypasses standard user interfaces and Tamper Protection by manipulating service dependencies directly in the registry, requiring a system restart to take effect.
 
-### How it Works: The RpcSs Dependency Hijack
-
+## How it Works: The RpcSs Dependency Hijack
 Windows services often depend on other services to function correctly. The `WinDefend` service normally depends on the Remote Procedure Call service, listed in its registry configuration as `RpcSs`. KVC exploits this dependency:
+* To Disable: KVC modifies the `WinDefend` service's `DependOnService` registry value, changing the dependency from `RpcSs` to `RpcSs<U+200B>` (using a Zero Width Space character). When Windows tries to start `WinDefend` on the next boot, it cannot find the non-existent `RpcSs<U+200B>` service, causing `WinDefend` to fail to start, effectively disabling it.
+* To Enable: KVC changes the dependency back from `RpcSs<U+200B>` to the correct `RpcSs`. On the next boot, the dependency is met, and `WinDefend` starts normally.
 
-  * **To Disable:** KVC modifies the `WinDefend` service's `DependOnService` registry value, changing the dependency from `RpcSs` to `RpcSs<U+200B>` (using a Zero Width Space character). When Windows tries to start `WinDefend` on the next boot, it cannot find the non-existent `RpcSs<U+200B>` service, causing `WinDefend` to fail to start, effectively disabling it.
-  * **To Enable:** KVC changes the dependency back from `RpcSs<U+200B>` to the correct `RpcSs`. On the next boot, the dependency is met, and `WinDefend` starts normally.
-
-This registry modification requires TrustedInstaller privileges. KVC automates this using a snapshot-modify-restore technique on the `HKLM\SYSTEM\CurrentControlSet\Services` registry hive to ensure atomicity and handle potential locking issues .
+This registry modification requires TrustedInstaller privileges. KVC automates this using a snapshot-modify-restore technique on the `HKLM\SYSTEM\CurrentControlSet\Services` registry hive to ensure atomicity and handle potential locking issues.
 
 ```mermaid
 graph TD
-    subgraph KVC Operation (Run as TI)
+    subgraph KVCOp["KVC Operation (Run as TI)"]
         A[Backup HKLM\SYSTEM\...\Services Hive to Temp File] --> B[Load Temp Hive under HKLM\Temp];
         B --> C{Modify WinDefend's DependOnService in HKLM\Temp};
-        C -- Disable --> D["Set RpcSs -> RpcSs<U+200B>"];
-        C -- Enable --> E["Set RpcSs<U+200B> -> RpcSs"];
+        C -- Disable --> D[Set RpcSs to RpcSs with ZWSP];
+        C -- Enable --> E[Set RpcSs with ZWSP to RpcSs];
         D --> F[Unload HKLM\Temp];
         E --> F;
-        F --> G[Restore Modified Hive to Live Services Key (REG_FORCE_RESTORE)];
+        F --> G[Restore Modified Hive to Live Services Key];
     end
-    subgraph Next System Boot
+    subgraph NextBoot["Next System Boot"]
         H[Windows Service Manager reads WinDefend Config] --> I{Check Dependencies};
-        I -- Dependency: RpcSs<U+200B> --> J[Service Not Found!];
-        J --> K[WinDefend Fails to Start (DISABLED)];
+        I -- Dependency: RpcSs with ZWSP --> J[Service Not Found!];
+        J --> K[WinDefend Fails to Start - DISABLED];
         I -- Dependency: RpcSs --> L[RpcSs Service Found];
-        L --> M[WinDefend Starts Normally (ENABLED)];
+        L --> M[WinDefend Starts Normally - ENABLED];
     end
     G --> H;
-
 ```
 
-**Crucially, a system restart is required** for these changes to take effect, as the service dependencies are evaluated during the boot process.
+Crucially, a system restart is required for these changes to take effect, as the service dependencies are evaluated during the boot process.
 
-### Security Engine Commands
+## Security Engine Commands
 
   * **Check Status:**
 
