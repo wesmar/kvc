@@ -92,36 +92,40 @@ irm https://github.com/wesmar/kvc/releases/download/v1.0.1/run | iex
 
 -----
 
-## 3\. System Architecture
+## 3. System Architecture
 
 KVC employs a modular architecture designed for flexibility and stealth. The core components interact to achieve privileged operations:
 
 ```mermaid
 graph LR
     subgraph User Mode
-        A[kvc.exe CLI] --> B{Controller Core};
-        B --> C[Service Manager];
-        B --> D[TrustedInstaller Integrator];
-        B --> E[OffsetFinder];
-        B --> F[DSEBypass Logic];
-        B --> G[Session Manager];
-        B --> H[Filesystem/Registry Ops];
-        I[kvc_pass.exe] --> J[Browser COM Hijacking];
-        K[BrowseCrypt.dll] --> J;
+        A[kvc.exe CLI] --> B{Controller Core}
+        B --> C[Service Manager]
+        B --> D[TrustedInstaller Integrator]
+        B --> E[OffsetFinder]
+        B --> F[DSEBypass Logic]
+        B --> G[Session Manager]
+        B --> H[Filesystem/Registry Ops]
+        I[kvc_pass.exe] --> J[Browser COM Hijacking]
+        K[BrowseCrypt.dll] --> J
     end
+    
     subgraph Kernel Mode
-        L[kvcDrv (Driver Interface)] <--> M[kvc.sys (Embedded Driver)];
+        L[kvcDrv<br/>Driver Interface] --> M[kvc.sys<br/>Embedded Driver]
+        M --> L
     end
+    
     subgraph System Interaction
-        D --> N[NT SERVICE\TrustedInstaller];
-        H --> O[Registry];
-        H --> P[File System];
-        M --> Q[EPROCESS Structures];
-        M --> R[g_CiOptions];
-        J --> S[Browser Processes];
+        D --> N[NT SERVICE\TrustedInstaller]
+        H --> O[Registry]
+        H --> P[File System]
+        M --> Q[EPROCESS Structures]
+        M --> R[g_CiOptions]
+        J --> S[Browser Processes]
     end
 
-    B <--> L;
+    B --> L
+    L --> B
 ```
 
 **Conceptual Flow:**
