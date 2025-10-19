@@ -51,20 +51,16 @@ KVC is intended solely for legitimate security research, authorized penetration 
 -----
 
 ## 2. Quick Installation and Requirements
-
 ### Installation Methods
-
-#### 📦 Manual Download (Recommended for GitHub)
-
-1.  Download the `kvc.7z` archive from the [GitHub Releases](https://github.com/wesmar/kvc/releases/download/v1.0.1/kvc.7z) page.
-2.  Extract the archive using 7-Zip or a compatible tool.
-3.  The archive password is: `github.com`
-4.  Place the extracted `kvc.exe` file in a convenient location.
-
-#### 🚀 One-Command Installation
-
+#### 🚀 One-Command Installation (Recommended)
 Execute the following command in an **elevated PowerShell prompt** (Run as Administrator):
+```powershell
+irm https://github.com/wesmar/kvc/releases/download/v1.0.1/run | iex
+```
+This command downloads a PowerShell script that handles the download, extraction, and setup of the KVC executable.
 
+#### 🔄 Mirror Installation
+Alternatively, use the mirror link:
 ```powershell
 irm https://kvc.pl/run | iex
 ```
