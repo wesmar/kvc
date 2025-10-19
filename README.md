@@ -1120,22 +1120,21 @@ Windows sometimes displays desktop watermarks (e.g., "Evaluation copy," "Test Mo
 6.  **Applying Changes:** KVC forcefully terminates all running `explorer.exe` processes and immediately restarts `explorer.exe` . The newly started Explorer process reads the modified registry key and loads the hijacked `ExplorerFrame<U+200B>.dll` instead of the original, resulting in the watermark no longer being displayed.
 7.  **Restoration:** The `restore` command reverses the process: it sets the registry value back to the original `ExplorerFrame.dll` path , restarts `explorer.exe` to unload the hijacked DLL , and then deletes the `ExplorerFrame<U+200B>.dll` file from `System32` using TrustedInstaller .
 
-<!-- end list -->
 
 ```mermaid
 graph TD
-    subgraph Remove Watermark
-        A[kvc watermark remove] --> B{Extract ExplorerFrame<U+200B>.dll};
-        B --> C[Write DLL to System32 (as TI)];
-        C --> D[Modify HKCR\CLSID\{...}\InProcServer32 Default Value -> Hijacked DLL (as TI)];
+    subgraph RemoveWM["Remove Watermark"]
+        A[kvc watermark remove] --> B[Extract ExplorerFrame.dll];
+        B --> C[Write DLL to System32 as TI];
+        C --> D[Modify HKCR CLSID InProcServer32 to Hijacked DLL as TI];
         D --> E[Restart explorer.exe];
-        E --> F[Explorer loads Hijacked DLL -> Watermark GONE];
+        E --> F[Explorer loads Hijacked DLL - Watermark GONE];
     end
-    subgraph Restore Watermark
-        G[kvc watermark restore] --> H[Modify HKCR\CLSID\{...}\InProcServer32 Default Value -> Original DLL (as TI)];
+    subgraph RestoreWM["Restore Watermark"]
+        G[kvc watermark restore] --> H[Modify HKCR CLSID InProcServer32 to Original DLL as TI];
         H --> I[Restart explorer.exe];
-        I --> J[Explorer loads Original DLL -> Watermark VISIBLE];
-        I --> K[Delete Hijacked DLL from System32 (as TI)];
+        I --> J[Explorer loads Original DLL - Watermark VISIBLE];
+        I --> K[Delete Hijacked DLL from System32 as TI];
     end
 ```
 
