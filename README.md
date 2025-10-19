@@ -3,30 +3,25 @@
 
 # KVC - Kernel Vulnerability Capabilities Framework
 
-\<div align="center"\>
-
-[](https://www.google.com/search?q=LICENSE)
-[](https://www.google.com/search?q=)
-[](https://www.google.com/search?q=)
-[](https://www.google.com/search?q=)
+<div align="center">
 
 **Advanced Windows Security Research & Penetration Testing Framework**
 
 *Comprehensive Ring-0 toolkit for process protection manipulation, memory forensics, advanced credential extraction, and Driver Signature Enforcement control on modern Windows platforms.*
 
-[🌐 Official Website](https://kvc.pl) • [📧 Contact](mailto:marek@wesolowski.eu.org) • [📱 +48 607-440-283](https://www.google.com/search?q=tel:%2B48607440283)
+[🌐 Official Website](https://kvc.pl) • [📧 Contact](mailto:marek@wesolowski.eu.org) • [📱 +48 607-440-283](tel:+48607440283)
 
------
+<br>
 
-**Author:** Marek Wesołowski (WESMAR)
-**Year:** 2025
+**Author:** Marek Wesołowski (WESMAR)  
+**Year:** 2025  
 **Domain:** [kvc.pl](https://kvc.pl)
 
-\</div\>
+</div>
 
------
+---
 
-## 1\. Introduction and KVC Philosophy
+## 1. Introduction and KVC Philosophy
 
 ### What is KVC?
 
