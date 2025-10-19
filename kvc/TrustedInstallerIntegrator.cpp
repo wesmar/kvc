@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <string_view>
+#include <span>
 
 namespace fs = std::filesystem;
 
@@ -61,14 +63,14 @@ TrustedInstallerIntegrator::~TrustedInstallerIntegrator()
 // CORE TOKEN MANAGEMENT
 // ============================================================================
 
-BOOL TrustedInstallerIntegrator::EnablePrivilegeInternal(LPCWSTR privilegeName)
+BOOL TrustedInstallerIntegrator::EnablePrivilegeInternal(std::wstring_view privilegeName)
 {
     HANDLE hToken;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &hToken)) 
         return FALSE;
 
     LUID luid;
-    if (!LookupPrivilegeValueW(NULL, privilegeName, &luid)) {
+    if (!LookupPrivilegeValueW(NULL, privilegeName.data(), &luid)) {
         CloseHandle(hToken);
         return FALSE;
     }
@@ -128,7 +130,7 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
 
     SERVICE_STATUS_PROCESS statusBuffer;
     DWORD bytesNeeded;
-    const DWORD timeout = 30000;
+    const DWORD timeout = 3000;
     DWORD startTime = GetTickCount();
 
     while (QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer, sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded))
@@ -231,7 +233,7 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
     g_cachedTrustedInstallerToken = hDuplicatedToken;
     g_lastTokenAccessTime = currentTime;
     
-    SUCCESS(L"TrustedInstaller token cached successfully");
+    DEBUG(L"TrustedInstaller token cached successfully");
     return g_cachedTrustedInstallerToken;
 }
 
@@ -239,42 +241,40 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
 // PROCESS EXECUTION
 // ============================================================================
 
-BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstaller(DWORD pid, LPCWSTR commandLine)
+BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstaller(DWORD pid, std::wstring_view commandLine)
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) return FALSE;
 
-    wchar_t* mutableCmd = _wcsdup(commandLine);
-    if (!mutableCmd) return FALSE;
+    // Convert string_view to mutable string for CreateProcessWithTokenW
+    std::wstring mutableCmd{commandLine};
 
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
     
-    BOOL result = CreateProcessWithTokenW(hToken, 0, NULL, mutableCmd, 0, NULL, NULL, &si, &pi);
+    BOOL result = CreateProcessWithTokenW(hToken, 0, NULL, mutableCmd.data(), 0, NULL, NULL, &si, &pi);
 
     if (result) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     }
 
-    free(mutableCmd);
     return result;
 }
 
-BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstallerSilent(DWORD pid, LPCWSTR commandLine)
+BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstallerSilent(DWORD pid, std::wstring_view commandLine)
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) return FALSE;
 
-    wchar_t* mutableCmd = _wcsdup(commandLine);
-    if (!mutableCmd) return FALSE;
+    std::wstring mutableCmd{commandLine};
 
     STARTUPINFOW si = { sizeof(si) };
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
     
     PROCESS_INFORMATION pi;
-    BOOL result = CreateProcessWithTokenW(hToken, 0, NULL, mutableCmd, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    BOOL result = CreateProcessWithTokenW(hToken, 0, NULL, mutableCmd.data(), CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
 
     if (result) {
         DWORD waitResult = WaitForSingleObject(pi.hProcess, 3000);
@@ -291,7 +291,6 @@ BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstallerSilent(DWORD pid
         CloseHandle(pi.hThread);
     }
 
-    free(mutableCmd);
     return result;
 }
 
@@ -299,8 +298,8 @@ bool TrustedInstallerIntegrator::RunAsTrustedInstaller(const std::wstring& comma
 {
     std::wstring finalCommandLine = commandLine;
     
-    if (IsLnkFile(commandLine.c_str())) {
-        finalCommandLine = ResolveLnk(commandLine.c_str());
+    if (IsLnkFile(commandLine)) {
+        finalCommandLine = ResolveLnk(commandLine);
         if (finalCommandLine.empty()) {
             return false;
         }
@@ -316,7 +315,7 @@ bool TrustedInstallerIntegrator::RunAsTrustedInstaller(const std::wstring& comma
         return false;
     }
 
-    BOOL result = CreateProcessAsTrustedInstaller(trustedInstallerPid, finalCommandLine.c_str());
+    BOOL result = CreateProcessAsTrustedInstaller(trustedInstallerPid, finalCommandLine);
 
     RevertToSelf();
     return result != FALSE;
@@ -326,8 +325,8 @@ bool TrustedInstallerIntegrator::RunAsTrustedInstallerSilent(const std::wstring&
 {
     std::wstring finalCommandLine = commandLine;
     
-    if (IsLnkFile(commandLine.c_str())) {
-        finalCommandLine = ResolveLnk(commandLine.c_str());
+    if (IsLnkFile(commandLine)) {
+        finalCommandLine = ResolveLnk(commandLine);
         if (finalCommandLine.empty()) {
             return false;
         }
@@ -343,7 +342,7 @@ bool TrustedInstallerIntegrator::RunAsTrustedInstallerSilent(const std::wstring&
         return false;
     }
 
-    BOOL result = CreateProcessAsTrustedInstallerSilent(trustedInstallerPid, finalCommandLine.c_str());
+    BOOL result = CreateProcessAsTrustedInstallerSilent(trustedInstallerPid, finalCommandLine);
 
     RevertToSelf();
     return result != FALSE;
@@ -353,8 +352,8 @@ bool TrustedInstallerIntegrator::RunAsTrustedInstallerSilent(const std::wstring&
 // FILE OPERATIONS (NEW)
 // ============================================================================
 
-bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(const std::wstring& filePath, 
-                                                              const std::vector<BYTE>& data) noexcept
+bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(std::wstring_view filePath, 
+                                                             std::span<const BYTE> data) noexcept
 {
     if (data.empty()) {
         ERROR(L"Cannot write empty data");
@@ -372,8 +371,9 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(const std::wstring&
         return false;
     }
 
+    std::wstring filePathStr{filePath};
     HANDLE hFile = CreateFileW(
-        filePath.c_str(),
+        filePathStr.c_str(),
         GENERIC_WRITE,
         0,
         NULL,
@@ -384,7 +384,7 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(const std::wstring&
 
     if (hFile == INVALID_HANDLE_VALUE) {
         DWORD error = GetLastError();
-        ERROR(L"Failed to create file: %s (error: %d)", filePath.c_str(), error);
+        ERROR(L"Failed to create file: %s (error: %d)", filePathStr.c_str(), error);
         RevertToSelf();
         return false;
     }
@@ -396,7 +396,7 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(const std::wstring&
         DWORD bytesToWrite = (std::min)(chunkSize, static_cast<DWORD>(data.size() - totalWritten));
         DWORD bytesWritten = 0;
 
-        if (!::WriteFile(hFile, data.data() + totalWritten, bytesToWrite, &bytesWritten, nullptr)) {
+        if (!::WriteFile(hFile, data.data() + totalWritten, bytesToWrite, &bytesWritten, NULL)) {
             ERROR(L"WriteFile failed at offset %d", totalWritten);
             CloseHandle(hFile);
             RevertToSelf();
@@ -416,11 +416,11 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(const std::wstring&
     CloseHandle(hFile);
     RevertToSelf();
 
-    DEBUG(L"File written successfully: %s (%zu bytes)", filePath.c_str(), data.size());
+    DEBUG(L"File written successfully: %s (%zu bytes)", filePathStr.c_str(), data.size());
     return true;
 }
 
-bool TrustedInstallerIntegrator::DeleteFileAsTrustedInstaller(const std::wstring& filePath) noexcept
+bool TrustedInstallerIntegrator::DeleteFileAsTrustedInstaller(std::wstring_view filePath) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -433,26 +433,27 @@ bool TrustedInstallerIntegrator::DeleteFileAsTrustedInstaller(const std::wstring
         return false;
     }
 
-    DWORD attrs = GetFileAttributesW(filePath.c_str());
+    std::wstring filePathStr{filePath};
+    DWORD attrs = GetFileAttributesW(filePathStr.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES) {
-        SetFileAttributesW(filePath.c_str(), FILE_ATTRIBUTE_NORMAL);
+        SetFileAttributesW(filePathStr.c_str(), FILE_ATTRIBUTE_NORMAL);
     }
 
-    BOOL result = DeleteFileW(filePath.c_str());
+    BOOL result = DeleteFileW(filePathStr.c_str());
     DWORD error = result ? 0 : GetLastError();
 
     RevertToSelf();
 
     if (result) {
-        DEBUG(L"File deleted: %s", filePath.c_str());
+        DEBUG(L"File deleted: %s", filePathStr.c_str());
     } else {
-        ERROR(L"Failed to delete file: %s (error: %d)", filePath.c_str(), error);
+        ERROR(L"Failed to delete file: %s (error: %d)", filePathStr.c_str(), error);
     }
 
     return result != FALSE;
 }
 
-bool TrustedInstallerIntegrator::CreateDirectoryAsTrustedInstaller(const std::wstring& directoryPath) noexcept
+bool TrustedInstallerIntegrator::CreateDirectoryAsTrustedInstaller(std::wstring_view directoryPath) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -465,27 +466,28 @@ bool TrustedInstallerIntegrator::CreateDirectoryAsTrustedInstaller(const std::ws
         return false;
     }
 
-    // Twórz rekursywnie wszystkie brakujące katalogi
-    BOOL result = SHCreateDirectoryExW(nullptr, directoryPath.c_str(), nullptr);
+    // Create all missing directories recursively
+    std::wstring directoryPathStr{directoryPath};
+    BOOL result = SHCreateDirectoryExW(NULL, directoryPathStr.c_str(), NULL);
     DWORD error = GetLastError();
     
     RevertToSelf();
 
-    // Sukces jeśli katalog został utworzony lub już istnieje
+    // Success if directory was created or already exists
     bool success = (result == ERROR_SUCCESS || error == ERROR_ALREADY_EXISTS);
     
     if (success) {
-        DEBUG(L"Directory created with TrustedInstaller: %s", directoryPath.c_str());
+        DEBUG(L"Directory created with TrustedInstaller: %s", directoryPathStr.c_str());
     } else {
-        ERROR(L"Failed to create directory: %s (error: %d)", directoryPath.c_str(), error);
+        ERROR(L"Failed to create directory: %s (error: %d)", directoryPathStr.c_str(), error);
     }
 
     return success;
 }
 
-// Rename system32 library skci.dll with intentional letter swap typo
-bool TrustedInstallerIntegrator::RenameFileAsTrustedInstaller(const std::wstring& srcPath,
-                                                               const std::wstring& dstPath) noexcept
+// Replace 'skci.dll' with homoglyph variant using zero-width space (U+200B)
+bool TrustedInstallerIntegrator::RenameFileAsTrustedInstaller(std::wstring_view srcPath,
+                                                              std::wstring_view dstPath) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -498,32 +500,34 @@ bool TrustedInstallerIntegrator::RenameFileAsTrustedInstaller(const std::wstring
         return false;
     }
 
+    std::wstring srcPathStr{srcPath};
+    std::wstring dstPathStr{dstPath};
+
     // Clear attributes on source
-    DWORD attrs = GetFileAttributesW(srcPath.c_str());
+    DWORD attrs = GetFileAttributesW(srcPathStr.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES) {
-        SetFileAttributesW(srcPath.c_str(), FILE_ATTRIBUTE_NORMAL);
+        SetFileAttributesW(srcPathStr.c_str(), FILE_ATTRIBUTE_NORMAL);
     }
 
-    BOOL result = MoveFileW(srcPath.c_str(), dstPath.c_str());
+    BOOL result = MoveFileW(srcPathStr.c_str(), dstPathStr.c_str());
     DWORD error = result ? ERROR_SUCCESS : GetLastError();
 
     RevertToSelf();
 
     if (!result) {
-        ERROR(L"Failed to rename file: %s -> %s (error: %d)", srcPath.c_str(), dstPath.c_str(), error);
+        ERROR(L"Failed to rename file: %s -> %s (error: %d)", srcPathStr.c_str(), dstPathStr.c_str(), error);
         return false;
     }
 
-    DEBUG(L"File renamed successfully: %s -> %s", srcPath.c_str(), dstPath.c_str());
+    DEBUG(L"File renamed successfully: %s -> %s", srcPathStr.c_str(), dstPathStr.c_str());
     return true;
 }
-
 // ============================================================================
 // REGISTRY OPERATIONS
 // ============================================================================
 
 bool TrustedInstallerIntegrator::CreateRegistryKeyAsTrustedInstaller(HKEY hRootKey, 
-                                                                      const std::wstring& subKey) noexcept
+                                                                     std::wstring_view subKey) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -538,9 +542,11 @@ bool TrustedInstallerIntegrator::CreateRegistryKeyAsTrustedInstaller(HKEY hRootK
 
     HKEY hKey;
     DWORD dwDisposition;
+    std::wstring subKeyStr{subKey};
+    
     LONG result = RegCreateKeyExW(
         hRootKey,
-        subKey.c_str(),
+        subKeyStr.c_str(),
         0,
         NULL,
         REG_OPTION_NON_VOLATILE,
@@ -552,9 +558,9 @@ bool TrustedInstallerIntegrator::CreateRegistryKeyAsTrustedInstaller(HKEY hRootK
 
     if (result == ERROR_SUCCESS) {
         RegCloseKey(hKey);
-        SUCCESS(L"Registry key created: %s", subKey.c_str());
+        SUCCESS(L"Registry key created: %s", subKeyStr.c_str());
     } else {
-        ERROR(L"Failed to create registry key: %s (error: %d)", subKey.c_str(), result);
+        ERROR(L"Failed to create registry key: %s (error: %d)", subKeyStr.c_str(), result);
     }
 
     RevertToSelf();
@@ -562,9 +568,9 @@ bool TrustedInstallerIntegrator::CreateRegistryKeyAsTrustedInstaller(HKEY hRootK
 }
 
 bool TrustedInstallerIntegrator::WriteRegistryValueAsTrustedInstaller(HKEY hRootKey,
-                                                                       const std::wstring& subKey,
-                                                                       const std::wstring& valueName,
-                                                                       const std::wstring& value) noexcept
+                                                                      std::wstring_view subKey,
+                                                                      std::wstring_view valueName,
+                                                                      std::wstring_view value) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -577,29 +583,31 @@ bool TrustedInstallerIntegrator::WriteRegistryValueAsTrustedInstaller(HKEY hRoot
         return false;
     }
 
+    std::wstring subKeyStr{subKey};
     HKEY hKey;
-    LONG openResult = RegOpenKeyExW(hRootKey, subKey.c_str(), 0, KEY_SET_VALUE, &hKey);
+    LONG openResult = RegOpenKeyExW(hRootKey, subKeyStr.c_str(), 0, KEY_SET_VALUE, &hKey);
     
     if (openResult != ERROR_SUCCESS) {
-        ERROR(L"Failed to open registry key: %s (error: %d)", subKey.c_str(), openResult);
+        ERROR(L"Failed to open registry key: %s (error: %d)", subKeyStr.c_str(), openResult);
         RevertToSelf();
         return false;
     }
 
+    std::wstring valueStr{value};
     LONG result = RegSetValueExW(
         hKey,
-        valueName.c_str(),
+        std::wstring{valueName}.c_str(),
         0,
         REG_EXPAND_SZ,
-        (const BYTE*)value.c_str(),
-        (DWORD)(value.length() + 1) * sizeof(wchar_t)
+        (const BYTE*)valueStr.c_str(),
+        (DWORD)((valueStr.length() + 1) * sizeof(wchar_t))
     );
 
     RegCloseKey(hKey);
     RevertToSelf();
 
     if (result == ERROR_SUCCESS) {
-        SUCCESS(L"Registry value written: %s\\%s", subKey.c_str(), valueName.c_str());
+        SUCCESS(L"Registry value written: %s\\%s", subKeyStr.c_str(), std::wstring{valueName}.c_str());
     } else {
         ERROR(L"Failed to write registry value (error: %d)", result);
     }
@@ -608,9 +616,9 @@ bool TrustedInstallerIntegrator::WriteRegistryValueAsTrustedInstaller(HKEY hRoot
 }
 
 bool TrustedInstallerIntegrator::WriteRegistryDwordAsTrustedInstaller(HKEY hRootKey,
-                                                                       const std::wstring& subKey,
-                                                                       const std::wstring& valueName,
-                                                                       DWORD value) noexcept
+                                                                      std::wstring_view subKey,
+                                                                      std::wstring_view valueName,
+                                                                      DWORD value) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -623,18 +631,19 @@ bool TrustedInstallerIntegrator::WriteRegistryDwordAsTrustedInstaller(HKEY hRoot
         return false;
     }
 
+    std::wstring subKeyStr{subKey};
     HKEY hKey;
-    LONG openResult = RegOpenKeyExW(hRootKey, subKey.c_str(), 0, KEY_SET_VALUE, &hKey);
+    LONG openResult = RegOpenKeyExW(hRootKey, subKeyStr.c_str(), 0, KEY_SET_VALUE, &hKey);
     
     if (openResult != ERROR_SUCCESS) {
-        ERROR(L"Failed to open registry key: %s (error: %d)", subKey.c_str(), openResult);
+        ERROR(L"Failed to open registry key: %s (error: %d)", subKeyStr.c_str(), openResult);
         RevertToSelf();
         return false;
     }
 
     LONG result = RegSetValueExW(
         hKey,
-        valueName.c_str(),
+        std::wstring{valueName}.c_str(),
         0,
         REG_DWORD,
         (const BYTE*)&value,
@@ -645,7 +654,7 @@ bool TrustedInstallerIntegrator::WriteRegistryDwordAsTrustedInstaller(HKEY hRoot
     RevertToSelf();
 
     if (result == ERROR_SUCCESS) {
-        SUCCESS(L"Registry DWORD written: %s\\%s = 0x%08X", subKey.c_str(), valueName.c_str(), value);
+        SUCCESS(L"Registry DWORD written: %s\\%s = 0x%08X", subKeyStr.c_str(), std::wstring{valueName}.c_str(), value);
     } else {
         ERROR(L"Failed to write registry DWORD (error: %d)", result);
     }
@@ -654,9 +663,9 @@ bool TrustedInstallerIntegrator::WriteRegistryDwordAsTrustedInstaller(HKEY hRoot
 }
 
 bool TrustedInstallerIntegrator::WriteRegistryBinaryAsTrustedInstaller(HKEY hRootKey,
-                                                                        const std::wstring& subKey,
-                                                                        const std::wstring& valueName,
-                                                                        const std::vector<BYTE>& data) noexcept
+                                                                       std::wstring_view subKey,
+                                                                       std::wstring_view valueName,
+                                                                       std::span<const BYTE> data) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -669,18 +678,19 @@ bool TrustedInstallerIntegrator::WriteRegistryBinaryAsTrustedInstaller(HKEY hRoo
         return false;
     }
 
+    std::wstring subKeyStr{subKey};
     HKEY hKey;
-    LONG openResult = RegOpenKeyExW(hRootKey, subKey.c_str(), 0, KEY_SET_VALUE, &hKey);
+    LONG openResult = RegOpenKeyExW(hRootKey, subKeyStr.c_str(), 0, KEY_SET_VALUE, &hKey);
     
     if (openResult != ERROR_SUCCESS) {
-        ERROR(L"Failed to open registry key: %s (error: %d)", subKey.c_str(), openResult);
+        ERROR(L"Failed to open registry key: %s (error: %d)", subKeyStr.c_str(), openResult);
         RevertToSelf();
         return false;
     }
 
     LONG result = RegSetValueExW(
         hKey,
-        valueName.c_str(),
+        std::wstring{valueName}.c_str(),
         0,
         REG_BINARY,
         data.data(),
@@ -691,7 +701,7 @@ bool TrustedInstallerIntegrator::WriteRegistryBinaryAsTrustedInstaller(HKEY hRoo
     RevertToSelf();
 
     if (result == ERROR_SUCCESS) {
-        SUCCESS(L"Registry binary written: %s\\%s (%zu bytes)", subKey.c_str(), valueName.c_str(), data.size());
+        SUCCESS(L"Registry binary written: %s\\%s (%zu bytes)", subKeyStr.c_str(), std::wstring{valueName}.c_str(), data.size());
     } else {
         ERROR(L"Failed to write registry binary (error: %d)", result);
     }
@@ -700,9 +710,9 @@ bool TrustedInstallerIntegrator::WriteRegistryBinaryAsTrustedInstaller(HKEY hRoo
 }
 
 bool TrustedInstallerIntegrator::ReadRegistryValueAsTrustedInstaller(HKEY hRootKey,
-                                                                      const std::wstring& subKey,
-                                                                      const std::wstring& valueName,
-                                                                      std::wstring& outValue) noexcept
+                                                                     std::wstring_view subKey,
+                                                                     std::wstring_view valueName,
+                                                                     std::wstring& outValue) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -715,18 +725,19 @@ bool TrustedInstallerIntegrator::ReadRegistryValueAsTrustedInstaller(HKEY hRootK
         return false;
     }
 
+    std::wstring subKeyStr{subKey};
     HKEY hKey;
-    LONG openResult = RegOpenKeyExW(hRootKey, subKey.c_str(), 0, KEY_QUERY_VALUE, &hKey);
+    LONG openResult = RegOpenKeyExW(hRootKey, subKeyStr.c_str(), 0, KEY_QUERY_VALUE, &hKey);
     
     if (openResult != ERROR_SUCCESS) {
-        ERROR(L"Failed to open registry key: %s (error: %d)", subKey.c_str(), openResult);
+        ERROR(L"Failed to open registry key: %s (error: %d)", subKeyStr.c_str(), openResult);
         RevertToSelf();
         return false;
     }
 
     DWORD dataSize = 0;
     DWORD dataType = 0;
-    LONG queryResult = RegQueryValueExW(hKey, valueName.c_str(), NULL, &dataType, NULL, &dataSize);
+    LONG queryResult = RegQueryValueExW(hKey, std::wstring{valueName}.c_str(), NULL, &dataType, NULL, &dataSize);
 
     if (queryResult != ERROR_SUCCESS || (dataType != REG_SZ && dataType != REG_EXPAND_SZ)) {
         ERROR(L"Failed to query registry value size (error: %d, type: %d)", queryResult, dataType);
@@ -735,10 +746,10 @@ bool TrustedInstallerIntegrator::ReadRegistryValueAsTrustedInstaller(HKEY hRootK
         return false;
     }
 
-    std::vector<wchar_t> buffer(dataSize / sizeof(wchar_t));
+    std::vector<wchar_t> buffer(dataSize / sizeof(wchar_t) + 1);
     LONG result = RegQueryValueExW(
         hKey,
-        valueName.c_str(),
+        std::wstring{valueName}.c_str(),
         NULL,
         &dataType,
         (LPBYTE)buffer.data(),
@@ -750,7 +761,7 @@ bool TrustedInstallerIntegrator::ReadRegistryValueAsTrustedInstaller(HKEY hRootK
 
     if (result == ERROR_SUCCESS) {
         outValue = std::wstring(buffer.data());
-        SUCCESS(L"Registry value read: %s\\%s", subKey.c_str(), valueName.c_str());
+        SUCCESS(L"Registry value read: %s\\%s", subKeyStr.c_str(), std::wstring{valueName}.c_str());
         return true;
     } else {
         ERROR(L"Failed to read registry value (error: %d)", result);
@@ -759,7 +770,7 @@ bool TrustedInstallerIntegrator::ReadRegistryValueAsTrustedInstaller(HKEY hRootK
 }
 
 bool TrustedInstallerIntegrator::DeleteRegistryKeyAsTrustedInstaller(HKEY hRootKey,
-                                                                      const std::wstring& subKey) noexcept
+                                                                     std::wstring_view subKey) noexcept
 {
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -772,14 +783,15 @@ bool TrustedInstallerIntegrator::DeleteRegistryKeyAsTrustedInstaller(HKEY hRootK
         return false;
     }
 
-    LONG result = RegDeleteTreeW(hRootKey, subKey.c_str());
+    std::wstring subKeyStr{subKey};
+    LONG result = RegDeleteTreeW(hRootKey, subKeyStr.c_str());
 
     RevertToSelf();
 
     if (result == ERROR_SUCCESS) {
-        SUCCESS(L"Registry key deleted: %s", subKey.c_str());
+        SUCCESS(L"Registry key deleted: %s", subKeyStr.c_str());
     } else {
-        ERROR(L"Failed to delete registry key: %s (error: %d)", subKey.c_str(), result);
+        ERROR(L"Failed to delete registry key: %s (error: %d)", subKeyStr.c_str(), result);
     }
 
     return (result == ERROR_SUCCESS);
@@ -789,7 +801,7 @@ bool TrustedInstallerIntegrator::DeleteRegistryKeyAsTrustedInstaller(HKEY hRootK
 // DEFENDER EXCLUSION MANAGEMENT
 // ============================================================================
 
-bool TrustedInstallerIntegrator::ValidateExtension(const std::wstring& extension) noexcept
+bool TrustedInstallerIntegrator::ValidateExtension(std::wstring_view extension) noexcept
 {
     if (extension.empty()) return false;
     const std::wstring invalidChars = L"\\/:*?\"<>|";
@@ -799,7 +811,7 @@ bool TrustedInstallerIntegrator::ValidateExtension(const std::wstring& extension
     return true;
 }
 
-bool TrustedInstallerIntegrator::ValidateIpAddress(const std::wstring& ipAddress) noexcept
+bool TrustedInstallerIntegrator::ValidateIpAddress(std::wstring_view ipAddress) noexcept
 {
     if (ipAddress.empty()) return false;
 
@@ -828,9 +840,9 @@ bool TrustedInstallerIntegrator::ValidateIpAddress(const std::wstring& ipAddress
     return (dots == 3 && hasDigit);
 }
 
-std::wstring TrustedInstallerIntegrator::NormalizeExtension(const std::wstring& extension) noexcept
+std::wstring TrustedInstallerIntegrator::NormalizeExtension(std::wstring_view extension) noexcept
 {
-    std::wstring normalized = extension;
+    std::wstring normalized{extension};
     std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::towlower);
     
     if (!normalized.empty() && normalized[0] != L'.') {
@@ -840,23 +852,23 @@ std::wstring TrustedInstallerIntegrator::NormalizeExtension(const std::wstring& 
     return normalized;
 }
 
-std::wstring TrustedInstallerIntegrator::ExtractProcessName(const std::wstring& fullPath) noexcept
+std::wstring TrustedInstallerIntegrator::ExtractProcessName(std::wstring_view fullPath) noexcept
 {
     size_t lastSlash = fullPath.find_last_of(L"\\/");
-    if (lastSlash != std::wstring::npos) {
-        return fullPath.substr(lastSlash + 1);
+    if (lastSlash != std::wstring_view::npos) {
+        return std::wstring{fullPath.substr(lastSlash + 1)};
     }
-    return fullPath;
+    return std::wstring{fullPath};
 }
 
-bool TrustedInstallerIntegrator::AddDefenderExclusion(ExclusionType type, const std::wstring& value)
+bool TrustedInstallerIntegrator::AddDefenderExclusion(ExclusionType type, std::wstring_view value)
 {
-    std::wstring processedValue = value;
+    std::wstring processedValue{value};
     
     switch (type) {
         case ExclusionType::Extensions:
             if (!ValidateExtension(value)) {
-                ERROR(L"Invalid extension format: %s", value.c_str());
+                ERROR(L"Invalid extension format: %s", std::wstring{value}.c_str());
                 return false;
             }
             processedValue = NormalizeExtension(value);
@@ -864,7 +876,7 @@ bool TrustedInstallerIntegrator::AddDefenderExclusion(ExclusionType type, const 
             
         case ExclusionType::IpAddresses:
             if (!ValidateIpAddress(value)) {
-                ERROR(L"Invalid IP address format: %s", value.c_str());
+                ERROR(L"Invalid IP address format: %s", std::wstring{value}.c_str());
                 return false;
             }
             break;
@@ -900,9 +912,9 @@ bool TrustedInstallerIntegrator::AddDefenderExclusion(ExclusionType type, const 
     return result;
 }
 
-bool TrustedInstallerIntegrator::RemoveDefenderExclusion(ExclusionType type, const std::wstring& value)
+bool TrustedInstallerIntegrator::RemoveDefenderExclusion(ExclusionType type, std::wstring_view value)
 {
-    std::wstring processedValue = value;
+    std::wstring processedValue{value};
     
     switch (type) {
         case ExclusionType::Extensions:
@@ -931,47 +943,47 @@ bool TrustedInstallerIntegrator::RemoveDefenderExclusion(ExclusionType type, con
     return RunAsTrustedInstallerSilent(command);
 }
 
-bool TrustedInstallerIntegrator::AddPathExclusion(const std::wstring& path) {
+bool TrustedInstallerIntegrator::AddPathExclusion(std::wstring_view path) {
     return AddDefenderExclusion(ExclusionType::Paths, path);
 }
 
-bool TrustedInstallerIntegrator::RemovePathExclusion(const std::wstring& path) {
+bool TrustedInstallerIntegrator::RemovePathExclusion(std::wstring_view path) {
     return RemoveDefenderExclusion(ExclusionType::Paths, path);
 }
 
-bool TrustedInstallerIntegrator::AddProcessExclusion(const std::wstring& processName) {
+bool TrustedInstallerIntegrator::AddProcessExclusion(std::wstring_view processName) {
     return AddDefenderExclusion(ExclusionType::Processes, processName);
 }
 
-bool TrustedInstallerIntegrator::RemoveProcessExclusion(const std::wstring& processName) {
+bool TrustedInstallerIntegrator::RemoveProcessExclusion(std::wstring_view processName) {
     return RemoveDefenderExclusion(ExclusionType::Processes, processName);
 }
 
-bool TrustedInstallerIntegrator::AddExtensionExclusion(const std::wstring& extension) {
+bool TrustedInstallerIntegrator::AddExtensionExclusion(std::wstring_view extension) {
     return AddDefenderExclusion(ExclusionType::Extensions, extension);
 }
 
-bool TrustedInstallerIntegrator::RemoveExtensionExclusion(const std::wstring& extension) {
+bool TrustedInstallerIntegrator::RemoveExtensionExclusion(std::wstring_view extension) {
     return RemoveDefenderExclusion(ExclusionType::Extensions, extension);
 }
 
-bool TrustedInstallerIntegrator::AddIpAddressExclusion(const std::wstring& ipAddress) {
+bool TrustedInstallerIntegrator::AddIpAddressExclusion(std::wstring_view ipAddress) {
     return AddDefenderExclusion(ExclusionType::IpAddresses, ipAddress);
 }
 
-bool TrustedInstallerIntegrator::RemoveIpAddressExclusion(const std::wstring& ipAddress) {
+bool TrustedInstallerIntegrator::RemoveIpAddressExclusion(std::wstring_view ipAddress) {
     return RemoveDefenderExclusion(ExclusionType::IpAddresses, ipAddress);
 }
 
-bool TrustedInstallerIntegrator::AddProcessToDefenderExclusions(const std::wstring& processName) {
+bool TrustedInstallerIntegrator::AddProcessToDefenderExclusions(std::wstring_view processName) {
     return AddProcessExclusion(processName);
 }
 
-bool TrustedInstallerIntegrator::RemoveProcessFromDefenderExclusions(const std::wstring& processName) {
+bool TrustedInstallerIntegrator::RemoveProcessFromDefenderExclusions(std::wstring_view processName) {
     return RemoveProcessExclusion(processName);
 }
 
-bool TrustedInstallerIntegrator::AddToDefenderExclusions(const std::wstring& customPath)
+bool TrustedInstallerIntegrator::AddToDefenderExclusions(std::wstring_view customPath)
 {
     wchar_t currentPath[MAX_PATH];
     
@@ -985,7 +997,7 @@ bool TrustedInstallerIntegrator::AddToDefenderExclusions(const std::wstring& cus
             ERROR(L"File path too long");
             return false;
         }
-        wcscpy_s(currentPath, MAX_PATH, customPath.c_str());
+        wcscpy_s(currentPath, MAX_PATH, std::wstring{customPath}.c_str());
     }
 
     fs::path filePath(currentPath);
@@ -998,7 +1010,7 @@ bool TrustedInstallerIntegrator::AddToDefenderExclusions(const std::wstring& cus
     }
 }
 
-bool TrustedInstallerIntegrator::RemoveFromDefenderExclusions(const std::wstring& customPath)
+bool TrustedInstallerIntegrator::RemoveFromDefenderExclusions(std::wstring_view customPath)
 {
     wchar_t currentPath[MAX_PATH];
     
@@ -1012,7 +1024,7 @@ bool TrustedInstallerIntegrator::RemoveFromDefenderExclusions(const std::wstring
             ERROR(L"File path too long");
             return false;
         }
-        wcscpy_s(currentPath, MAX_PATH, customPath.c_str());
+        wcscpy_s(currentPath, MAX_PATH, std::wstring{customPath}.c_str());
     }
 
     fs::path filePath(currentPath);
@@ -1163,7 +1175,7 @@ bool TrustedInstallerIntegrator::AddContextMenuEntries()
 // HELPER UTILITIES
 // ============================================================================
 
-DWORD TrustedInstallerIntegrator::GetProcessIdByName(LPCWSTR processName)
+DWORD TrustedInstallerIntegrator::GetProcessIdByName(std::wstring_view processName)
 {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return 0;
@@ -1174,7 +1186,7 @@ DWORD TrustedInstallerIntegrator::GetProcessIdByName(LPCWSTR processName)
 
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
-            if (wcscmp(pe.szExeFile, processName) == 0) {
+            if (std::wstring_view(pe.szExeFile) == processName) {
                 pid = pe.th32ProcessID;
                 break;
             }
@@ -1185,15 +1197,13 @@ DWORD TrustedInstallerIntegrator::GetProcessIdByName(LPCWSTR processName)
     return pid;
 }
 
-bool TrustedInstallerIntegrator::IsLnkFile(LPCWSTR path)
+bool TrustedInstallerIntegrator::IsLnkFile(std::wstring_view path)
 {
-    if (!path) return false;
-    size_t len = wcslen(path);
-    if (len < 4) return false;
-    return (_wcsicmp(path + len - 4, L".lnk") == 0);
+    if (path.length() < 4) return false;
+    return (_wcsicmp(std::wstring{path.substr(path.length() - 4)}.c_str(), L".lnk") == 0);
 }
 
-std::wstring TrustedInstallerIntegrator::ResolveLnk(LPCWSTR lnkPath)
+std::wstring TrustedInstallerIntegrator::ResolveLnk(std::wstring_view lnkPath)
 {
     IShellLinkW* pShellLink = nullptr;
     IPersistFile* pPersistFile = nullptr;
@@ -1208,7 +1218,8 @@ std::wstring TrustedInstallerIntegrator::ResolveLnk(LPCWSTR lnkPath)
         return L"";
     }
 
-    hr = pPersistFile->Load(lnkPath, STGM_READ);
+    std::wstring lnkPathStr{lnkPath};
+    hr = pPersistFile->Load(lnkPathStr.c_str(), STGM_READ);
     if (FAILED(hr)) {
         pPersistFile->Release();
         pShellLink->Release();

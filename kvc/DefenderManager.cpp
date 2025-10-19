@@ -30,7 +30,7 @@ bool DefenderManager::EnableSecurityEngine() noexcept
     return ModifySecurityEngine(true);
 }
 
-// Queries current Windows Defender state by checking RpcSs (enabled) or RpcSt (disabled) in service dependencies
+// Queries current Windows Defender state by checking RpcSs (enabled) - Homograph Attack
 DefenderManager::SecurityState DefenderManager::GetSecurityEngineStatus() noexcept 
 {
     try {
@@ -44,7 +44,7 @@ DefenderManager::SecurityState DefenderManager::GetSecurityEngineStatus() noexce
         
         if (values.empty()) return SecurityState::UNKNOWN;
         
-        // Check if RpcSs (active) or RpcSt (inactive) is present
+        // Check if RpcSs (active) or RpcSs\x200B (inactive) is present
         bool hasActive = find(values.begin(), values.end(), RPC_SERVICE_ACTIVE) != values.end();
         bool hasInactive = find(values.begin(), values.end(), RPC_SERVICE_INACTIVE) != values.end();
         
@@ -155,7 +155,7 @@ bool DefenderManager::CreateRegistrySnapshot(RegistryContext& ctx) noexcept
     return true;
 }
 
-// Modifies Windows Defender service dependencies in temp registry by transforming RpcSs↔RpcSt
+// Modifies Windows Defender service dependencies in temp registry by transforming RpcSs↔RpcSs\x200B
 bool DefenderManager::ModifyDefenderDependencies(const RegistryContext& ctx, bool enable) noexcept 
 {
     HKEY tempKey;
@@ -174,10 +174,10 @@ bool DefenderManager::ModifyDefenderDependencies(const RegistryContext& ctx, boo
     // Transform RPC service dependency
     for (auto& value : values) {
         if (enable && value == RPC_SERVICE_INACTIVE) {
-            value = RPC_SERVICE_ACTIVE;  // RpcSt -> RpcSs (enable)
+            value = RPC_SERVICE_ACTIVE;  // RpcSs\x200B -> RpcSs (enable)
         }
         else if (!enable && value == RPC_SERVICE_ACTIVE) {
-            value = RPC_SERVICE_INACTIVE; // RpcSs -> RpcSt (disable)
+            value = RPC_SERVICE_INACTIVE; // RpcSs -> RpcSs\x200B (disable)
         }
     }
     

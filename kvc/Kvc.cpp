@@ -250,7 +250,7 @@ int wmain(int argc, wchar_t* argv[])
 		else if (command == L"dse") {
 			// No parameter = check status
 			if (argc < 3) {
-				INFO(L"Checking Driver Signature Enforcement status...");
+				DEBUG(L"Checking Driver Signature Enforcement status...");
 				
 				ULONG_PTR ciOptionsAddr = 0;
 				DWORD value = 0;
@@ -267,29 +267,22 @@ int wmain(int argc, wchar_t* argv[])
 				INFO(L"DSE Status Information:");
 				INFO(L"g_CiOptions address: 0x%llX", ciOptionsAddr);
 				INFO(L"g_CiOptions value: 0x%08X", value);
-				INFO(L"Bit 1 (Test signing): %s", (value & 0x2) ? L"SET" : L"CLEAR");
-				INFO(L"Bit 2 (Unsigned drivers): %s", (value & 0x4) ? L"SET" : L"CLEAR");
 				std::wcout << L"\n";
 				
-			// Check for HVCI/VBS first
-			if (hvciEnabled) {
-				SUCCESS(L"Driver Signature Enforcement: ENABLED");
-				std::wcout << L"\n";
-				INFO(L"HVCI/Virtualization-Based Security detected (flags: 0x%05X)", (value & 0x0001C000));
-				INFO(L"Hypervisor protection active - direct memory patching blocked");
-				INFO(L"HVCI bypass available via non-invasive library method");
-				INFO(L"Requires system restart to complete bypass workflow");
-				INFO(L"Use 'kvc dse off' to initiate automated HVCI bypass");
-			}
-			else if (dseEnabled) {
-				SUCCESS(L"Driver Signature Enforcement: ENABLED");
-				INFO(L"Kernel protection active - only signed drivers allowed");
-				INFO(L"DSE bypass available without restart - use 'kvc dse off'");
-			} else {
-				INFO(L"Driver Signature Enforcement: DISABLED");
-				INFO(L"System security reduced - unsigned drivers allowed");
-				INFO(L"Use 'kvc dse on' to restore kernel protection (no restart required)");
-			}
+				// Check for HVCI/VBS first
+				if (hvciEnabled) {
+					SUCCESS(L"Driver signature enforcement: ENABLED");
+					// ... HVCI info
+				}
+				else if (dseEnabled) {
+					SUCCESS(L"Driver signature enforcement: ENABLED");
+					INFO(L"Only signed drivers allowed");
+					INFO(L"Use 'kvc dse off' to disable protection");
+				} else {
+					INFO(L"Driver signature enforcement: DISABLED");
+					INFO(L"Unsigned drivers allowed");
+					INFO(L"Use 'kvc dse on' to restore kernel protection");
+				}
 				
 				std::wcout << L"\n";
 				return 0;
@@ -298,7 +291,6 @@ int wmain(int argc, wchar_t* argv[])
 			std::wstring_view subCmd = argv[2];
 			
 			if (subCmd == L"off") {
-				// Check if this is post-reboot execution
 				HKEY hKey;
 				bool postReboot = false;
 				
@@ -310,26 +302,11 @@ int wmain(int argc, wchar_t* argv[])
 					if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
 										reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
 						if (wcscmp(state, L"AwaitingRestore") == 0) {
-							// Check if skci.dlI exists
-							wchar_t sysDir[MAX_PATH];
-							GetSystemDirectoryW(sysDir, MAX_PATH);
-							std::wstring checkPath = std::wstring(sysDir) + L"\\skci.dlI";
-							
-							DWORD attrs = GetFileAttributesW(checkPath.c_str());
-							if (attrs == INVALID_FILE_ATTRIBUTES) {
-								// skci.dlI doesn't exist - stale registry entry
-								RegCloseKey(hKey);
-								DEBUG(L"Stale registry state detected, clearing...");
-								RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE");
-								hKey = nullptr;
-							} else {
-								postReboot = true;
-							}
+							postReboot = true;
 						}
 					}
-					if (hKey) {
-						RegCloseKey(hKey);
-					}
+					
+					RegCloseKey(hKey);
 				}
 				
 				if (postReboot) {
@@ -342,7 +319,7 @@ int wmain(int argc, wchar_t* argv[])
 					}
 				} else {
 					DEBUG(L"Normal DSE disable request");
-					INFO(L"Disabling Driver Signature Enforcement...");
+					INFO(L"Disabling driver signature enforcement...");
 					
 					if (!g_controller->DisableDSE()) {
 						ERROR(L"Failed to disable DSE");
@@ -350,21 +327,17 @@ int wmain(int argc, wchar_t* argv[])
 					}
 				}
 				
-				SUCCESS(L"DSE disabled successfully!");
-				INFO(L"You can now load unsigned drivers");
-				INFO(L"g_CiOptions address: 0x%llX", g_controller->GetCiOptionsAddress());
+			//wesmar-debug: INFO(L"g_CiOptions address: 0x%llX", g_controller->GetCiOptionsAddress());
 				return 0;
 			}
 			else if (subCmd == L"on") {
-				INFO(L"Restoring Driver Signature Enforcement...");
+				INFO(L"Restoring driver signature enforcement...");
 				
 				if (!g_controller->RestoreDSE()) {
 					ERROR(L"Failed to restore DSE");
 					return 2;
 				}
-				
-				SUCCESS(L"DSE restored successfully!");
-				return 0;
+			return 0;
 			}
 			else {
 				ERROR(L"Unknown DSE command: %s", subCmd.data());
@@ -410,7 +383,7 @@ int wmain(int argc, wchar_t* argv[])
 					ERROR(L"Failed to stop service");
 				}
 				
-				Sleep(500);
+				// Only for service debug Sleep(500);
 				
 				INFO(L"Starting service...");
 				bool started = ServiceManager::StartServiceProcess();

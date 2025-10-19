@@ -17,14 +17,14 @@ bool WatermarkManager::RemoveWatermark() noexcept
 {
     INFO(L"[WATERMARK] Starting watermark removal process");
     
-    // Extract ExpIorerFrame.dll from resource
+    // Extract ExplorerFrame\u200B.dll from resource
     std::vector<BYTE> dllData;
     if (!ExtractWatermarkDLL(dllData)) {
         ERROR(L"[WATERMARK] Failed to extract DLL from resource");
         return false;
     }
     
-    INFO(L"[WATERMARK] Successfully extracted ExpIorerFrame.dll (%zu bytes)", dllData.size());
+    INFO(L"[WATERMARK] Successfully extracted ExplorerFrame\u200B.dll (%zu bytes)", dllData.size());
     
     // Get System32 path
     std::wstring system32Path = GetSystem32Path();
@@ -33,7 +33,7 @@ bool WatermarkManager::RemoveWatermark() noexcept
         return false;
     }
     
-    std::wstring dllPath = system32Path + L"\\ExpIorerFrame.dll";
+    std::wstring dllPath = system32Path + L"\\ExplorerFrame\u200B.dll";
     
     // Write DLL using TrustedInstaller
     if (!m_trustedInstaller.WriteFileAsTrustedInstaller(dllPath, dllData)) {
@@ -85,7 +85,7 @@ bool WatermarkManager::RestoreWatermark() noexcept
     // 3. Teraz usuń DLL (uchwyt został zwolniony)
     std::wstring system32Path = GetSystem32Path();
     if (!system32Path.empty()) {
-        std::wstring dllPath = system32Path + L"\\ExpIorerFrame.dll";
+        std::wstring dllPath = system32Path + L"\\ExplorerFrame\u200B.dll";
         
         // Dodaj krótkie opóźnienie dla pewności
         Sleep(1000);
@@ -132,7 +132,7 @@ bool WatermarkManager::ExtractWatermarkDLL(std::vector<BYTE>& outDllData) noexce
         return false;
     }
     
-    DEBUG(L"[WATERMARK] ExpIorerFrame.dll extracted: %zu bytes", outDllData.size());
+    DEBUG(L"[WATERMARK] ExplorerFrame\u200B.dll extracted: %zu bytes", outDllData.size());
     return !outDllData.empty();
 }
 

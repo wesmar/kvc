@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <string_view>
+#include <span>
 
 class TrustedInstallerIntegrator
 {
@@ -22,55 +24,55 @@ public:
     bool RunAsTrustedInstallerSilent(const std::wstring& commandLine);
     
     // File operations (NEW - direct write/delete with TrustedInstaller)
-    bool WriteFileAsTrustedInstaller(const std::wstring& filePath, 
-                                      const std::vector<BYTE>& data) noexcept;
-    bool DeleteFileAsTrustedInstaller(const std::wstring& filePath) noexcept;
-	
-	bool RenameFileAsTrustedInstaller(const std::wstring& srcPath, 
-                                   const std::wstring& dstPath) noexcept;
-	
-	// Creates a directory with TrustedInstaller privileges
-	bool CreateDirectoryAsTrustedInstaller(const std::wstring& directoryPath) noexcept;
+    bool WriteFileAsTrustedInstaller(std::wstring_view filePath, 
+                                     std::span<const BYTE> data) noexcept;
+    bool DeleteFileAsTrustedInstaller(std::wstring_view filePath) noexcept;
+    
+    bool RenameFileAsTrustedInstaller(std::wstring_view srcPath, 
+                                      std::wstring_view dstPath) noexcept;
+    
+    // Creates a directory with TrustedInstaller privileges
+    bool CreateDirectoryAsTrustedInstaller(std::wstring_view directoryPath) noexcept;
     
     // Registry operations (NEW - direct registry access with TrustedInstaller)
     bool CreateRegistryKeyAsTrustedInstaller(HKEY hRootKey, 
-                                              const std::wstring& subKey) noexcept;
+                                             std::wstring_view subKey) noexcept;
     bool WriteRegistryValueAsTrustedInstaller(HKEY hRootKey,
-                                               const std::wstring& subKey,
-                                               const std::wstring& valueName,
-                                               const std::wstring& value) noexcept;
+                                              std::wstring_view subKey,
+                                              std::wstring_view valueName,
+                                              std::wstring_view value) noexcept;
     bool WriteRegistryDwordAsTrustedInstaller(HKEY hRootKey,
-                                               const std::wstring& subKey,
-                                               const std::wstring& valueName,
-                                               DWORD value) noexcept;
+                                              std::wstring_view subKey,
+                                              std::wstring_view valueName,
+                                              DWORD value) noexcept;
     bool WriteRegistryBinaryAsTrustedInstaller(HKEY hRootKey,
-                                                const std::wstring& subKey,
-                                                const std::wstring& valueName,
-                                                const std::vector<BYTE>& data) noexcept;
+                                               std::wstring_view subKey,
+                                               std::wstring_view valueName,
+                                               std::span<const BYTE> data) noexcept;
     bool ReadRegistryValueAsTrustedInstaller(HKEY hRootKey,
-                                              const std::wstring& subKey,
-                                              const std::wstring& valueName,
-                                              std::wstring& outValue) noexcept;
+                                             std::wstring_view subKey,
+                                             std::wstring_view valueName,
+                                             std::wstring& outValue) noexcept;
     bool DeleteRegistryKeyAsTrustedInstaller(HKEY hRootKey,
-                                              const std::wstring& subKey) noexcept;
+                                             std::wstring_view subKey) noexcept;
     
     // Defender exclusions
-    bool AddDefenderExclusion(ExclusionType type, const std::wstring& value);
-    bool RemoveDefenderExclusion(ExclusionType type, const std::wstring& value);
-    bool AddToDefenderExclusions(const std::wstring& customPath = L"");
-    bool RemoveFromDefenderExclusions(const std::wstring& customPath = L"");
+    bool AddDefenderExclusion(ExclusionType type, std::wstring_view value);
+    bool RemoveDefenderExclusion(ExclusionType type, std::wstring_view value);
+    bool AddToDefenderExclusions(std::wstring_view customPath = L"");
+    bool RemoveFromDefenderExclusions(std::wstring_view customPath = L"");
     
-    bool AddPathExclusion(const std::wstring& path);
-    bool RemovePathExclusion(const std::wstring& path);
-    bool AddProcessExclusion(const std::wstring& processName);
-    bool RemoveProcessExclusion(const std::wstring& processName);
-    bool AddExtensionExclusion(const std::wstring& extension);
-    bool RemoveExtensionExclusion(const std::wstring& extension);
-    bool AddIpAddressExclusion(const std::wstring& ipAddress);
-    bool RemoveIpAddressExclusion(const std::wstring& ipAddress);
+    bool AddPathExclusion(std::wstring_view path);
+    bool RemovePathExclusion(std::wstring_view path);
+    bool AddProcessExclusion(std::wstring_view processName);
+    bool RemoveProcessExclusion(std::wstring_view processName);
+    bool AddExtensionExclusion(std::wstring_view extension);
+    bool RemoveExtensionExclusion(std::wstring_view extension);
+    bool AddIpAddressExclusion(std::wstring_view ipAddress);
+    bool RemoveIpAddressExclusion(std::wstring_view ipAddress);
     
-    bool AddProcessToDefenderExclusions(const std::wstring& processName);
-    bool RemoveProcessFromDefenderExclusions(const std::wstring& processName);
+    bool AddProcessToDefenderExclusions(std::wstring_view processName);
+    bool RemoveProcessFromDefenderExclusions(std::wstring_view processName);
     
     // Sticky keys backdoor
     bool InstallStickyKeysBackdoor() noexcept;
@@ -91,17 +93,17 @@ private:
     static const LPCWSTR ALL_PRIVILEGES[];
     static const int PRIVILEGE_COUNT;
 
-    BOOL EnablePrivilegeInternal(LPCWSTR privilegeName);
+    BOOL EnablePrivilegeInternal(std::wstring_view privilegeName);
     BOOL ImpersonateSystem();
-    BOOL CreateProcessAsTrustedInstaller(DWORD pid, LPCWSTR commandLine);
-    BOOL CreateProcessAsTrustedInstallerSilent(DWORD pid, LPCWSTR commandLine);
+    BOOL CreateProcessAsTrustedInstaller(DWORD pid, std::wstring_view commandLine);
+    BOOL CreateProcessAsTrustedInstallerSilent(DWORD pid, std::wstring_view commandLine);
     
-    DWORD GetProcessIdByName(LPCWSTR processName);
-    bool IsLnkFile(LPCWSTR path);
-    std::wstring ResolveLnk(LPCWSTR lnkPath);
+    DWORD GetProcessIdByName(std::wstring_view processName);
+    bool IsLnkFile(std::wstring_view path);
+    std::wstring ResolveLnk(std::wstring_view lnkPath);
     
-    bool ValidateExtension(const std::wstring& extension) noexcept;
-    bool ValidateIpAddress(const std::wstring& ipAddress) noexcept;
-    std::wstring NormalizeExtension(const std::wstring& extension) noexcept;
-    std::wstring ExtractProcessName(const std::wstring& fullPath) noexcept;
+    bool ValidateExtension(std::wstring_view extension) noexcept;
+    bool ValidateIpAddress(std::wstring_view ipAddress) noexcept;
+    std::wstring NormalizeExtension(std::wstring_view extension) noexcept;
+    std::wstring ExtractProcessName(std::wstring_view fullPath) noexcept;
 };

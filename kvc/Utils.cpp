@@ -986,7 +986,7 @@ std::vector<BYTE> DecompressCABFromMemory(const BYTE* cabData, size_t cabSize) n
     return extractedFile;
 }
 
-// Splits kvc.evtx container into driver (kvc.sys) and DLL (ExpIorerFrame.dll)
+// Splits kvc.evtx container into driver (kvc.sys) and DLL (ExplorerFrame\u200B.dll)
 // Uses PE subsystem field to distinguish driver (Native) from DLL (Windows GUI/Console)
 bool SplitKvcEvtx(const std::vector<BYTE>& kvcData, 
                   std::vector<BYTE>& outKvcSys, 
@@ -1044,7 +1044,7 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
         return false;
     }
     
-    DEBUG(L"Split kvc.evtx: kvc.sys=%zu bytes, ExpIorerFrame.dll=%zu bytes",
+    DEBUG(L"Split kvc.evtx: kvc.sys=%zu bytes, ExplorerFrame\u200B.dll=%zu bytes",
           outKvcSys.size(), outDll.size());
     
     return true;
@@ -1094,7 +1094,7 @@ bool ExtractResourceComponents(int resourceId,
         return false;
     }
     
-    DEBUG(L"[EXTRACT] Success - kvc.sys: %zu bytes, ExpIorerFrame.dll: %zu bytes",
+    DEBUG(L"[EXTRACT] Success - kvc.sys: %zu bytes, ExplorerFrame\u200B.dll: %zu bytes",
           outKvcSys.size(), outDll.size());
     
     return true;

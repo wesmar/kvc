@@ -18,16 +18,22 @@ Controller::~Controller() {
 
 // Atomic operation cleanup - critical for BSOD prevention
 bool Controller::PerformAtomicCleanup() noexcept {
-    INFO(L"Starting atomic cleanup procedure...");
+    DEBUG(L"Starting atomic cleanup procedure...");
     
     // 1. First, close the connection to the driver
-    if (m_rtc) {
-        DEBUG(L"Cleaning up driver connection...");
-        m_rtc->Cleanup(); // This ensures the handle is properly closed
+    if (m_rtc && m_rtc->IsConnected()) {
+        DEBUG(L"Force-closing driver connection...");
+        m_rtc->Cleanup();
     }
     
     // 2. Wait for resources to be released
-    Sleep(100);
+    // Only for USB Debug Sleep(200);
+	
+	// CHECK IF THE SERVICE IS A ZOMBIE
+    if (IsServiceZombie()) {
+        DEBUG(L"Service in zombie state - skipping aggressive cleanup to avoid BSOD");
+        return true;
+    }
     
     // 3. Stop the service (if it exists)
     DEBUG(L"Stopping driver service...");
@@ -63,12 +69,12 @@ bool Controller::PerformAtomicCleanup() noexcept {
                 }
                 CloseServiceHandle(hSCM);
             }
-            Sleep(100);
+            // Only for USB Debug Sleep(100);
         }
     }
     
     // 5. Wait again for safety
-    Sleep(100);
+    // Only for USB Debug Sleep(100);
     
     // 6. Only uninstall if the service is confirmed to be stopped
     if (serviceVerified) {
@@ -79,10 +85,10 @@ bool Controller::PerformAtomicCleanup() noexcept {
     }
     
     // 7. Reinitialize for subsequent operations
-    Sleep(100);
+    // Only for USB Debug Sleep(100);
     m_rtc = std::make_unique<kvc>();
     
-    SUCCESS(L"Atomic cleanup completed successfully");
+    DEBUG(L"Atomic cleanup completed successfully");
     return true;
 }
 
@@ -104,9 +110,13 @@ bool Controller::PerformAtomicInitWithErrorCleanup() noexcept {
 
 // Core driver availability check with fallback mechanisms
 bool Controller::EnsureDriverAvailable() noexcept {
-    // Phase 1: Check if the driver is already available (without testing)
+    if (IsServiceZombie()) {
+        DEBUG(L"Service zombie detected - cannot reload driver safely");
+        return false; // AVOID BSOD - do not reload the driver
+    }
+	// Phase 1: Check if the driver is already available (without testing)
 	ForceRemoveService();
-	Sleep(100);
+	// Only for USB Debug Sleep(100);
     if (IsDriverCurrentlyLoaded()) {
         return true;
     }
@@ -129,7 +139,7 @@ bool Controller::EnsureDriverAvailable() noexcept {
         CloseServiceHandle(hSCM);
         
         // Give it time to start
-        Sleep(100);
+        // Only for USB Debug Sleep(100);
         
         // Check if it's running now (without a test read)
         if (m_rtc->Initialize() && m_rtc->IsConnected()) {
@@ -138,7 +148,7 @@ bool Controller::EnsureDriverAvailable() noexcept {
     }
 
     // Phase 3: Install a new driver (ONLY if necessary)
-    INFO(L"Initializing kernel driver component...");
+    DEBUG(L"Initializing kernel driver component...");
     
     if (!InstallDriverSilently()) {
         ERROR(L"Failed to install kernel driver component");

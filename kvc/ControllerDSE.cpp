@@ -2,6 +2,73 @@
 #include "common.h"
 
 bool Controller::DisableDSE() noexcept {
+    // Check if HVCI bypass already prepared (pending reboot)
+    HKEY hKey = nullptr;
+    bool bypassPending = false;
+    
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, 
+                      KEY_READ, &hKey) == ERROR_SUCCESS) {
+        wchar_t state[256] = {0};
+        DWORD size = sizeof(state);
+        
+        if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
+                            reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
+            if (wcscmp(state, L"AwaitingRestore") == 0) {
+                bypassPending = true;
+                
+                // Verify the renamed file actually exists
+                wchar_t sysDir[MAX_PATH];
+                if (GetSystemDirectoryW(sysDir, MAX_PATH) > 0) {
+                    std::wstring checkPath = std::wstring(sysDir) + L"\\skci\u200B.dll";
+                    if (GetFileAttributesW(checkPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                        // File doesn't exist - state is stale/invalid
+                        bypassPending = false;
+                        DEBUG(L"Stale bypass state detected - skci.dlI not found");
+                    }
+                }
+            }
+        }
+        
+        RegCloseKey(hKey);
+        hKey = nullptr;
+    }
+    
+    // If bypass already prepared, prompt for reboot without touching driver
+    if (bypassPending) {
+        std::wcout << L"\n";
+        INFO(L"HVCI bypass already prepared from previous session");
+        INFO(L"System reboot is required to complete the bypass");
+        INFO(L"After reboot, use 'KVC DSE OFF' to disable driver signing");
+        std::wcout << L"\n";
+        std::wcout << L"Reboot now? [Y/N]: ";
+        wchar_t choice;
+        std::wcin >> choice;
+        
+        if (choice == L'Y' || choice == L'y') {
+            INFO(L"Initiating system reboot...");
+            
+            // Enable shutdown privilege
+            HANDLE hToken;
+            TOKEN_PRIVILEGES tkp;
+            
+            if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+                LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+                tkp.PrivilegeCount = 1;
+                tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
+                CloseHandle(hToken);
+            }
+            
+			// Initiate reboot
+			if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
+				ERROR(L"Failed to initiate reboot: %d", GetLastError());
+			}
+        }
+        
+        return true;
+    }
+    
+    // Normal flow - proceed with driver operations
     PerformAtomicCleanup();
     
     if (!BeginDriverSession()) {
@@ -49,15 +116,13 @@ bool Controller::DisableDSE() noexcept {
     
     if (hvciEnabled) {
         std::wcout << L"\n";
-        INFO(L"HVCI/VBS protection detected: g_CiOptions = 0x%08X", currentValue);
-        INFO(L"Direct kernel memory patching blocked by hypervisor");
-        INFO(L"Initiating non-invasive HVCI bypass strategy...");
+		INFO(L"HVCI detected (g_CiOptions = 0x%08X) - hypervisor bypass required", currentValue);
+		INFO(L"Preparing secure kernel deactivation (fully reversible)...");
         std::wcout << L"\n";
         
         SUCCESS(L"Secure Kernel module prepared for temporary deactivation");
-		SUCCESS(L"System configuration: hypervisor bypass prepared (fully reversible)");
+        SUCCESS(L"System configuration: hypervisor bypass prepared (fully reversible)");
         INFO(L"No files will be permanently modified or deleted");
-		INFO(L"After reboot: hypervisor disabled, DSE bypass automatic, changes reverted");
         std::wcout << L"\n";
         
         DEBUG(L"Closing driver handle before file operations...");
@@ -66,10 +131,10 @@ bool Controller::DisableDSE() noexcept {
         DEBUG(L"Unloading and removing driver service...");
         EndDriverSession(true);
         
-        DEBUG(L"Driver fully unloaded, proceeding with skci.dll rename...");
+        DEBUG(L"Driver fully unloaded, proceeding with bypass preparation...");
         
         if (!m_dseBypass->RenameSkciLibrary()) {
-            ERROR(L"Failed to rename skci.dll");
+            ERROR(L"Failed to prepare hypervisor bypass");
             return false;
         }
         
@@ -82,12 +147,10 @@ bool Controller::DisableDSE() noexcept {
             ERROR(L"Failed to create RunOnce entry");
             return false;
         }
-        
-        SUCCESS(L"HVCI bypass prepared successfully");
-        INFO(L"System will disable hypervisor on next boot");
-        INFO(L"Reboot required to complete DSE bypass");
-        INFO(L"After reboot, DSE will be automatically disabled");
-        
+		SUCCESS(L"HVCI bypass prepared - reboot required");
+		INFO(L"Post-reboot: 'kvc dse' -> if 0x00000000 -> load driver -> 'kvc dse on'");
+		INFO(L"Detection systems may scan for prolonged 0x00000000 state - restore quickly");
+		INFO(L"Future Windows updates may enhance monitoring - disable Driver Signature Enforcement only when needed");
         std::wcout << L"\n";
         std::wcout << L"Reboot now to complete DSE bypass? [Y/N]: ";
         wchar_t choice;
@@ -95,7 +158,23 @@ bool Controller::DisableDSE() noexcept {
         
         if (choice == L'Y' || choice == L'y') {
             INFO(L"Initiating system reboot...");
-            system("shutdown /r /t 0");
+            
+            // Enable shutdown privilege
+            HANDLE hToken;
+            TOKEN_PRIVILEGES tkp;
+            
+            if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+                LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+                tkp.PrivilegeCount = 1;
+                tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
+                CloseHandle(hToken);
+            }
+            
+            // Initiate reboot
+			if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
+				ERROR(L"Failed to initiate reboot: %d", GetLastError());
+			}
         }
         
         return true;
@@ -132,7 +211,88 @@ bool Controller::RestoreDSE() noexcept {
 }
 
 bool Controller::DisableDSEAfterReboot() noexcept {
-    PerformAtomicCleanup();
+    
+		    // Check if this is actually post-reboot or just pending bypass
+    HKEY hKey = nullptr;
+    bool actuallyPostReboot = false;
+    
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, 
+                      KEY_READ, &hKey) == ERROR_SUCCESS) {
+        wchar_t state[256] = {0};
+        DWORD size = sizeof(state);
+        
+        if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
+                            reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
+            if (wcscmp(state, L"AwaitingRestore") == 0) {
+                // Check if skci.dlI still exists (means we haven't rebooted yet)
+                wchar_t sysDir[MAX_PATH];
+                GetSystemDirectoryW(sysDir, MAX_PATH);
+                std::wstring checkPath = std::wstring(sysDir) + L"\\skci\u200B.dll";
+                
+                if (GetFileAttributesW(checkPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                    actuallyPostReboot = true;  // File exists = real post-reboot
+                }
+            }
+        }
+        RegCloseKey(hKey);
+    }
+    
+    // If skci.dlI doesn't exist, user hasn't rebooted yet
+    if (!actuallyPostReboot) {
+        std::wcout << L"\n";
+        INFO(L"HVCI bypass prepared but system has not been rebooted yet");
+        INFO(L"Please reboot to complete the bypass process");
+        std::wcout << L"\n";
+        std::wcout << L"Reboot now? [Y/N]: ";
+        wchar_t choice;
+        std::wcin >> choice;
+        
+        if (choice == L'Y' || choice == L'y') {
+            INFO(L"Initiating system reboot...");
+            
+            HANDLE hToken;
+            TOKEN_PRIVILEGES tkp;
+            
+            if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+                LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+                tkp.PrivilegeCount = 1;
+                tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
+                CloseHandle(hToken);
+            }
+            
+            if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
+                ERROR(L"Failed to initiate reboot: %d", GetLastError());
+            }
+        }
+        
+        return true;  // Exit WITHOUT touching driver
+    }
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	PerformAtomicCleanup();
     
     if (!BeginDriverSession()) {
         ERROR(L"Failed to start driver session for post-reboot DSE bypass");

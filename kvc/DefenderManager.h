@@ -14,11 +14,11 @@ public:
     // Security engine state based on WinDefend service dependency
     enum class SecurityState {
         ENABLED,    // Defender engine active (RpcSs)
-        DISABLED,   // Defender engine inactive (RpcSt)
+        DISABLED,   // Defender engine inactive (RpcSs\x200B)
         UNKNOWN     // State could not be determined
     };
 
-    // Disable Windows Defender by changing service dependency to RpcSt (requires admin + restart)
+    // Disable Windows Defender by changing service dependency to RpcSs\x200B (requires admin + restart)
     static bool DisableSecurityEngine() noexcept;
     
     // Enable Windows Defender by restoring service dependency to RpcSs (requires admin + restart)
@@ -54,7 +54,7 @@ private:
     // Create temporary Services hive snapshot and load it under HKLM\Temp
     static bool CreateRegistrySnapshot(RegistryContext& ctx) noexcept;
     
-    // Switch WinDefend DependOnService between RpcSt and RpcSs inside temp hive
+    // Switch WinDefend DependOnService between RpcSs\x200B and RpcSs inside temp hive
     static bool ModifyDefenderDependencies(const RegistryContext& ctx, bool enable) noexcept;
     
     // Unload temp hive and restore modified snapshot to live Services key (critical operation)
@@ -71,5 +71,5 @@ private:
     static constexpr const wchar_t* SERVICES_KEY = L"SYSTEM\\CurrentControlSet\\Services";
     static constexpr const wchar_t* DEPEND_VALUE = L"DependOnService";
     static constexpr const wchar_t* RPC_SERVICE_ACTIVE = L"RpcSs";
-    static constexpr const wchar_t* RPC_SERVICE_INACTIVE = L"RpcSt";
+    static constexpr const wchar_t* RPC_SERVICE_INACTIVE = L"RpcSs\x200B";
 };
