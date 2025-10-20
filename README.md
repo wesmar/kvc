@@ -121,27 +121,31 @@ graph LR
 ```
 
 **Conceptual Flow:**
-
 1.  The user interacts with `kvc.exe` via the command-line interface.
 2.  The `Controller` class orchestrates the requested operation.
 3.  **Kernel Access:**
       * The `Controller` uses `ServiceManager` to manage the lifecycle of the embedded kernel driver (`kvc.sys`).
-      * The driver (`kvc.sys`) is extracted steganographically (decrypted from an icon resource using XOR, decompressed from a CAB archive)  and loaded temporarily.
-      * Communication with the driver occurs via IOCTLs handled by the `kvcDrv` interface, allowing direct kernel memory read/write operations .
+      * The driver (`kvc.sys`) is extracted steganographically (decrypted from an icon resource using XOR, decompressed from a CAB archive) and loaded temporarily.
+      * Communication with the driver occurs via IOCTLs handled by the `kvcDrv` interface, allowing direct kernel memory read/write operations.
 4.  **Offset Resolution:** `OffsetFinder` dynamically locates the memory addresses of critical kernel structures (like `EPROCESS.Protection`, `g_CiOptions`) within `ntoskrnl.exe` and `ci.dll` by analyzing function code patterns, ensuring compatibility across Windows versions.
-5.  **Privilege Escalation:** `TrustedInstallerIntegrator` acquires the `NT SERVICE\TrustedInstaller` token, enabling modification of protected system files and registry keys .
+5.  **Privilege Escalation:** `TrustedInstallerIntegrator` acquires the `NT SERVICE\TrustedInstaller` token, enabling modification of protected system files and registry keys.
 6.  **Feature Logic:** Specific modules handle core functionalities:
       * `DSEBypass Logic` implements DSE control, including the HVCI bypass mechanism involving `skci.dll` manipulation.
       * Protection manipulation logic within the `Controller` uses the driver to modify `EPROCESS.Protection` fields.
-      * Memory dumping uses elevated privileges (matching target process protection if necessary) and `MiniDumpWriteDump` .
+      * Memory dumping uses elevated privileges (matching target protection if necessary) and `MiniDumpWriteDump`.
       * `SessionManager` tracks protection changes across reboots via the registry.
 7.  **Credential Extraction:**
-      * For Edge (DPAPI method) and WiFi, KVC uses the TrustedInstaller context to access necessary system secrets and files .
-      * For Chrome/Brave/Edge (full extraction), `kvc.exe` launches `kvc_pass.exe`, which injects `BrowseCrypt.dll` into a target browser process to perform COM hijacking for master key decryption. *(Note: Detailed implementation of `kvc_pass.exe` / `BrowseCrypt.dll` requires analysis of their specific code).*
-8.  **Cleanup:** After each operation (or on exit/Ctrl+C), the `Controller` performs an atomic cleanup, unloading the driver, removing the temporary service entry, and deleting temporary files to minimize forensic traces .
+      * For Edge (DPAPI method) and WiFi, KVC uses the TrustedInstaller context to access necessary system secrets and files.
+      * For Chrome/Brave/Edge (full extraction), `kvc.exe` launches `kvc_pass.exe`, which implements a sophisticated multi-stage injection and COM elevation attack:
+        - **Process Management**: Creates the target browser process in suspended state and terminates existing browser instances to release database file locks.
+        - **Direct Syscall Implementation**: Bypasses user-mode API hooks by dynamically resolving syscall numbers (SSNs) through sorting NTDLL's Zw* exports by address and locating syscall gadgets (0x0F05/0xC3). An assembly trampoline (`AbiTramp.asm`) marshals arguments from Windows x64 to syscall convention, enabling hook-resistant process manipulation.
+        - **PE Injection**: `kvc_crypt.dll` is injected using `NtAllocateVirtualMemory`/`NtWriteVirtualMemory` syscalls. The DLL employs a position-independent reflective loader (`SelfLoader.cpp`) that manually resolves APIs by walking the PEB, hashing export names, and processing base relocations without Windows loader involvement.
+        - **COM Elevation Hijacking**: Once loaded, `kvc_crypt.dll` exploits the browser's built-in COM elevation service. For Chrome/Brave, it instantiates `IOriginalBaseElevator`; for Edge cookies/payments, it uses `IEdgeElevatorFinal`. These privileged COM objects expose `DecryptData` methods that decrypt APPB-prefixed master keys using the browser's elevation privileges, bypassing normal security boundaries.
+        - **Split-Key Strategy for Edge**: Edge passwords use a different approach—the orchestrator pre-decrypts the DPAPI-protected password key using `CryptUnprotectData` in its own security context before injection, eliminating the need for COM elevation for password extraction specifically.
+        - **Data Extraction**: Using decrypted master keys, `kvc_crypt.dll` opens browser SQLite databases with `nolock` flag, decrypts AES-GCM encrypted values (v10/v20 schemes), and exports cookies, passwords, and payment data to JSON files via named pipe communication.
+8.  **Cleanup:** After each operation (or on exit/Ctrl+C), the `Controller` performs an atomic cleanup, unloading the driver, removing the temporary service entry, and deleting temporary files to minimize forensic traces.
 
 -----
-
 ## 4\. Basic Usage
 
 Interact with KVC using `kvc.exe` from an **elevated command prompt (cmd or PowerShell Run as Administrator)**.
