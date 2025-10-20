@@ -1343,7 +1343,7 @@ graph TD
 
 **Explanation :**
 
-1.  **Combination:** The `kvc.sys` driver and the modified `ExplorerFrame<U+200B>.dll` are concatenated into a single binary blob, likely within a container format KVC refers to internally as `kvc.evtx`.
+1.  **Combination:** The `kvc.sys` driver and the modified `ExplorerFrame.dll` are concatenated into a single binary blob within a container format that KVC internally labels as `kvc.evtx`. This naming convention serves as an obfuscation technique - the `.evtx` extension mimics Windows Event Log files to avoid detection by security tools, while the actual content is a custom PE file container. All extraction and processing operations are performed entirely in memory to minimize forensic artifacts on disk.
 2.  **Compression:** This container is compressed into a Cabinet (`.cab`) archive.
 3.  **Encryption:** The CAB archive is encrypted using a simple, repeating 7-byte XOR key (`KVC_XOR_KEY = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C }`).
 4.  **Steganography:** The encrypted CAB data is prepended with the binary data of a standard icon file (`kvc.ico`, 3774 bytes long).
