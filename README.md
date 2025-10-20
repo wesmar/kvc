@@ -9,7 +9,22 @@
 
 *Comprehensive Ring-0 toolkit for process protection manipulation, memory forensics, advanced credential extraction, and Driver Signature Enforcement control on modern Windows platforms.*
 
-[🌐 Official Website](https://kvc.pl) • [📧 Contact](mailto:marek@wesolowski.eu.org) • [📱 +48 607-440-283](tel:+48607440283)
+## 📚 Learn More & Stay Updated
+
+**[kvc.pl](https://kvc.pl)** - Official website currently under construction.
+
+<sub>The site will feature in-depth technical articles, case studies, and insights from 30 years of experience in Windows internals, kernel development, and security research. Check back soon for resources on advanced topics including driver development, EDR evasion techniques, and practical exploitation methodologies.</sub>
+
+---
+
+## 📞 Get in Touch
+
+**For Professional Inquiries:**
+- 🌐 **Website**: [kvc.pl](https://kvc.pl)
+- 📧 **Email**: [marek@wesolowski.eu.org](mailto:marek@wesolowski.eu.org)
+- 📱 **Phone**: [+48 607-440-283](tel:+48607440283)
+
+Whether you're interested in security consulting, custom tool development, training, or collaboration on research projects - feel free to reach out. I'm always open to discussing interesting challenges in Windows security and kernel-mode development.
 
 <br>
 
