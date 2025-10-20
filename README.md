@@ -15,17 +15,6 @@
 
 <sub>The site will feature in-depth technical articles, case studies, and insights from 30 years of experience in Windows internals, kernel development, and security research. Check back soon for resources on advanced topics including driver development, EDR evasion techniques, and practical exploitation methodologies.</sub>
 
----
-
-## 📞 Get in Touch
-
-**For Professional Inquiries:**
-- 🌐 **Website**: [kvc.pl](https://kvc.pl)
-- 📧 **Email**: [marek@wesolowski.eu.org](mailto:marek@wesolowski.eu.org)
-- 📱 **Phone**: [+48 607-440-283](tel:+48607440283)
-
-Whether you're interested in security consulting, custom tool development, training, or collaboration on research projects - feel free to reach out. I'm always open to discussing interesting challenges in Windows security and kernel-mode development.
-
 <br>
 
 **Author:** Marek Wesołowski (WESMAR)  
