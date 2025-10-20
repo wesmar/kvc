@@ -1390,15 +1390,73 @@ For most operations requiring kernel access (DSE, protection manipulation, dumpi
 
 This ensures the driver is loaded only for the brief duration needed, minimizing the window for detection and leaving minimal persistent traces on the system.
 
-### Direct System Calls (Conceptual)
+## Direct System Calls: Bypassing User-Mode Hooks
 
-The README.md mentions the concept of using direct system calls to bypass user-mode EDR hooks, referencing `syscalls.cpp` and `AbiTramp.asm`. While the full implementation details weren't the focus of this analysis, the *concept* involves:
+Modern EDR (Endpoint Detection and Response) solutions monitor system activity by hooking user-mode API functions in libraries like `kernel32.dll` and `ntdll.dll`. KVC circumvents this monitoring layer by implementing **direct system calls** - a technique that invokes kernel functions without passing through the hooked user-mode API layer.
 
-1.  Identifying the System Service Number (SSN) for required kernel functions (e.g., `NtReadVirtualMemory`, `NtWriteVirtualMemory`).
-2.  Using assembly language (`syscall` instruction on x64) to directly invoke the kernel function, bypassing the standard user-mode API layers (like `kernel32.dll`, `ntdll.dll`) where EDRs typically place hooks.
-3.  Handling the difference in calling conventions between standard C++ (x64 fastcall) and the kernel's syscall interface (using `R10` instead of `RCX` for the first argument, etc.), often requiring an assembly trampoline (`AbiTramp.asm`).
+### How Direct Syscalls Work
 
-This technique aims to make KVC's actions invisible to user-mode monitoring solutions.
+When a normal application calls a Windows API function (e.g., `ReadProcessMemory`), the execution flow typically looks like:
+
+```
+Application → kernel32.dll → ntdll.dll → [EDR Hook] → Kernel (via syscall)
+```
+
+EDR products inject hooks at the `ntdll.dll` level to intercept and analyze these calls. KVC bypasses this entirely:
+
+```
+KVC → Direct syscall instruction → Kernel
+```
+
+### Implementation Architecture
+
+KVC's direct syscall implementation consists of several components working together:
+
+1. **System Service Number (SSN) Resolution**
+   - Each kernel function has a unique identifier called a System Service Number
+   - KVC dynamically resolves SSNs for required functions (e.g., `NtReadVirtualMemory`, `NtWriteVirtualMemory`)
+   - SSNs can vary between Windows versions, requiring runtime detection
+
+2. **ABI Translation Layer**
+   - The Windows x64 kernel uses a different calling convention than standard user-mode code
+   - User-mode functions use the Microsoft x64 calling convention (first arg in RCX)
+   - Kernel syscalls expect the first argument in R10 instead of RCX
+   - A specialized assembly trampoline handles this argument marshaling
+
+3. **Syscall Execution**
+   - The trampoline prepares the CPU registers according to kernel expectations
+   - Loads the SSN into the RAX register
+   - Executes the `syscall` instruction to transition to kernel mode
+   - The kernel dispatcher uses the SSN to invoke the correct kernel function
+   - Returns the NTSTATUS result directly to KVC
+
+### Technical Details
+
+The assembly trampoline (`AbiTramp.asm`) performs critical tasks:
+
+- **Register Marshaling**: Moves arguments from user-mode positions (RCX, RDX, R8, R9) to syscall positions (R10, RDX, R8, R9)
+- **Stack Argument Handling**: Copies additional parameters from the caller's stack to the syscall stack frame
+- **Shadow Space Management**: Allocates proper stack space for both Windows calling convention requirements and syscall parameters
+- **Position Independence**: Uses indirect calls through register to support ASLR (Address Space Layout Randomization)
+
+### Evasion Benefits
+
+This technique provides several advantages against security monitoring:
+
+- **Hook Bypass**: Completely avoids user-mode API hooks placed by EDR solutions
+- **Signature Evasion**: Direct syscalls don't match typical API call patterns that security tools monitor
+- **Behavioral Hiding**: Operations appear directly from the application without the usual call chain through system DLLs
+- **Minimal Footprint**: No need to load or interact with potentially monitored system libraries
+
+### Detection Challenges
+
+While sophisticated kernel-mode monitoring can still detect direct syscalls, it requires:
+- Kernel-mode drivers to monitor syscall execution
+- More complex analysis of syscall patterns
+- Higher performance overhead for the security solution
+- Deeper system integration than typical user-mode EDR agents
+
+This makes direct syscalls an effective technique for security research tools that need to operate with minimal interference from defensive software.
 
 ### Other Minor Techniques
 
