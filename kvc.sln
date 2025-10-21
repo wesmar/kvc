@@ -11,6 +11,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "kvc_pass", "kvc\kvc_pass.vc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KvcXor", "kvc\KvcXor.vcxproj", "{A905154D-F1EC-4821-9717-9F6D35F69F3F}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "implementer", "kvc\implementer.vcxproj", "{376BAFB6-0DB9-4BFF-903A-779B4CE72CBC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Release|x64 = Release|x64
@@ -24,11 +26,14 @@ Global
 		{12345678-1234-1234-1234-123456789ABC}.Release|x64.Build.0 = Release|x64
 		{A905154D-F1EC-4821-9717-9F6D35F69F3F}.Release|x64.ActiveCfg = Release|x64
 		{A905154D-F1EC-4821-9717-9F6D35F69F3F}.Release|x64.Build.0 = Release|x64
+		{376BAFB6-0DB9-4BFF-903A-779B4CE72CBC}.Release|x64.ActiveCfg = Release|x64
+		{376BAFB6-0DB9-4BFF-903A-779B4CE72CBC}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {75429447-576C-4E36-9CDC-F4B668D9FBF5}
 		        SolutionGuid = {6314F007-4E69-4DEE-8AB4-D38008D70307}
 	EndGlobalSection
 EndGlobal
