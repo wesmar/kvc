@@ -1228,3 +1228,143 @@ bool Controller::IsPatternMatch(const std::wstring& processName, const std::wstr
         return false;
     }
 }
+// Shows detailed information about the process along with an analysis of droppability.
+bool Controller::PrintProcessInfo(DWORD pid) noexcept 
+{
+    if (!BeginDriverSession()) {
+        EndDriverSession(true);
+        return false;
+    }
+    
+    // Podstawowe informacje o ochronie
+    auto kernelAddr = GetProcessKernelAddress(pid);
+    if (!kernelAddr) {
+        ERROR(L"Failed to get kernel address for PID %d", pid);
+        EndDriverSession(true);
+        return false;
+    }
+    
+    auto currentProtection = GetProcessProtection(kernelAddr.value());
+    if (!currentProtection) {
+        ERROR(L"Failed to read protection for PID %d", pid);
+        EndDriverSession(true);
+        return false;
+    }
+
+    UCHAR protLevel = Utils::GetProtectionLevel(currentProtection.value());
+    UCHAR signerType = Utils::GetSignerType(currentProtection.value());
+    
+    auto sigLevelOffset = m_of->GetOffset(Offset::ProcessSignatureLevel);
+    auto secSigLevelOffset = m_of->GetOffset(Offset::ProcessSectionSignatureLevel);
+    
+    UCHAR signatureLevel = sigLevelOffset ? 
+        m_rtc->Read8(kernelAddr.value() + sigLevelOffset.value()).value_or(0) : 0;
+    UCHAR sectionSignatureLevel = secSigLevelOffset ? 
+        m_rtc->Read8(kernelAddr.value() + secSigLevelOffset.value()).value_or(0) : 0;
+
+    std::wstring processName = Utils::GetProcessName(pid);
+    
+    if (!Utils::EnableConsoleVirtualTerminal()) {
+        ERROR(L"Failed to enable console colors");
+    }
+    
+    // Wyświetl podstawowe informacje
+    std::wcout << L"\n[*] Detailed Process Information:\n";
+    std::wcout << L"    PID: " << pid << L" (" << processName << L")\n";
+    
+    if (protLevel == 0) {
+        std::wcout << L"    Protection: NOT PROTECTED\n";
+    } else {
+        const wchar_t* color = Utils::GetProcessDisplayColor(
+            signerType, signatureLevel, sectionSignatureLevel);
+        
+		std::wcout << color 
+				   << L"    Protection: " 
+				   << Utils::GetProtectionLevelAsString(protLevel) << L"-"
+				   << Utils::GetSignerTypeAsString(signerType)
+				   << L" (raw: 0x" << std::hex << std::uppercase << (int)currentProtection.value() 
+				   << std::dec << L")"
+				   << Utils::ProcessColors::RESET << L"\n";
+    }
+    
+    std::wcout << L"    Signature Level: " << Utils::GetSignatureLevelAsString(signatureLevel) 
+               << L" (0x" << std::hex << (int)signatureLevel << std::dec << L")\n";
+    std::wcout << L"    Section Signature Level: " << Utils::GetSignatureLevelAsString(sectionSignatureLevel)
+               << L" (0x" << std::hex << (int)sectionSignatureLevel << std::dec << L")\n";
+    std::wcout << L"    Kernel Address: 0x" << std::hex << kernelAddr.value() << std::dec << L"\n";
+    
+	std::wcout << L"\n[*] Dumpability Analysis:\n";
+	auto dumpability = Utils::CanDumpProcess(pid, processName, protLevel, signerType);
+	std::wcout << L"DEBUG: CanDump=" << dumpability.CanDump << L", Reason=" << dumpability.Reason << L"\n";
+
+// Zapisz oryginalny kolor konsoli
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	GetConsoleScreenBufferInfo(hConsole, &csbi);
+	WORD originalColor = csbi.wAttributes;
+
+	if (dumpability.CanDump) {
+		std::wcout << Utils::ProcessColors::GREEN << L"    ✓ DUMPABLE: " 
+				   << dumpability.Reason;
+		SetConsoleTextAttribute(hConsole, originalColor);
+		std::wcout << L"\n";
+		
+		// Dodatkowe wskazówki
+		if (protLevel > 0) {
+			std::wcout << L"    Note: Process is protected but can be dumped with elevation\n";
+		}
+	} else {
+		std::wcout << Utils::ProcessColors::RED << L"    ✗ NOT DUMPABLE: " 
+				   << dumpability.Reason;
+		SetConsoleTextAttribute(hConsole, originalColor);
+		std::wcout << L"\n";
+		
+		// Sugestie obejścia
+		if (protLevel > 0) {
+			std::wcout << L"    Suggestion: Try elevating current process protection first\n";
+		}
+		if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Antimalware)) {
+			std::wcout << L"    Suggestion: Antimalware-protected processes require special handling\n";
+		}
+		if (signerType == static_cast<UCHAR>(PS_PROTECTED_SIGNER::Lsa)) {
+			std::wcout << L"    Suggestion: LSA-protected process requires PPL-Lsa or higher\n";
+		}
+	}
+	
+    // Information about permissions
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (hProcess) {
+        HANDLE hToken;
+        if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
+            DWORD elevationType;
+            DWORD returnLength;
+            
+            if (GetTokenInformation(hToken, TokenElevationType, &elevationType, 
+                                  sizeof(elevationType), &returnLength)) {
+                std::wcout << L"\n[*] Process Context:\n";
+                std::wcout << L"    Elevation Type: ";
+                
+                switch (elevationType) {
+                    case TokenElevationTypeDefault:
+                        std::wcout << L"Default\n";
+                        break;
+                    case TokenElevationTypeFull:
+                        std::wcout << L"Full (Admin)\n";
+                        break;
+                    case TokenElevationTypeLimited:
+                        std::wcout << L"Limited\n";
+                        break;
+                    default:
+                        std::wcout << L"Unknown\n";
+                }
+            }
+            CloseHandle(hToken);
+        }
+        CloseHandle(hProcess);
+    }
+    
+    SetConsoleTextAttribute(hConsole, originalColor);
+    std::wcout << std::endl;
+    EndDriverSession(true);
+    return true;
+}

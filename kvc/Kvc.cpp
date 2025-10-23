@@ -438,33 +438,50 @@ int wmain(int argc, wchar_t* argv[])
             return g_controller->ListProtectedProcesses() ? 0 : 2;
         }
         
-        else if (command == L"info") {
-            if (argc < 3) {
-                ERROR(L"Missing PID/process name argument");
-                return 1;
-            }
-            
-            std::wstring_view target = argv[2];
-            
-            if (IsNumeric(target)) {
-                auto pid = ParsePid(target);
-                if (!pid) {
-                    ERROR(L"Invalid PID format: %s", target.data());
-                    return 1;
-                }
-                return g_controller->GetProcessProtection(pid.value()) ? 0 : 2;
-            } else {
-                std::wstring processName(target);
-                return g_controller->GetProcessProtectionByName(processName) ? 0 : 2;
-            }
-        }
-        
-		else if (command == L"get") {
-			if (argc < 3) {
+		// ====================================================================
+		// PROCESS INFORMATION COMMANDS
+		// ====================================================================
+
+		else if (command == L"list") {
+			// Detect reboot and enforce session limit
+			g_controller->m_sessionMgr.DetectAndHandleReboot();
+			return g_controller->ListProtectedProcesses() ? 0 : 2;
+		}
+
+		else if (command == L"get")
+		{
+			if (argc < 3)
+			{
 				ERROR(L"Missing PID/process name argument");
 				return 1;
 			}
+
+			std::wstring_view target = argv[2];
 			
+			// Simple protection info display
+			if (IsNumeric(target))
+			{
+				auto pid = ParsePid(target);
+				if (!pid)
+				{
+					ERROR(L"Invalid PID format: %s", target.data());
+					return 1;
+				}
+				return g_controller->GetProcessProtection(pid.value()) ? 0 : 2;
+			}
+			else
+			{
+				std::wstring processName(target);
+				return g_controller->GetProcessProtectionByName(processName) ? 0 : 2;
+			}
+		}
+
+		else if (command == L"info") {
+			if (argc < 3) {
+				ERROR(L"Missing PID/process name argument for detailed information");
+				return 1;
+			}
+
 			std::wstring_view target = argv[2];
 			
 			if (IsNumeric(target)) {
@@ -473,14 +490,18 @@ int wmain(int argc, wchar_t* argv[])
 					ERROR(L"Invalid PID format: %s", target.data());
 					return 1;
 				}
-				return g_controller->GetProcessProtection(pid.value()) ? 0 : 2;
+				return g_controller->PrintProcessInfo(pid.value()) ? 0 : 2;
 			} else {
 				std::wstring processName(target);
-				return g_controller->GetProcessProtectionByName(processName) ? 0 : 2;
+				auto match = g_controller->ResolveNameWithoutDriver(processName);
+				if (match) {
+					return g_controller->PrintProcessInfo(match->Pid) ? 0 : 2;
+				} else {
+					return 2;
+				}
 			}
-		}
-		
-		
+		}		
+
         else if (command == L"list-signer") {
             if (argc < 3) {
                 ERROR(L"Missing signer type argument");

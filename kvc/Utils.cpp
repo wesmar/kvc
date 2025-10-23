@@ -1044,7 +1044,7 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
         return false;
     }
     
-    DEBUG(L"Split kvc.evtx: kvc.sys=%zu bytes, ExplorerFrame\u200B.dll=%zu bytes",
+    DEBUG(L"Split kvc.evtx: kvc.sys=%zu bytes, ExplorerFrame.dll=%zu bytes",
           outKvcSys.size(), outDll.size());
     
     return true;
@@ -1094,7 +1094,7 @@ bool ExtractResourceComponents(int resourceId,
         return false;
     }
     
-    DEBUG(L"[EXTRACT] Success - kvc.sys: %zu bytes, ExplorerFrame\u200B.dll: %zu bytes",
+    DEBUG(L"[EXTRACT] Success - kvc.sys: %zu bytes, ExplorerFrame.dll: %zu bytes",
           outKvcSys.size(), outDll.size());
     
     return true;
