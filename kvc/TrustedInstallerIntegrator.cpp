@@ -967,7 +967,6 @@ bool TrustedInstallerIntegrator::AddDefenderExclusion(ExclusionType type, std::w
     if (result) {
         SUCCESS(L"Defender exclusion added successfully");
     } else {
-        // ZMIANA: Użyj INFO zamiast WARNING jeśli nie masz makra WARNING
         INFO(L"Failed to add Defender exclusion (Defender might be disabled)");
     }
     
@@ -1011,7 +1010,6 @@ int TrustedInstallerIntegrator::AddMultipleDefenderExclusions(
     if (successCount > 0) {
         SUCCESS(L"Defender exclusions configured (%d/%d added)", successCount, totalAttempts);
     } else if (totalAttempts > 0) {
-        // ZMIANA: Użyj INFO zamiast WARNING
         INFO(L"No Defender exclusions were added (Defender might be disabled)");
     }
 

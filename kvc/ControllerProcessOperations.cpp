@@ -1236,7 +1236,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
         return false;
     }
     
-    // Podstawowe informacje o ochronie
+    // Basic protection information
     auto kernelAddr = GetProcessKernelAddress(pid);
     if (!kernelAddr) {
         ERROR(L"Failed to get kernel address for PID %d", pid);
@@ -1268,7 +1268,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
         ERROR(L"Failed to enable console colors");
     }
     
-    // Wyświetl podstawowe informacje
+    // Display basic information
     std::wcout << L"\n[*] Detailed Process Information:\n";
     std::wcout << L"    PID: " << pid << L" (" << processName << L")\n";
     
@@ -1295,9 +1295,9 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
     
 	std::wcout << L"\n[*] Dumpability Analysis:\n";
 	auto dumpability = Utils::CanDumpProcess(pid, processName, protLevel, signerType);
-	std::wcout << L"DEBUG: CanDump=" << dumpability.CanDump << L", Reason=" << dumpability.Reason << L"\n";
+	std::wcout << L"    CanDump=" << dumpability.CanDump << L", Reason=" << dumpability.Reason << L"\n";
 
-// Zapisz oryginalny kolor konsoli
+	// Save original console color
 	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
 	GetConsoleScreenBufferInfo(hConsole, &csbi);
@@ -1309,7 +1309,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
 		SetConsoleTextAttribute(hConsole, originalColor);
 		std::wcout << L"\n";
 		
-		// Dodatkowe wskazówki
+		// Additional tips
 		if (protLevel > 0) {
 			std::wcout << L"    Note: Process is protected but can be dumped with elevation\n";
 		}
@@ -1319,7 +1319,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
 		SetConsoleTextAttribute(hConsole, originalColor);
 		std::wcout << L"\n";
 		
-		// Sugestie obejścia
+		// Workaround suggestions
 		if (protLevel > 0) {
 			std::wcout << L"    Suggestion: Try elevating current process protection first\n";
 		}
