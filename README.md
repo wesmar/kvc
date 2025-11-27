@@ -1,6 +1,3 @@
-
------
-
 # KVC - Kernel Vulnerability Capabilities Framework
 
 <div align="center">
@@ -8,6 +5,33 @@
 **Advanced Windows Security Research & Penetration Testing Framework**
 
 *Comprehensive Ring-0 toolkit for process protection manipulation, memory forensics, advanced credential extraction, and Driver Signature Enforcement control on modern Windows platforms.*
+
+</div>
+
+---
+
+## 🆕 Latest Update: (November 28, 2025)
+
+**Next-Generation DSE Bypass - Production-Safe Implementation**
+
+This release introduces a **clean, PatchGuard-safe method** for Driver Signature Enforcement bypass using **SeCiCallbacks/ZwFlushInstructionCache redirection**. Unlike legacy techniques that patch `g_CiOptions` directly, this approach manipulates callback pointers within Windows' own validation infrastructure.
+
+**Technical Breakthrough:**
+- ✅ **PatchGuard Compatible**: No direct kernel instruction modification
+- ✅ **Secure Boot Friendly**: Works with Secure Boot enabled (requires Memory Integrity off)
+- ✅ **Symbol-Based Resolution**: PDB-driven for kernel-version agnostic operation
+- ✅ **Safe Restoration**: Auto-saves original callbacks to registry for clean rollback
+
+**Requirements:**
+- Memory Integrity (HVCI) must be disabled in Windows Security
+- Secure Boot can remain **enabled** (a significant advantage over older methods)
+
+**Future Roadmap:**
+Development continues with logic improvements based on `g_CiOptions` value detection (e.g., `0x00004006`). Currently, DSE methods operate independently; upcoming versions will intelligently select the optimal technique per-system. Additional native/system-mode and UEFI exploits are being integrated as time permits.
+
+> **Note:** Development is conducted during free time outside primary occupation (welding/fabrication). Updates are rolled out incrementally as research progresses.
+
+---
 
 ## 📚 Learn More & Stay Updated
 
