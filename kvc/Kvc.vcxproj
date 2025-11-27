@@ -6,7 +6,6 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
-  
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
@@ -15,13 +14,11 @@
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
-  
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
     <UseOfMfc>false</UseOfMfc>
@@ -29,7 +26,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
   </ImportGroup>
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
@@ -38,118 +35,116 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  
   <PropertyGroup Label="UserMacros" />
-  
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
   </PropertyGroup>
-  
   <PropertyGroup>
     <SOURCE_DATE_EPOCH>1756665900</SOURCE_DATE_EPOCH>
   </PropertyGroup>
-  
-<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-  <ClCompile>
-    <WarningLevel>Level3</WarningLevel>
-    <FunctionLevelLinking>true</FunctionLevelLinking>
-    <IntrinsicFunctions>true</IntrinsicFunctions>
-    <SDLCheck>false</SDLCheck>
-    <PreprocessorDefinitions>NDEBUG;_CONSOLE;WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    <ConformanceMode>true</ConformanceMode>
-    <LanguageStandard>stdcpplatest</LanguageStandard>
-    <LanguageStandardVersion>latest</LanguageStandardVersion>
-    <EnableModules>false</EnableModules>
-    <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
-    <!-- ZMIENIONE: Usunięto /GL, dodano /Os -->
-    <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Os /Brepro %(AdditionalOptions)</AdditionalOptions>
-    <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-    <ExceptionHandling>Sync</ExceptionHandling>
-    <BufferSecurityCheck>false</BufferSecurityCheck>
-    <MinimalRebuild>false</MinimalRebuild>
-    <OmitFramePointers>true</OmitFramePointers>
-    <StringPooling>true</StringPooling>
-    <TreatWarningAsError>false</TreatWarningAsError>
-    <DisableSpecificWarnings>4996;4117</DisableSpecificWarnings>
-    <!-- ZMIENIONE: Optymalizacja pod rozmiar -->
-    <Optimization>MinSpace</Optimization>
-    <!-- ZMIENIONE: Wyłączone Whole Program Optimization -->
-    <WholeProgramOptimization>false</WholeProgramOptimization>
-    <!-- ZMIENIONE: Priorytet rozmiaru -->
-    <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
-    <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
-    <BrowseInformation>false</BrowseInformation>
-  </ClCompile>
-  <Link>
-    <SubSystem>Console</SubSystem>
-    <EnableCOMDATFolding>true</EnableCOMDATFolding>
-    <OptimizeReferences>true</OptimizeReferences>
-    <GenerateDebugInformation>false</GenerateDebugInformation>
-    <UACExecutionLevel>HighestAvailable</UACExecutionLevel>
-    <!-- ZMIENIONE: Wyłączone LTO -->
-    <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
-    <AdditionalDependencies>kernel32.lib;user32.lib;psapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    <!-- ZMIENIONE: Dodano INCREMENTAL:NO, poprawiono ICF -->
-    <AdditionalOptions>/OPT:REF /OPT:ICF=10 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /INCREMENTAL:NO /Brepro %(AdditionalOptions)</AdditionalOptions>
-    <!-- USUNIĘTE: Zduplikowane LinkTimeCodeGeneration -->
-    <RandomizedBaseAddress>true</RandomizedBaseAddress>
-    <DataExecutionPrevention>true</DataExecutionPrevention>
-    <TargetMachine>MachineX64</TargetMachine>
-    <SetChecksum>false</SetChecksum>
-    <LargeAddressAware>true</LargeAddressAware>
-    <StripPrivateSymbols>true</StripPrivateSymbols>
-    <AllowIsolation>true</AllowIsolation>
-  </Link>
-  <PostBuildEvent>
-    <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
-  </PostBuildEvent>
-  <ResourceCompile>
-    <Culture>0x0409</Culture>
-  </ResourceCompile>
-</ItemDefinitionGroup>
-  
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>false</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <LanguageStandardVersion>latest</LanguageStandardVersion>
+      <EnableModules>false</EnableModules>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+      <!-- ZMIENIONE: Usunięto /GL, dodano /Os -->
+      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Os /Brepro %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <MinimalRebuild>false</MinimalRebuild>
+      <OmitFramePointers>true</OmitFramePointers>
+      <StringPooling>true</StringPooling>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <DisableSpecificWarnings>4996;4117</DisableSpecificWarnings>
+      <!-- ZMIENIONE: Optymalizacja pod rozmiar -->
+      <Optimization>MinSpace</Optimization>
+      <!-- ZMIENIONE: Wyłączone Whole Program Optimization -->
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <!-- ZMIENIONE: Priorytet rozmiaru -->
+      <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+      <BrowseInformation>false</BrowseInformation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <UACExecutionLevel>HighestAvailable</UACExecutionLevel>
+      <!-- ZMIENIONE: Wyłączone LTO -->
+      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <AdditionalDependencies>kernel32.lib;user32.lib;psapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- ZMIENIONE: Dodano INCREMENTAL:NO, poprawiono ICF -->
+      <AdditionalOptions>/OPT:REF /OPT:ICF=10 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /INCREMENTAL:NO /Brepro %(AdditionalOptions)</AdditionalOptions>
+      <!-- USUNIĘTE: Zduplikowane LinkTimeCodeGeneration -->
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
+      <DataExecutionPrevention>true</DataExecutionPrevention>
+      <TargetMachine>MachineX64</TargetMachine>
+      <SetChecksum>false</SetChecksum>
+      <LargeAddressAware>true</LargeAddressAware>
+      <StripPrivateSymbols>true</StripPrivateSymbols>
+      <AllowIsolation>true</AllowIsolation>
+    </Link>
+    <PostBuildEvent>
+      <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
+    </PostBuildEvent>
+    <ResourceCompile>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
   <!-- Source Files -->
   <ItemGroup>
     <ClCompile Include="TrustedInstallerIntegrator.cpp" />
     <ClCompile Include="ControllerCore.cpp" />
-	<ClCompile Include="DSEBypass.cpp" />
-	<ClCompile Include="ControllerDSE.cpp" />
-	<ClCompile Include="ControllerBinaryManager.cpp" />
+    <ClCompile Include="DSEBypass.cpp" />
+    <ClCompile Include="DSEBypassNG.cpp" />
+    <ClCompile Include="SymbolEngine.cpp" />
+    <ClCompile Include="ControllerDSE.cpp" />
+    <ClCompile Include="ControllerBinaryManager.cpp" />
     <ClCompile Include="ControllerDriverManager.cpp" />
     <ClCompile Include="ControllerProcessOperations.cpp" />
     <ClCompile Include="ControllerMemoryOperations.cpp" />
     <ClCompile Include="ControllerSystemIntegration.cpp" />
-	<ClCompile Include="ControllerPasswordManager.cpp" />
-	<ClCompile Include="ControllerEventLogOperations.cpp" />
-	<ClCompile Include="ProcessManager.cpp" />
+    <ClCompile Include="ControllerPasswordManager.cpp" />
+    <ClCompile Include="ControllerEventLogOperations.cpp" />
+    <ClCompile Include="ProcessManager.cpp" />
     <ClCompile Include="OffsetFinder.cpp" />
     <ClCompile Include="kvc.cpp" />
     <ClCompile Include="kvcDrv.cpp" />
     <ClCompile Include="Utils.cpp" />
-	<ClCompile Include="Common.cpp" />
-	<ClCompile Include="WatermarkManager.cpp" />	
-	<ClCompile Include="HiveManager.cpp" />
-	<ClCompile Include="ReportExporter.cpp" />
-	<ClCompile Include="SessionManager.cpp" />
-	<ClCompile Include="ServiceManager.cpp" />
-	<ClCompile Include="DefenderManager.cpp" />
-	<ClCompile Include="KeyboardHook.cpp" />
-	<ClCompile Include="HelpSystem.cpp" />
+    <ClCompile Include="Common.cpp" />
+    <ClCompile Include="WatermarkManager.cpp" />
+    <ClCompile Include="HiveManager.cpp" />
+    <ClCompile Include="ReportExporter.cpp" />
+    <ClCompile Include="SessionManager.cpp" />
+    <ClCompile Include="ServiceManager.cpp" />
+    <ClCompile Include="DefenderManager.cpp" />
+    <ClCompile Include="KeyboardHook.cpp" />
+    <ClCompile Include="HelpSystem.cpp" />
   </ItemGroup>
-  
   <!-- Header Files -->
   <ItemGroup>
     <ClInclude Include="resource.h" />
     <ClInclude Include="TrustedInstallerIntegrator.h" />
     <ClInclude Include="common.h" />
-	<ClInclude Include="DSEBypass.h" />
+    <ClInclude Include="DSEBypass.h" />
+	<ClInclude Include="DSEBypassNG.h" />
+	<ClInclude Include="SymbolEngine.h" />
     <ClInclude Include="Controller.h" />
     <ClInclude Include="OffsetFinder.h" />
     <ClInclude Include="kvcDrv.h" />
     <ClInclude Include="Utils.h" />
-	<ClInclude Include="WatermarkManager.h" />
+    <ClInclude Include="WatermarkManager.h" />
     <ClInclude Include="HiveManager.h" />
     <ClInclude Include="ReportExporter.h" />
     <ClInclude Include="SessionManager.h" />
@@ -161,7 +156,7 @@
   </ItemGroup>
   <ItemGroup>
     <MASM Include="MmPoolTelemetry.asm" />
-	<MASM Include="ScreenShake.asm" />
+    <MASM Include="ScreenShake.asm" />
   </ItemGroup>
   <!-- Resource Files -->
   <ItemGroup>
@@ -170,9 +165,8 @@
   <ItemGroup>
     <ResourceCompile Include="kvc.rc" />
   </ItemGroup>
-  
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   </ImportGroup>
 </Project>

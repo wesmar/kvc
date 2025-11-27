@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Release" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="kvc/implementer.vcxproj" Id="376bafb6-0db9-4bff-903a-779b4ce72cbc" />
+  <Project Path="kvc/kvc.vcxproj" Id="4f3de11e-c54a-4dc1-ae8f-c29a720694cc" />
+  <Project Path="kvc/KvcXor.vcxproj" Id="a905154d-f1ec-4821-9717-9f6d35f69f3f" />
+  <Project Path="kvc/kvc_crypt.vcxproj" Id="87654321-4321-4321-4321-123456789def" />
+  <Project Path="kvc/kvc_pass.vcxproj" Id="12345678-1234-1234-1234-123456789abc" />
+</Solution>

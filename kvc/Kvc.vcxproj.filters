@@ -17,144 +17,164 @@
       <UniqueIdentifier>{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
-<ItemGroup>
-  <ClCompile Include="kvc.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="OffsetFinder.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="kvcDrv.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="Utils.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="Common.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="TrustedInstallerIntegrator.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="ReportExporter.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerCore.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerDriverManager.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerProcessOperations.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerMemoryOperations.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerSystemIntegration.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerPasswordManager.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="DSEBypass.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerDSE.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerBinaryManager.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ControllerEventLogOperations.cpp">
-    <Filter>Source Files\Controller</Filter>
-  </ClCompile>
-  <ClCompile Include="ProcessManager.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="WatermarkManager.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="HiveManager.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="SessionManager.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="ServiceManager.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="DefenderManager.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="KeyboardHook.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-  <ClCompile Include="HelpSystem.cpp">
-    <Filter>Source Files</Filter>
-  </ClCompile>
-</ItemGroup>
-<ItemGroup>
-  <ClInclude Include="OffsetFinder.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="common.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="kvcDrv.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="Utils.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="Controller.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="TrustedInstallerIntegrator.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="resource.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="ReportExporter.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="DSEBypass.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="WatermarkManager.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="HiveManager.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="SessionManager.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="ServiceManager.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="KeyboardHook.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="HelpSystem.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="DefenderManager.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-  <ClInclude Include="ProcessManager.h">
-    <Filter>Header Files</Filter>
-  </ClInclude>
-</ItemGroup>
-<ItemGroup>
-  <Image Include="ICON\kvc.ico">
-    <Filter>Resource Files</Filter>
-  </Image>
-</ItemGroup>
-<ItemGroup>
-  <ResourceCompile Include="kvc.rc">
-    <Filter>Resource Files</Filter>
-  </ResourceCompile>
-</ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="kvc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OffsetFinder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="kvcDrv.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Common.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TrustedInstallerIntegrator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ReportExporter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerCore.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerDriverManager.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerProcessOperations.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerMemoryOperations.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerSystemIntegration.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerPasswordManager.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="DSEBypass.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DSEBypassNG.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SymbolEngine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerDSE.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerBinaryManager.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerEventLogOperations.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WatermarkManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="HiveManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SessionManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ServiceManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DefenderManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="KeyboardHook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="HelpSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="OffsetFinder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="kvcDrv.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Controller.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TrustedInstallerIntegrator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ReportExporter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DSEBypass.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DSEBypassNG.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SymbolEngine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="WatermarkManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HiveManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SessionManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ServiceManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KeyboardHook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HelpSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DefenderManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="ICON\kvc.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="kvc.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="MmPoolTelemetry.asm">
+      <Filter>Source Files</Filter>
+    </MASM>
+    <MASM Include="ScreenShake.asm">
+      <Filter>Source Files</Filter>
+    </MASM>
+  </ItemGroup>
 </Project>

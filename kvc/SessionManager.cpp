@@ -275,6 +275,104 @@ std::wstring SessionManager::GetSessionPath(const std::wstring& sessionId) noexc
     return GetRegistryBasePath() + L"\\Sessions\\" + sessionId;
 }
 
+// ============================================================================
+// DSE-NG STATE PERSISTENCE
+// ============================================================================
+
+void SessionManager::SaveOriginalCiCallback(DWORD64 address) noexcept
+{
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, nullptr, 
+        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(hKey, L"OriginalCiCallback", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&address), sizeof(DWORD64));
+        RegCloseKey(hKey);
+        DEBUG(L"Saved OriginalCiCallback: 0x%llX to registry", address);
+    }
+}
+
+DWORD64 SessionManager::GetOriginalCiCallback() noexcept
+{
+    HKEY hKey;
+    DWORD64 value = 0;
+    DWORD size = sizeof(DWORD64);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_READ, &hKey) == ERROR_SUCCESS) {
+        RegQueryValueExW(hKey, L"OriginalCiCallback", nullptr, nullptr, 
+            reinterpret_cast<BYTE*>(&value), &size);
+        RegCloseKey(hKey);
+        DEBUG(L"Loaded OriginalCiCallback: 0x%llX from registry", value);
+    }
+    return value;
+}
+
+void SessionManager::ClearOriginalCiCallback() noexcept
+{
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        RegDeleteValueW(hKey, L"OriginalCiCallback");
+        RegCloseKey(hKey);
+        DEBUG(L"Cleared OriginalCiCallback from registry");
+    }
+}
+
+void SessionManager::SaveDSENGOffsets(DWORD64 offSeCi, DWORD64 offZwFlush, DWORD64 kernelBase) noexcept
+{
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, nullptr, 
+        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(hKey, L"SeCiOffset", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&offSeCi), sizeof(DWORD64));
+        RegSetValueExW(hKey, L"ZwFlushOffset", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&offZwFlush), sizeof(DWORD64));
+        RegSetValueExW(hKey, L"KernelBase", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&kernelBase), sizeof(DWORD64));
+        RegCloseKey(hKey);
+        DEBUG(L"Saved DSE-NG offsets: SeCi=0x%llX, ZwFlush=0x%llX, Base=0x%llX", 
+              offSeCi, offZwFlush, kernelBase);
+    }
+}
+
+std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> SessionManager::GetDSENGOffsets() noexcept
+{
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_READ, &hKey) == ERROR_SUCCESS) {
+        DWORD64 offSeCi = 0, offZwFlush = 0, kernelBase = 0;
+        DWORD size = sizeof(DWORD64);
+        
+        bool success = (RegQueryValueExW(hKey, L"SeCiOffset", nullptr, nullptr, 
+                                         reinterpret_cast<BYTE*>(&offSeCi), &size) == ERROR_SUCCESS) &&
+                       (RegQueryValueExW(hKey, L"ZwFlushOffset", nullptr, nullptr, 
+                                         reinterpret_cast<BYTE*>(&offZwFlush), &size) == ERROR_SUCCESS) &&
+                       (RegQueryValueExW(hKey, L"KernelBase", nullptr, nullptr, 
+                                         reinterpret_cast<BYTE*>(&kernelBase), &size) == ERROR_SUCCESS);
+        
+        RegCloseKey(hKey);
+        
+        if (success) {
+            DEBUG(L"Loaded DSE-NG offsets: SeCi=0x%llX, ZwFlush=0x%llX, Base=0x%llX", 
+                  offSeCi, offZwFlush, kernelBase);
+            return std::make_tuple(offSeCi, offZwFlush, kernelBase);
+        }
+    }
+    return std::nullopt;
+}
+
+void SessionManager::ClearDSENGOffsets() noexcept
+{
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        RegDeleteValueW(hKey, L"SeCiOffset");
+        RegDeleteValueW(hKey, L"ZwFlushOffset");
+        RegDeleteValueW(hKey, L"KernelBase");
+        RegCloseKey(hKey);
+        DEBUG(L"Cleared DSE-NG offsets from registry");
+    }
+}
+
 // Remove all session keys except current boot session
 void SessionManager::CleanupStaleSessions() noexcept
 {

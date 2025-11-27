@@ -6,7 +6,6 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
-
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
@@ -14,38 +13,28 @@
     <RootNamespace>KvcXor</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
     <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
   </PropertyGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-
   <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="Shared" />
-
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" 
-            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" 
-            Label="LocalAppDataPlatform" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-
   <PropertyGroup Label="UserMacros" />
-
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)bin\x64\Release\</OutDir>
     <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
     <TargetName>KvcXor</TargetName>
   </PropertyGroup>
-
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -78,23 +67,18 @@
       <Command>powershell -Command "&amp; {$f='$(OutDir)$(TargetName)$(TargetExt)'; (Get-Item $f).CreationTime='2026-01-01 00:00:00'; (Get-Item $f).LastWriteTime='2026-01-01 00:00:00'}"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
-
   <ItemGroup>
     <ClCompile Include="KvcXor.cpp" />
   </ItemGroup>
-
   <ItemGroup>
     <ClInclude Include="resource.h" />
   </ItemGroup>
-
   <ItemGroup>
     <ResourceCompile Include="KvcXor.rc" />
   </ItemGroup>
-
   <ItemGroup>
     <Image Include="ICON\kvc.ico" />
   </ItemGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

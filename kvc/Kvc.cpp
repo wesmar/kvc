@@ -267,6 +267,11 @@ int wmain(int argc, wchar_t* argv[])
 				INFO(L"DSE Status Information:");
 				INFO(L"g_CiOptions address: 0x%llX", ciOptionsAddr);
 				INFO(L"g_CiOptions value: 0x%08X", value);
+				auto dseNGCallback = SessionManager::GetOriginalCiCallback();
+				if (dseNGCallback != 0) {
+					INFO(L"DSE-NG (Safe Mode) active - callback saved: 0x%llX", dseNGCallback);
+				}
+
 				std::wcout << L"\n";
 				
 				// Check for HVCI/VBS first
@@ -289,8 +294,25 @@ int wmain(int argc, wchar_t* argv[])
 			}
 			
 			std::wstring_view subCmd = argv[2];
+            bool safeMode = false;
+
+            // Check for --safe flag in 3rd argument
+            if (argc >= 4) {
+                std::wstring_view flag = argv[3];
+                if (flag == L"--safe") {
+                    safeMode = true;
+                }
+            }
 			
 			if (subCmd == L"off") {
+                if (safeMode) {
+                    INFO(L"Executing Next-Gen DSE Bypass (PDB-based)...");
+                    if (!g_controller->DisableDSESafe()) {
+                        return 2;
+                    }
+                    return 0;
+                }
+                
 				HKEY hKey;
 				bool postReboot = false;
 				
@@ -331,6 +353,14 @@ int wmain(int argc, wchar_t* argv[])
 				return 0;
 			}
 			else if (subCmd == L"on") {
+                if (safeMode) {
+                    INFO(L"Restoring DSE using Next-Gen method...");
+                    if (!g_controller->RestoreDSESafe()) {
+                        return 2;
+                    }
+                    return 0;
+                }
+
 				INFO(L"Restoring driver signature enforcement...");
 				
 				if (!g_controller->RestoreDSE()) {

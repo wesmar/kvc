@@ -88,12 +88,18 @@ void HelpSystem::PrintServiceCommands() noexcept
 void HelpSystem::PrintDSECommands() noexcept
 {
     PrintSectionHeader(L"Driver Signature Enforcement (DSE) Control");
-	PrintCommandLine(L"dse off", L"Disable DSE (auto-handles HVCI with reboot if needed)");
-    PrintCommandLine(L"dse on", L"Re-enable DSE to restore kernel security");
-    PrintCommandLine(L"dse", L"Check current DSE status (g_CiOptions address and value)");
-    PrintNote(L"Requires kernel driver session with elevated privileges");
-	PrintNote(L"HVCI systems: No files will be modified, replaced, or deleted");
-    PrintWarning(L"DSE modification may trigger BSOD - continue only if you understand the risk");
+    PrintCommandLine(L"dse off", L"Disable DSE (Standard: g_CiOptions or HVCI bypass)");
+    PrintCommandLine(L"dse off --safe", L"Disable DSE (Next-Gen: SeCiCallbacks + PDB symbols)");
+    PrintCommandLine(L"dse on", L"Restore DSE (Standard method)");
+    PrintCommandLine(L"dse on --safe", L"Restore DSE (Next-Gen method)");
+    PrintCommandLine(L"dse", L"Check current DSE status (both methods)");
+    
+    PrintNote(L"Standard method: Modifies g_CiOptions or prepares HVCI bypass");
+    PrintNote(L"--safe method: Patches SeCiCallbacks using PDB symbols");
+    PrintNote(L"--safe requires Internet on first run to download kernel symbols");
+    PrintNote(L"--safe is PatchGuard-resistant on modern Win10/11");
+    PrintNote(L"Both methods store state in HKEY_CURRENT_USER\\Software\\kvc\\DSE");
+    PrintNote(L"Symbols cached locally in .\\symbols\\ for offline use");
     std::wcout << L"\n";
 }
 

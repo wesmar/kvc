@@ -63,6 +63,16 @@ public:
     
     // Display session history and statistics
     void ShowHistory() noexcept;
+	
+	// === Global State Management (DSE-NG) ===
+    static void SaveOriginalCiCallback(DWORD64 address) noexcept;
+    static DWORD64 GetOriginalCiCallback() noexcept;
+    static void ClearOriginalCiCallback() noexcept;
+    
+    // Save/load symbol offsets for DSE-NG (avoids re-downloading PDBs)
+    static void SaveDSENGOffsets(DWORD64 offSeCi, DWORD64 offZwFlush, DWORD64 kernelBase) noexcept;
+    static std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> GetDSENGOffsets() noexcept;
+    static void ClearDSENGOffsets() noexcept;
 
 private:
     // Get current boot session ID: "{BootID}_{TickCount}"

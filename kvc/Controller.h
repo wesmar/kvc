@@ -6,6 +6,7 @@
 #include "SessionManager.h"
 #include "kvcDrv.h"
 #include "DSEBypass.h"
+#include "DSEBypassNG.h"
 #include "OffsetFinder.h"
 #include "TrustedInstallerIntegrator.h"
 #include "Utils.h"
@@ -94,6 +95,10 @@ public:
 	bool DisableDSEAfterReboot() noexcept;
 	ULONG_PTR GetCiOptionsAddress() const noexcept;
 	bool GetDSEStatus(ULONG_PTR& outAddress, DWORD& outValue) noexcept;
+	
+	// Next-Gen DSE operations (Safe/PDB based)
+    bool DisableDSESafe() noexcept;
+    bool RestoreDSESafe() noexcept;
 	
 	// Handles removal and restoration of system watermark related to signature hijacking
 	bool RemoveWatermark() noexcept;
@@ -216,6 +221,7 @@ private:
 	std::unique_ptr<kvc> m_rtc;
     std::unique_ptr<OffsetFinder> m_of;
 	std::unique_ptr<DSEBypass> m_dseBypass;
+	std::unique_ptr<DSEBypassNG> m_dseBypassNG;
     SQLiteAPI m_sqlite;
 
     // Privilege management

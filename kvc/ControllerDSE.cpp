@@ -1,4 +1,5 @@
 #include "Controller.h"
+#include "SessionManager.h"
 #include "common.h"
 
 bool Controller::DisableDSE() noexcept {
@@ -128,10 +129,13 @@ if (hvciEnabled) {
     wchar_t choice;
     std::wcin >> choice;
     
-    if (choice != L'Y' && choice != L'y') {
-        INFO(L"HVCI bypass cancelled by user");
-        return true;
-    }
+	if (choice != L'Y' && choice != L'y') {
+		INFO(L"HVCI bypass cancelled by user");
+		// Cleanup RTCore64 driver before exit
+		m_rtc->Cleanup();
+		EndDriverSession(true);
+		return true;
+	}
     
     DEBUG(L"Closing driver handle before file operations...");
     m_rtc->Cleanup();
@@ -209,6 +213,52 @@ bool Controller::RestoreDSE() noexcept {
     
     EndDriverSession(true);
     
+    return result;
+}
+
+bool Controller::DisableDSESafe() noexcept {
+    PerformAtomicCleanup();
+
+    if (!BeginDriverSession()) {
+        ERROR(L"Failed to start driver session for Safe DSE bypass");
+        return false;
+    }
+
+    if (!m_rtc->Initialize()) {
+        ERROR(L"Failed to initialize driver handle");
+        EndDriverSession(true);
+        return false;
+    }
+
+    if (!m_dseBypassNG) {
+        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+    }
+
+    bool result = m_dseBypassNG->DisableDSE();
+    EndDriverSession(true); // Always close session after DSE op
+    return result;
+}
+
+bool Controller::RestoreDSESafe() noexcept {
+    PerformAtomicCleanup();
+
+    if (!BeginDriverSession()) {
+        ERROR(L"Failed to start driver session for Safe DSE restore");
+        return false;
+    }
+
+    if (!m_rtc->Initialize()) {
+        ERROR(L"Failed to initialize driver handle");
+        EndDriverSession(true);
+        return false;
+    }
+
+    if (!m_dseBypassNG) {
+        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+    }
+
+    bool result = m_dseBypassNG->RestoreDSE();
+    EndDriverSession(true);
     return result;
 }
 
