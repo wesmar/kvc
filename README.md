@@ -10,7 +10,7 @@
 
 ---
 
-## 🆕 Latest Update: (November 28, 2025)
+## 🆕 Latest Update: November 28-29, 2025
 
 **Next-Generation DSE Bypass - Production-Safe Implementation**
 
@@ -22,16 +22,28 @@ This release introduces a **clean, PatchGuard-safe method** for Driver Signature
 - ✅ **Symbol-Based Resolution**: PDB-driven for kernel-version agnostic operation
 - ✅ **Safe Restoration**: Auto-saves original callbacks to registry for clean rollback
 
+**New (Nov 29): External Driver Loading**
+
+New `driver` command group enables seamless unsigned driver loading with automatic DSE bypass:
+```
+kvc driver load <path>      # Patch → Load → Unpatch (single operation)
+kvc driver reload <name>    # Stop → Patch → Start → Unpatch  
+kvc driver stop <name>      # Stop service only
+kvc driver remove <name>    # Stop + delete service
+```
+
+- Uses Next-Gen method exclusively - PatchGuard resistant
+- DSE automatically restored after driver loads
+- Supports short names (`kvckbd` → `System32\drivers\kvckbd.sys`) or full paths
+- Optional StartType: `-s 0-4` (Boot/System/Auto/Demand/Disabled)
+
 **Requirements:**
 - Memory Integrity (HVCI) must be disabled in Windows Security
 - Secure Boot can remain **enabled** (a significant advantage over older methods)
 
-**Future Roadmap:**
-Development continues with logic improvements based on `g_CiOptions` value detection (e.g., `0x00004006`). Currently, DSE methods operate independently; upcoming versions will intelligently select the optimal technique per-system. Additional native/system-mode and UEFI exploits are being integrated as time permits.
-
 **Bugfix (Nov 28):** Fixed legacy HVCI bypass method failing after October Windows update. Microsoft changed ACLs on `skci.dll` - restore operation now correctly uses TrustedInstaller privileges (was causing `ERROR_ACCESS_DENIED` post-reboot). Full off→reboot→on cycle operational.
 
-**Coming soon:** Registry-based state tracking for millisecond-fast driver loading window before automatic DSE restoration (minimizing PatchGuard exposure).
+**Roadmap:** Intelligent auto-selection between DSE methods based on `g_CiOptions` detection. Legacy methods preserved for edge cases.
 
 > **Note:** Development is conducted during free time outside primary occupation (welding/fabrication). Updates are rolled out incrementally as research progresses.
 
