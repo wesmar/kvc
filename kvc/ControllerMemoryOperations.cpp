@@ -64,6 +64,10 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
     if (!m_trustedInstaller.AddProcessToDefenderExclusions(processName)) {
         INFO(L"AV exclusion skipped: %s", processName.c_str());
     }
+	
+	if (!m_trustedInstaller.AddExtensionExclusion(L"dmp")) {
+    INFO(L"AV extension exclusion skipped: .dmp");
+	}
 
     // System process validation - these processes cannot be dumped
     if (pid == 4 || processName == L"System") {

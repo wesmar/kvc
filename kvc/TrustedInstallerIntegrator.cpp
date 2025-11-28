@@ -836,15 +836,35 @@ bool TrustedInstallerIntegrator::ValidateIpAddress(std::wstring_view ipAddress) 
         narrowIp += (char)c;
     }
 
+    // Check for CIDR suffix and extract base IP
+    std::string baseIp = narrowIp;
+    size_t slashPos = narrowIp.find('/');
+    if (slashPos != std::string::npos) {
+        baseIp = narrowIp.substr(0, slashPos);
+    }
+
+    // IPv6 detection (contains ':')
+    if (baseIp.find(':') != std::string::npos) {
+        // Basic IPv6 validation: hex digits, colons, optional dots (for mapped IPv4)
+        for (char c : baseIp) {
+            if (!((c >= '0' && c <= '9') || 
+                  (c >= 'a' && c <= 'f') || 
+                  (c >= 'A' && c <= 'F') || 
+                  c == ':' || c == '.')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // IPv4 validation
     int dots = 0;
     bool hasDigit = false;
-    for (char c : narrowIp) {
+    for (char c : baseIp) {
         if (c == '.') {
             dots++;
             if (!hasDigit) return false;
             hasDigit = false;
-        } else if (c == '/') {
-            break;
         } else if (c >= '0' && c <= '9') {
             hasDigit = true;
         } else {

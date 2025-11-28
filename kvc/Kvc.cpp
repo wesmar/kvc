@@ -943,40 +943,53 @@ int wmain(int argc, wchar_t* argv[])
 		}
 
 		else if (command == L"add-exclusion") {
-            // Legacy: no args = add self
-            if (argc < 3) {
-                wchar_t exePath[MAX_PATH];
-                if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
-                    ERROR(L"Failed to get current executable path");
-                    return 1;
-                }
-                
-                INFO(L"Adding self to Defender exclusions: %s", exePath);
-                return g_controller->AddToDefenderExclusions(exePath) ? 0 : 2;
-            }
-            
-            // New syntax with type
-            std::wstring_view subCmd = argv[2];
-            
-            if (subCmd == L"path" || subCmd == L"process") {
-                if (argc < 4) {
-                    ERROR(L"Missing path/process argument");
-                    return 1;
-                }
-                
-                std::wstring target = argv[3];
-                
-                if (subCmd == L"path") {
-                    return g_controller->AddPathExclusion(target) ? 0 : 2;
-                } else {
-                    return g_controller->AddProcessExclusion(target) ? 0 : 2;
-                }
-            } else {
-                // Legacy: treat as direct path
-                std::wstring path = argv[2];
-                return g_controller->AddToDefenderExclusions(path) ? 0 : 2;
-            }
-        }
+			// Legacy: no args = add self
+			if (argc < 3) {
+				wchar_t exePath[MAX_PATH];
+				if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
+					ERROR(L"Failed to get current executable path");
+					return 1;
+				}
+				
+				INFO(L"Adding self to Defender exclusions: %s", exePath);
+				return g_controller->AddToDefenderExclusions(exePath) ? 0 : 2;
+			}
+			
+			std::wstring subCmd = StringUtils::ToLowerCaseCopy(argv[2]);
+			
+			if (subCmd == L"paths" || subCmd == L"path") {
+				if (argc < 4) {
+					ERROR(L"Missing path argument");
+					return 1;
+				}
+				return g_controller->AddPathExclusion(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"processes" || subCmd == L"process") {
+				if (argc < 4) {
+					ERROR(L"Missing process argument");
+					return 1;
+				}
+				return g_controller->AddProcessExclusion(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"extensions" || subCmd == L"extension") {
+				if (argc < 4) {
+					ERROR(L"Missing extension argument");
+					return 1;
+				}
+				return g_controller->AddExtensionExclusion(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"ipaddresses" || subCmd == L"ip") {
+				if (argc < 4) {
+					ERROR(L"Missing IP address argument");
+					return 1;
+				}
+				return g_controller->AddIpAddressExclusion(argv[3]) ? 0 : 2;
+			}
+			else {
+				// Legacy: treat as direct path
+				return g_controller->AddToDefenderExclusions(argv[2]) ? 0 : 2;
+			}
+		}
 		
 		else if (command == L"remove-exclusion") {
 			// Legacy: no args = remove self
@@ -991,26 +1004,39 @@ int wmain(int argc, wchar_t* argv[])
 				return g_controller->RemoveFromDefenderExclusions(exePath) ? 0 : 2;
 			}
 			
-			// New syntax with type
-			std::wstring_view subCmd = argv[2];
+			std::wstring subCmd = StringUtils::ToLowerCaseCopy(argv[2]);
 			
-			if (subCmd == L"path" || subCmd == L"process") {
+			if (subCmd == L"paths" || subCmd == L"path") {
 				if (argc < 4) {
-					ERROR(L"Missing path/process argument");
+					ERROR(L"Missing path argument");
 					return 1;
 				}
-				
-				std::wstring target = argv[3];
-				
-				if (subCmd == L"path") {
-					return g_controller->RemovePathExclusion(target) ? 0 : 2;
-				} else {
-					return g_controller->RemoveProcessExclusion(target) ? 0 : 2;
+				return g_controller->RemovePathExclusion(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"processes" || subCmd == L"process") {
+				if (argc < 4) {
+					ERROR(L"Missing process argument");
+					return 1;
 				}
-			} else {
+				return g_controller->RemoveProcessExclusion(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"extensions" || subCmd == L"extension") {
+				if (argc < 4) {
+					ERROR(L"Missing extension argument");
+					return 1;
+				}
+				return g_controller->RemoveExtensionExclusion(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"ipaddresses" || subCmd == L"ip") {
+				if (argc < 4) {
+					ERROR(L"Missing IP address argument");
+					return 1;
+				}
+				return g_controller->RemoveIpAddressExclusion(argv[3]) ? 0 : 2;
+			}
+			else {
 				// Legacy: treat as direct path
-				std::wstring path = argv[2];
-				return g_controller->RemoveFromDefenderExclusions(path) ? 0 : 2;
+				return g_controller->RemoveFromDefenderExclusions(argv[2]) ? 0 : 2;
 			}
 		}
 		
