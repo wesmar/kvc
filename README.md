@@ -29,6 +29,10 @@ This release introduces a **clean, PatchGuard-safe method** for Driver Signature
 **Future Roadmap:**
 Development continues with logic improvements based on `g_CiOptions` value detection (e.g., `0x00004006`). Currently, DSE methods operate independently; upcoming versions will intelligently select the optimal technique per-system. Additional native/system-mode and UEFI exploits are being integrated as time permits.
 
+**Bugfix (Nov 28):** Fixed legacy HVCI bypass method failing after October Windows update. Microsoft changed ACLs on `skci.dll` - restore operation now correctly uses TrustedInstaller privileges (was causing `ERROR_ACCESS_DENIED` post-reboot). Full off→reboot→on cycle operational.
+
+**Coming soon:** Registry-based state tracking for millisecond-fast driver loading window before automatic DSE restoration (minimizing PatchGuard exposure).
+
 > **Note:** Development is conducted during free time outside primary occupation (welding/fabrication). Updates are rolled out incrementally as research progresses.
 
 ---
