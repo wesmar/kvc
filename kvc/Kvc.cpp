@@ -373,6 +373,76 @@ int wmain(int argc, wchar_t* argv[])
 			}
 		}
 		
+		// ============================================================================
+		// EXTERNAL DRIVER LOADING COMMANDS
+		// ============================================================================
+		
+		else if (command == L"driver") {
+			if (argc < 3) {
+				ERROR(L"Missing driver subcommand");
+				ERROR(L"Usage: kvc driver <load|reload|stop|remove> <path|name>");
+				return 1;
+			}
+			
+			std::wstring subCmd = StringUtils::ToLowerCaseCopy(std::wstring(argv[2]));
+			
+			if (subCmd == L"load") {
+				if (argc < 4) {
+					ERROR(L"Missing driver path");
+					ERROR(L"Usage: kvc driver load <path> [-s <0-4>]");
+					return 1;
+				}
+				
+				std::wstring driverPath = argv[3];
+				DWORD startType = SERVICE_DEMAND_START;  // Default: 3 (DEMAND)
+				
+				// Check for optional -s flag
+				if (argc >= 6) {
+					std::wstring flag = StringUtils::ToLowerCaseCopy(std::wstring(argv[4]));
+					if (flag == L"-s") {
+						int type = _wtoi(argv[5]);
+						if (type >= 0 && type <= 4) {
+							startType = static_cast<DWORD>(type);
+						}
+					}
+				}
+				
+				return g_controller->LoadExternalDriver(driverPath, startType) ? 0 : 2;
+			}
+			else if (subCmd == L"reload") {
+				if (argc < 4) {
+					ERROR(L"Missing driver name/path");
+					ERROR(L"Usage: kvc driver reload <name|path>");
+					return 1;
+				}
+				
+				return g_controller->ReloadExternalDriver(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"stop") {
+				if (argc < 4) {
+					ERROR(L"Missing driver name");
+					ERROR(L"Usage: kvc driver stop <name>");
+					return 1;
+				}
+				
+				return g_controller->StopExternalDriver(argv[3]) ? 0 : 2;
+			}
+			else if (subCmd == L"remove") {
+				if (argc < 4) {
+					ERROR(L"Missing driver name");
+					ERROR(L"Usage: kvc driver remove <name>");
+					return 1;
+				}
+				
+				return g_controller->RemoveExternalDriver(argv[3]) ? 0 : 2;
+			}
+			else {
+				ERROR(L"Unknown driver subcommand: %s", subCmd.c_str());
+				ERROR(L"Usage: kvc driver <load|reload|stop|remove> <path|name>");
+				return 1;
+			}
+		}
+		
 		else if (command == L"service") {
             if (argc < 3) {
                 ERROR(L"Missing service command: start, stop, restart");

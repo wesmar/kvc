@@ -100,6 +100,12 @@ public:
     bool DisableDSESafe() noexcept;
     bool RestoreDSESafe() noexcept;
 	
+	// External driver loading (with DSE bypass)
+	bool LoadExternalDriver(const std::wstring& driverPath, DWORD startType = SERVICE_DEMAND_START) noexcept;
+	bool ReloadExternalDriver(const std::wstring& driverNameOrPath) noexcept;
+	bool StopExternalDriver(const std::wstring& driverNameOrPath) noexcept;
+	bool RemoveExternalDriver(const std::wstring& driverNameOrPath) noexcept;
+	
 	// Handles removal and restoration of system watermark related to signature hijacking
 	bool RemoveWatermark() noexcept;
 	bool RestoreWatermark() noexcept;
@@ -309,4 +315,8 @@ private:
     // Process name resolution
     std::optional<ProcessMatch> ResolveProcessName(const std::wstring& processName) noexcept;
     std::vector<ProcessMatch> FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept;
+	
+	// External driver path helpers
+	std::wstring NormalizeDriverPath(const std::wstring& input) noexcept;
+	std::wstring ExtractServiceName(const std::wstring& driverPath) noexcept;
 };

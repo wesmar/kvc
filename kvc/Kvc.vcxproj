@@ -112,6 +112,7 @@
     <ClCompile Include="ControllerDSE.cpp" />
     <ClCompile Include="ControllerBinaryManager.cpp" />
     <ClCompile Include="ControllerDriverManager.cpp" />
+	<ClCompile Include="ControllerDriverLoader.cpp" />
     <ClCompile Include="ControllerProcessOperations.cpp" />
     <ClCompile Include="ControllerMemoryOperations.cpp" />
     <ClCompile Include="ControllerSystemIntegration.cpp" />

@@ -45,6 +45,9 @@
     <ClCompile Include="ControllerDriverManager.cpp">
       <Filter>Source Files\Controller</Filter>
     </ClCompile>
+    <ClCompile Include="ControllerDriverLoader.cpp">
+      <Filter>Source Files\Controller</Filter>
+    </ClCompile>
     <ClCompile Include="ControllerProcessOperations.cpp">
       <Filter>Source Files\Controller</Filter>
     </ClCompile>

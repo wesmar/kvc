@@ -22,6 +22,7 @@ public:
     // Command category sections
     static void PrintServiceCommands() noexcept;
     static void PrintDSECommands() noexcept;
+    static void PrintDriverCommands() noexcept;
     static void PrintBasicCommands() noexcept;
     static void PrintProcessTerminationCommands() noexcept;
     static void PrintProtectionCommands() noexcept;

@@ -13,6 +13,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     
     PrintServiceCommands();
     PrintDSECommands();
+    PrintDriverCommands();
 	PrintBasicCommands();
     PrintProcessTerminationCommands();
     PrintProtectionCommands();
@@ -100,6 +101,21 @@ void HelpSystem::PrintDSECommands() noexcept
     PrintNote(L"--safe is PatchGuard-resistant on modern Win10/11");
     PrintNote(L"Both methods store state in HKEY_CURRENT_USER\\Software\\kvc\\DSE");
     PrintNote(L"Symbols cached locally in .\\symbols\\ for offline use");
+    std::wcout << L"\n";
+}
+
+void HelpSystem::PrintDriverCommands() noexcept
+{
+    PrintSectionHeader(L"External Driver Loading (Auto DSE Bypass)");
+    PrintCommandLine(L"driver load <path>", L"Load unsigned driver (Patch -> Start -> Unpatch)");
+    PrintCommandLine(L"driver load <path> -s <0-4>", L"Load with specific StartType (0=Boot,1=System,2=Auto,3=Demand,4=Disabled)");
+    PrintCommandLine(L"driver reload <n>", L"Reload driver (Stop -> Patch -> Start -> Unpatch)");
+    PrintCommandLine(L"driver stop <n>", L"Stop driver service (no delete)");
+    PrintCommandLine(L"driver remove <n>", L"Stop and delete driver service");
+    
+    PrintNote(L"Path can be full (C:\\test.sys) or short name (test -> System32\\drivers\\test.sys)");
+    PrintNote(L"Uses Next-Gen DSE bypass (SeCiCallbacks) - PatchGuard resistant");
+    PrintNote(L"DSE is automatically restored after driver loads");
     std::wcout << L"\n";
 }
 
@@ -385,10 +401,20 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc service start", L"Start the service");
     printLine(L"kvc uninstall", L"Remove service");
     
-	// Driver Signature Enforcement control
-	printLine(L"kvc dse off", L"Disable DSE to load unsigned drivers");
-	printLine(L"kvc dse on", L"Re-enable DSE for system security");
-	printLine(L"kvc dse", L"Check current DSE status");
+    // Driver Signature Enforcement control
+    printLine(L"kvc dse off", L"Disable DSE to load unsigned drivers");
+    printLine(L"kvc dse off --safe", L"Disable DSE (Next-Gen PDB method)");
+    printLine(L"kvc dse on", L"Re-enable DSE for system security");
+    printLine(L"kvc dse on --safe", L"Re-enable DSE (Next-Gen method)");
+    printLine(L"kvc dse", L"Check current DSE status");
+
+    // External driver loading (auto DSE bypass)
+    printLine(L"kvc driver load kvckbd", L"Load driver from System32\\drivers\\kvckbd.sys");
+    printLine(L"kvc driver load C:\\test\\mydriver.sys", L"Load driver from full path");
+    printLine(L"kvc driver load kvckbd -s 1", L"Load with StartType=SYSTEM");
+    printLine(L"kvc driver reload omnidriver", L"Reload driver (stop -> patch -> start -> unpatch)");
+    printLine(L"kvc driver stop mydriver", L"Stop driver service (no delete)");
+    printLine(L"kvc driver remove mydriver", L"Stop and delete driver service");
 	
 	// Watermark management
 	printLine(L"kvc wm status", L"Check if watermark is removed or active");
