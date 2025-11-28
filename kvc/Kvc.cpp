@@ -261,7 +261,7 @@ int wmain(int argc, wchar_t* argv[])
 				}
 				
 				bool dseEnabled = (value & 0x6) != 0;  // Bit 1 and 2 = DSE
-				bool hvciEnabled = (value & 0x0001C000) != 0;  // HVCI/VBS flags
+                bool hvciEnabled = (value & 0x0001C000) == 0x0001C000;  // Memory Integrity ON - requires reboot (TODO: verify for testsigning/debug/hyperlaunch)
 				
 				std::wcout << L"\n";
 				INFO(L"DSE Status Information:");
@@ -276,17 +276,14 @@ int wmain(int argc, wchar_t* argv[])
 				
 				// Check for HVCI/VBS first
 				if (hvciEnabled) {
-					SUCCESS(L"Driver signature enforcement: ENABLED");
-					// ... HVCI info
+					INFO(L"Memory Integrity enabled - use 'kvc dse off --safe' (requires reboot)");
 				}
 				else if (dseEnabled) {
-					SUCCESS(L"Driver signature enforcement: ENABLED");
-					INFO(L"Only signed drivers allowed");
-					INFO(L"Use 'kvc dse off' to disable protection");
+					SUCCESS(L"DSE can be safely disabled using 'kvc dse off --safe'");
 				} else {
 					INFO(L"Driver signature enforcement: DISABLED");
 					INFO(L"Unsigned drivers allowed");
-					INFO(L"Use 'kvc dse on' to restore kernel protection");
+					INFO(L"Use 'kvc dse on --safe' to restore kernel protection");
 				}
 				
 				std::wcout << L"\n";
@@ -915,21 +912,21 @@ int wmain(int argc, wchar_t* argv[])
 					INFO(L"Security Engine Status: ENABLED (Active Protection)");
 					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 					SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-					std::wcout << L" ✓ Windows Defender is actively protecting the system\n";
+					std::wcout << L" Windows Defender is actively protecting the system\n";
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 				}
 				else if (status == DefenderManager::SecurityState::DISABLED) {
 					INFO(L"Security Engine Status: DISABLED (Inactive Protection)");
 					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-					std::wcout << L" ✗ Windows Defender protection is disabled\n";
+					std::wcout << L" Windows Defender protection is disabled\n";
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 				}
 				else {
 					INFO(L"Security Engine Status: UNKNOWN (Cannot determine state)");
 					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-					std::wcout << L" ? Unable to determine Defender protection state\n";
+					std::wcout << L" Unable to determine Defender protection state\n";
 					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 				}
 				

@@ -141,7 +141,6 @@ bool Controller::StopDriverService() noexcept {
 
 bool Controller::StartDriverService() noexcept {
     if (!InitDynamicAPIs()) return false;
-    GenerateFakeActivity();
     
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (!hSCM) {
@@ -183,8 +182,7 @@ bool Controller::StartDriverService() noexcept {
 
 bool Controller::StartDriverServiceSilent() noexcept {
     if (!InitDynamicAPIs()) return false;
-    GenerateFakeActivity();
-    
+        
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (!hSCM) return false;
 
@@ -273,8 +271,7 @@ bool Controller::InstallDriver() noexcept {
 
     // Register service
     if (!InitDynamicAPIs()) return false;
-    GenerateFakeActivity();
-    
+        
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (!hSCM) {
         ERROR(L"Failed to open service control manager: %d", GetLastError());
@@ -357,8 +354,6 @@ bool Controller::RegisterDriverServiceSilent(const std::wstring& driverPath) noe
         DEBUG(L"Zombie service detected - restart required");
         return false;
     }
-    
-    GenerateFakeActivity();
     
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (!hSCM) return false;

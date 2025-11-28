@@ -210,25 +210,3 @@ std::wstring GetSystemTempPath() noexcept {
 }
 
 // Generates benign system activity to mask driver operations from EDR
-void GenerateFakeActivity() noexcept 
-{
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
-                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion", 
-                     0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        RegCloseKey(hKey);
-    }
-    
-    wchar_t systemDir[MAX_PATH];
-    if (GetSystemDirectoryW(systemDir, MAX_PATH) > 0) {
-        WIN32_FIND_DATAW findData;
-        std::wstring system32Pattern = std::wstring(systemDir) + L"\\*.dll";
-        
-        HANDLE hFind = FindFirstFileW(system32Pattern.c_str(), &findData);
-        if (hFind != INVALID_HANDLE_VALUE) {
-            FindClose(hFind);
-        }
-    }
-    
-    Sleep(50 + (GetTickCount() % 100));
-}

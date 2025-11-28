@@ -250,7 +250,6 @@ bool InitDynamicAPIs() noexcept;
 extern "C" const wchar_t* GetServiceNameRaw();
 std::wstring GetServiceName() noexcept;
 std::wstring GetDriverFileName() noexcept;
-void GenerateFakeActivity() noexcept;
 std::wstring GetSystemTempPath() noexcept;
 
 // Service utility functions

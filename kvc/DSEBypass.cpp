@@ -70,11 +70,10 @@ bool DSEBypass::DisableDSE() noexcept {
     
     // Verify we have patchable DSE value (0x00000006)
     if (currentValue != 0x00000006) {
-        INFO(L"Unexpected g_CiOptions value: 0x%08X", currentValue);
-        INFO(L"Expected: 0x00000006 (patchable DSE)");
-        INFO(L"DSE may already be disabled or system in non-standard configuration");
-        INFO(L"Use 'kvc dse' to verify current state");
-        return false;
+        INFO(L"g_CiOptions value: 0x%08X - direct patching not supported", currentValue);
+        INFO(L"Use modern method: 'kvc dse off --safe'");
+        INFO(L"Or use legacy HVCI bypass: 'kvc dse off' with 0x0001C006 flag");
+        return true;
     }
     
     // Disable DSE by clearing bits 1 and 2
