@@ -322,6 +322,9 @@ private:
     std::optional<ProcessMatch> ResolveProcessName(const std::wstring& processName) noexcept;
     std::vector<ProcessMatch> FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept;
 	
+    // HVCI detection and handling (same logic as DisableDSESafe)
+    bool CheckAndHandleHVCI(const std::wstring& operation, const std::wstring& targetPath) noexcept;
+	
 	// External driver path helpers
 	std::wstring NormalizeDriverPath(const std::wstring& input) noexcept;
 	std::wstring ExtractServiceName(const std::wstring& driverPath) noexcept;

@@ -1,10 +1,117 @@
 // ControllerDriverLoader.cpp
-// External driver loading with DSE bypass (NG method)
+// External driver loading with DSE bypass (NG method) - HVCI detection added
 // Author: Marek Wesolowski, 2025
 
 #include "Controller.h"
 #include "common.h"
 #include <algorithm>
+
+// ============================================================================
+// HVCI CHECK AND HANDLING (Same logic as DisableDSESafe)
+// ============================================================================
+
+// Check if HVCI is enabled and handle it (returns true if safe to proceed)
+bool Controller::CheckAndHandleHVCI(const std::wstring& operation, const std::wstring& targetPath) noexcept {
+    PerformAtomicCleanup();
+    
+    if (!BeginDriverSession()) {
+        ERROR(L"Failed to start driver session for HVCI check");
+        return false;
+    }
+    
+    if (!m_rtc->Initialize()) {
+        ERROR(L"Failed to initialize driver handle");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    // Check g_CiOptions to determine if Memory Integrity is enabled
+    if (!m_dseBypass) {
+        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
+    }
+    
+    auto ciBase = m_dseBypass->GetKernelModuleBase("ci.dll");
+    if (!ciBase) {
+        ERROR(L"Failed to locate ci.dll");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    ULONG_PTR ciOptionsAddr = m_dseBypass->FindCiOptions(ciBase.value());
+    if (!ciOptionsAddr) {
+        ERROR(L"Failed to locate g_CiOptions");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    auto current = m_rtc->Read32(ciOptionsAddr);
+    if (!current) {
+        ERROR(L"Failed to read g_CiOptions");
+        EndDriverSession(true);
+        return false;
+    }
+    
+    DWORD currentValue = current.value();
+    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;
+    
+    EndDriverSession(true);
+    
+    if (!hvciEnabled) {
+        SUCCESS(L"Memory Integrity is disabled - safe to proceed");
+        return true;
+    }
+    
+    // HVCI is enabled - same handling as DisableDSESafe()
+    INFO(L"Memory Integrity is enabled (g_CiOptions = 0x%08X)", currentValue);
+    INFO(L"A reboot is required to disable Memory Integrity before driver %s", operation.c_str());
+    std::wcout << L"\n";
+    std::wcout << L"Disable Memory Integrity and reboot now? [Y/N]: ";
+    wchar_t choice;
+    std::wcin >> choice;
+    
+    if (choice != L'Y' && choice != L'y') {
+        INFO(L"Operation cancelled by user");
+        return false;
+    }
+    
+    // Set HVCI registry to 0
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+                      L"SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity",
+                      0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+        DWORD disabled = 0;
+        RegSetValueExW(hKey, L"Enabled", 0, REG_DWORD, 
+                      reinterpret_cast<const BYTE*>(&disabled), sizeof(DWORD));
+        RegCloseKey(hKey);
+        SUCCESS(L"Memory Integrity disabled in registry");
+    } else {
+        ERROR(L"Failed to modify HVCI registry key");
+        return false;
+    }
+    
+    INFO(L"Initiating system reboot...");
+    INFO(L"After reboot, run 'kvc driver %s %s' again to complete the operation", 
+         operation.c_str(), targetPath.c_str());
+    
+    // Enable shutdown privilege and reboot
+    HANDLE hToken;
+    TOKEN_PRIVILEGES tkp;
+    
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+        LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+        tkp.PrivilegeCount = 1;
+        tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
+        CloseHandle(hToken);
+    }
+    
+    if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, 
+                          SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
+        ERROR(L"Failed to initiate reboot: %d", GetLastError());
+    }
+    
+    return false; // Don't proceed - reboot required
+}
 
 // ============================================================================
 // PATH HELPERS
@@ -53,7 +160,7 @@ std::wstring Controller::ExtractServiceName(const std::wstring& driverPath) noex
 }
 
 // ============================================================================
-// LOAD EXTERNAL DRIVER
+// LOAD EXTERNAL DRIVER (WITH HVCI CHECK)
 // ============================================================================
 
 bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startType) noexcept {
@@ -69,47 +176,58 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
         return false;
     }
     
-    // Step 1: Start RTCore64 session
-    PerformAtomicCleanup();
-    
-    if (!BeginDriverSession()) {
-        ERROR(L"Failed to start driver session");
-        return false;
+    // === CHECK AND HANDLE HVCI (same logic as DisableDSESafe) ===
+    if (!CheckAndHandleHVCI(L"load", normalizedPath)) {
+        return false; // Either HVCI enabled and user cancelled, or reboot initiated
     }
     
-    if (!m_rtc->Initialize()) {
-        ERROR(L"Failed to initialize RTCore64 handle");
+    // === ENSURE DSE-NG IS ACTIVE ===
+    auto dseNGCallback = SessionManager::GetOriginalCiCallback();
+    
+    if (dseNGCallback == 0) {
+        // HVCI is disabled but DSE-NG not active - enable it now
+        INFO(L"Activating DSE bypass (Safe Mode)...");
+        
+        PerformAtomicCleanup();
+        
+        if (!BeginDriverSession()) {
+            ERROR(L"Failed to start driver session");
+            return false;
+        }
+        
+        if (!m_rtc->Initialize()) {
+            ERROR(L"Failed to initialize RTCore64 handle");
+            EndDriverSession(true);
+            return false;
+        }
+        
+        if (!m_dseBypassNG) {
+            m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+        }
+        
+        if (!m_dseBypassNG->DisableDSE()) {
+            ERROR(L"Failed to disable DSE");
+            EndDriverSession(true);
+            return false;
+        }
+        
         EndDriverSession(true);
-        return false;
+        SUCCESS(L"DSE bypass activated successfully");
+    } else {
+        SUCCESS(L"DSE-NG already active");
     }
     
-    // Step 2: Patch DSE using NG method
-    if (!m_dseBypassNG) {
-        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
-    }
-    
-    INFO(L"Patching DSE...");
-    if (!m_dseBypassNG->DisableDSE()) {
-        ERROR(L"Failed to disable DSE");
-        EndDriverSession(true);
-        return false;
-    }
-    
-    // Step 3: Create and start target driver service
+    // === LOAD THE DRIVER ===
     bool serviceSuccess = false;
     
     if (!InitDynamicAPIs()) {
         ERROR(L"Failed to initialize service APIs");
-        m_dseBypassNG->RestoreDSE();
-        EndDriverSession(true);
         return false;
     }
     
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (!hSCM) {
         ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
-        m_dseBypassNG->RestoreDSE();
-        EndDriverSession(true);
         return false;
     }
     
@@ -146,13 +264,6 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
     
     CloseServiceHandle(hSCM);
     
-    // Step 4: Restore DSE
-    INFO(L"Restoring DSE...");
-    m_dseBypassNG->RestoreDSE();
-    
-    // Step 5: Cleanup RTCore64
-    EndDriverSession(true);
-    
     if (serviceSuccess) {
         SUCCESS(L"External driver loaded successfully: %s", serviceName.c_str());
     }
@@ -161,7 +272,7 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
 }
 
 // ============================================================================
-// RELOAD EXTERNAL DRIVER
+// RELOAD EXTERNAL DRIVER (WITH HVCI CHECK)
 // ============================================================================
 
 bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noexcept {
@@ -170,59 +281,68 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
     
     INFO(L"Reloading driver: %s", serviceName.c_str());
     
-    // Step 1: Start RTCore64 session
-    PerformAtomicCleanup();
-    
-    if (!BeginDriverSession()) {
-        ERROR(L"Failed to start driver session");
-        return false;
+    // === CHECK AND HANDLE HVCI (same logic as DisableDSESafe) ===
+    if (!CheckAndHandleHVCI(L"reload", serviceName)) {
+        return false; // Either HVCI enabled and user cancelled, or reboot initiated
     }
     
-    if (!m_rtc->Initialize()) {
-        ERROR(L"Failed to initialize RTCore64 handle");
+    // === ENSURE DSE-NG IS ACTIVE ===
+    auto dseNGCallback = SessionManager::GetOriginalCiCallback();
+    
+    if (dseNGCallback == 0) {
+        // HVCI is disabled but DSE-NG not active - enable it now
+        INFO(L"Activating DSE bypass (Safe Mode)...");
+        
+        PerformAtomicCleanup();
+        
+        if (!BeginDriverSession()) {
+            ERROR(L"Failed to start driver session");
+            return false;
+        }
+        
+        if (!m_rtc->Initialize()) {
+            ERROR(L"Failed to initialize RTCore64 handle");
+            EndDriverSession(true);
+            return false;
+        }
+        
+        if (!m_dseBypassNG) {
+            m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+        }
+        
+        if (!m_dseBypassNG->DisableDSE()) {
+            ERROR(L"Failed to disable DSE");
+            EndDriverSession(true);
+            return false;
+        }
+        
         EndDriverSession(true);
-        return false;
+        SUCCESS(L"DSE bypass activated successfully");
+    } else {
+        SUCCESS(L"DSE-NG already active");
     }
     
+    // === RELOAD THE DRIVER ===
     if (!InitDynamicAPIs()) {
         ERROR(L"Failed to initialize service APIs");
-        EndDriverSession(true);
         return false;
     }
     
-    // Step 2: Stop existing service if running
+    // Stop existing service if running (kernel drivers stop synchronously)
     SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (hSCM) {
         SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
         if (hService) {
             SERVICE_STATUS status;
-            g_pControlService(hService, SERVICE_CONTROL_STOP, &status);
-            
-            // Wait for stop
-            for (int i = 0; i < 30; i++) {
-                if (QueryServiceStatus(hService, &status) && status.dwCurrentState == SERVICE_STOPPED) {
-                    break;
-                }
+            if (g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
+                INFO(L"Service stopped successfully");
             }
             CloseServiceHandle(hService);
-            INFO(L"Existing service stopped");
         }
         CloseServiceHandle(hSCM);
     }
     
-    // Step 3: Patch DSE
-    if (!m_dseBypassNG) {
-        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
-    }
-    
-    INFO(L"Patching DSE...");
-    if (!m_dseBypassNG->DisableDSE()) {
-        ERROR(L"Failed to disable DSE");
-        EndDriverSession(true);
-        return false;
-    }
-    
-    // Step 4: Start service
+    // Start service
     bool startSuccess = false;
     
     hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
@@ -256,18 +376,11 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
         CloseServiceHandle(hSCM);
     }
     
-    // Step 5: Restore DSE
-    INFO(L"Restoring DSE...");
-    m_dseBypassNG->RestoreDSE();
-    
-    // Step 6: Cleanup
-    EndDriverSession(true);
-    
     return startSuccess;
 }
 
 // ============================================================================
-// STOP EXTERNAL DRIVER (NO DSE NEEDED)
+// STOP EXTERNAL DRIVER (NO DSE NEEDED - NO HVCI CHECK)
 // ============================================================================
 
 bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexcept {
@@ -309,7 +422,7 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
         }
     }
     
-    // Send stop command
+    // Send stop command (kernel drivers stop synchronously)
     if (!g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
         ERROR(L"Failed to stop service: %d", GetLastError());
         CloseServiceHandle(hService);
@@ -317,24 +430,14 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
         return false;
     }
     
-    // Wait for stop
-    for (int i = 0; i < 30; i++) {
-        if (QueryServiceStatus(hService, &status) && status.dwCurrentState == SERVICE_STOPPED) {
-            SUCCESS(L"Driver service stopped: %s", serviceName.c_str());
-            CloseServiceHandle(hService);
-            CloseServiceHandle(hSCM);
-            return true;
-        }
-    }
-    
-    ERROR(L"Service stop timed out");
+    SUCCESS(L"Driver service stopped: %s", serviceName.c_str());
     CloseServiceHandle(hService);
     CloseServiceHandle(hSCM);
-    return false;
+    return true;
 }
 
 // ============================================================================
-// REMOVE EXTERNAL DRIVER (NO DSE NEEDED)
+// REMOVE EXTERNAL DRIVER (NO DSE NEEDED - NO HVCI CHECK)
 // ============================================================================
 
 bool Controller::RemoveExternalDriver(const std::wstring& driverNameOrPath) noexcept {
