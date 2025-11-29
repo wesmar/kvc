@@ -22,21 +22,21 @@ bool Controller::EnumerateProcessModules(DWORD pid) noexcept
     
     INFO(L"Enumerating modules for %s (PID: %lu)", processName.c_str(), pid);
     
+    // INIT DRIVER SESSION FIRST - na początku!
+    if (!BeginDriverSession()) {
+        ERROR(L"Failed to initialize driver for module operations");
+        return false;
+    }
+    
     // Try standard enumeration first
     auto modules = ModuleManager::EnumerateModules(pid);
-    
     bool usedElevation = false;
     
-    // If access denied, try with protection elevation like dump operation
+    // If access denied, try with protection elevation
     if (modules.empty()) {
         DEBUG(L"Standard access denied, attempting with protection elevation...");
         
-        if (!BeginDriverSession()) {
-            ERROR(L"Failed to initialize driver for protected access");
-            return false;
-        }
-        
-        // Get target process protection level
+        // Get target process protection level (TERAZ mamy driver!)
         auto kernelAddr = GetCachedKernelAddress(pid);
         if (kernelAddr) {
             auto targetProtection = GetProcessProtection(kernelAddr.value());
@@ -70,9 +70,9 @@ bool Controller::EnumerateProcessModules(DWORD pid) noexcept
                 }
             }
         }
-        
-        EndDriverSession(true);
     }
+    
+    EndDriverSession(true);
     
     if (modules.empty()) {
         ERROR(L"No modules found or access denied");
@@ -117,18 +117,69 @@ bool Controller::ReadModuleMemory(DWORD pid, const std::wstring& moduleName, ULO
         return false;
     }
     
-    // Find target module in process
-    auto module = ModuleManager::FindModule(pid, moduleName);
+    INFO(L"Reading %zu bytes from %s at offset 0x%llX in process %lu", size, moduleName.c_str(), offset, pid);
+    
+    // Initialize driver session for kernel operations
+    if (!BeginDriverSession()) {
+        ERROR(L"Failed to initialize driver session");
+        return false;
+    }
+    
+    // Find target module - try standard method first
+    std::optional<ModuleInfo> module = ModuleManager::FindModule(pid, moduleName);
+    bool usedElevation = false;
+    
+    // If module not found, try with elevation for protected processes
     if (!module) {
+        DEBUG(L"Module not found with standard access, attempting elevation for protected process...");
+        
+        // Get target process protection level
+        auto kernelAddr = GetCachedKernelAddress(pid);
+        if (kernelAddr) {
+            auto targetProtection = GetProcessProtection(kernelAddr.value());
+            
+            if (targetProtection && targetProtection.value() > 0) {
+                UCHAR targetLevel = Utils::GetProtectionLevel(targetProtection.value());
+                UCHAR targetSigner = Utils::GetSignerType(targetProtection.value());
+                
+                std::wstring levelStr = (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected)) ? L"PP" : L"PPL";
+                std::wstring signerStr = L"WinTcb";
+                
+                switch (static_cast<PS_PROTECTED_SIGNER>(targetSigner)) {
+                    case PS_PROTECTED_SIGNER::Lsa: signerStr = L"Lsa"; break;
+                    case PS_PROTECTED_SIGNER::WinTcb: signerStr = L"WinTcb"; break;
+                    case PS_PROTECTED_SIGNER::WinSystem: signerStr = L"WinSystem"; break;
+                    case PS_PROTECTED_SIGNER::Windows: signerStr = L"Windows"; break;
+                    case PS_PROTECTED_SIGNER::Antimalware: signerStr = L"Antimalware"; break;
+                    default: break;
+                }
+                
+                INFO(L"Protected process detected (%s-%s), elevating privileges...", levelStr.c_str(), signerStr.c_str());
+                
+                if (SelfProtect(levelStr, signerStr)) {
+                    usedElevation = true;
+                    
+                    // Retry module finding with elevated privileges
+                    module = ModuleManager::FindModule(pid, moduleName);
+                    
+                    // Remove self-protection after operation
+                    SelfProtect(L"none", L"none");
+                }
+            }
+        }
+    }
+    
+    if (!module) {
+        EndDriverSession(true);
         ERROR(L"Module '%s' not found in process %lu", moduleName.c_str(), pid);
         return false;
     }
     
-    INFO(L"Reading %zu bytes from %s at offset 0x%llX", size, module->name.c_str(), offset);
-    INFO(L"Module base: 0x%llX, Size: 0x%08X", module->baseAddress, module->size);
+    INFO(L"Module base: 0x%llX, Size: 0x%08X%s", module->baseAddress, module->size, usedElevation ? L" (via elevation)" : L"");
     
     // Validate offset is within module bounds
     if (offset >= module->size) {
+        EndDriverSession(true);
         ERROR(L"Offset 0x%llX exceeds module size 0x%08X", offset, module->size);
         return false;
     }
@@ -138,12 +189,6 @@ bool Controller::ReadModuleMemory(DWORD pid, const std::wstring& moduleName, ULO
     if (size > maxReadable) {
         INFO(L"Clamping read size to %zu bytes (module boundary)", maxReadable);
         size = maxReadable;
-    }
-    
-    // Initialize driver session for kernel memory access
-    if (!BeginDriverSession()) {
-        ERROR(L"Failed to initialize driver session");
-        return false;
     }
     
     ULONG_PTR targetAddress = module->baseAddress + offset;
@@ -209,7 +254,7 @@ bool Controller::ReadModuleMemory(DWORD pid, const std::wstring& moduleName, ULO
     }
     
     // Display hex dump of read data
-    SUCCESS(L"Read %zu bytes successfully", size);
+    SUCCESS(L"Read %zu bytes successfully%s", size, usedElevation ? L" (via kernel elevation)" : L"");
     ModuleManager::PrintHexDump(buffer.data(), size, targetAddress);
     
     // Check for PE signature at module base
