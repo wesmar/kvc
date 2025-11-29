@@ -56,7 +56,6 @@
       <LanguageStandardVersion>latest</LanguageStandardVersion>
       <EnableModules>false</EnableModules>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
-      <!-- ZMIENIONE: Usunięto /GL, dodano /Os -->
       <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Os /Brepro %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <ExceptionHandling>Sync</ExceptionHandling>
@@ -66,11 +65,8 @@
       <StringPooling>true</StringPooling>
       <TreatWarningAsError>false</TreatWarningAsError>
       <DisableSpecificWarnings>4996;4117</DisableSpecificWarnings>
-      <!-- ZMIENIONE: Optymalizacja pod rozmiar -->
       <Optimization>MinSpace</Optimization>
-      <!-- ZMIENIONE: Wyłączone Whole Program Optimization -->
       <WholeProgramOptimization>false</WholeProgramOptimization>
-      <!-- ZMIENIONE: Priorytet rozmiaru -->
       <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
       <BrowseInformation>false</BrowseInformation>
@@ -81,12 +77,9 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <UACExecutionLevel>HighestAvailable</UACExecutionLevel>
-      <!-- ZMIENIONE: Wyłączone LTO -->
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
       <AdditionalDependencies>kernel32.lib;user32.lib;psapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <!-- ZMIENIONE: Dodano INCREMENTAL:NO, poprawiono ICF -->
       <AdditionalOptions>/OPT:REF /OPT:ICF=10 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /INCREMENTAL:NO /Brepro %(AdditionalOptions)</AdditionalOptions>
-      <!-- USUNIĘTE: Zduplikowane LinkTimeCodeGeneration -->
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <DataExecutionPrevention>true</DataExecutionPrevention>
       <TargetMachine>MachineX64</TargetMachine>
@@ -118,7 +111,9 @@
     <ClCompile Include="ControllerSystemIntegration.cpp" />
     <ClCompile Include="ControllerPasswordManager.cpp" />
     <ClCompile Include="ControllerEventLogOperations.cpp" />
+	<ClCompile Include="ControllerModuleOperations.cpp" />
     <ClCompile Include="ProcessManager.cpp" />
+	<ClCompile Include="ModuleManager.cpp" />
     <ClCompile Include="OffsetFinder.cpp" />
     <ClCompile Include="kvc.cpp" />
     <ClCompile Include="kvcDrv.cpp" />
@@ -154,6 +149,7 @@
     <ClInclude Include="HelpSystem.h" />
     <ClInclude Include="DefenderManager.h" />
     <ClInclude Include="ProcessManager.h" />
+	<ClInclude Include="ModuleManager.h" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="MmPoolTelemetry.asm" />

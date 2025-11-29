@@ -8,6 +8,7 @@
 #include "ProcessManager.h"
 #include "ServiceManager.h"
 #include "HiveManager.h"
+#include "ModuleManager.h"
 #include <signal.h>
 #include <charconv>
 #include <Shlobj.h>
@@ -597,7 +598,83 @@ int wmain(int argc, wchar_t* argv[])
 					return 2;
 				}
 			}
-		}		
+		}
+		
+		// ====================================================================
+		// MODULE ENUMERATION COMMANDS
+		// ====================================================================
+		
+		else if (command == L"modules" || command == L"mods") {
+			if (argc < 3) {
+				ERROR(L"Missing PID/process name argument");
+				ERROR(L"Usage: kvc modules <PID|process_name> [read <module> [offset] [size]]");
+				return 1;
+			}
+			
+			std::wstring_view target = argv[2];
+			DWORD targetPid = 0;
+			
+			// Resolve target to PID
+			if (IsNumeric(target)) {
+				auto pid = ParsePid(target);
+				if (!pid) {
+					ERROR(L"Invalid PID format: %s", target.data());
+					return 1;
+				}
+				targetPid = pid.value();
+			} else {
+				std::wstring processName(target);
+				auto match = g_controller->ResolveNameWithoutDriver(processName);
+				if (!match) {
+					ERROR(L"Process not found: %s", processName.c_str());
+					return 1;
+				}
+				targetPid = match->Pid;
+				INFO(L"Resolved '%s' to PID %lu", match->ProcessName.c_str(), targetPid);
+			}
+			
+			// Check for read subcommand
+			if (argc >= 4) {
+				std::wstring subCmd = StringUtils::ToLowerCaseCopy(std::wstring(argv[3]));
+				
+				if (subCmd == L"read") {
+					if (argc < 5) {
+						ERROR(L"Missing module name for read operation");
+						ERROR(L"Usage: kvc modules <PID> read <module_name> [offset] [size]");
+						return 1;
+					}
+					
+					std::wstring moduleName = argv[4];
+					ULONG_PTR offset = 0;
+					size_t readSize = 256;  // Default read size
+					
+					// Parse optional offset
+					if (argc >= 6) {
+						std::wstring offsetStr = argv[5];
+						if (offsetStr.substr(0, 2) == L"0x" || offsetStr.substr(0, 2) == L"0X") {
+							offset = wcstoull(offsetStr.c_str() + 2, nullptr, 16);
+						} else {
+							offset = wcstoull(offsetStr.c_str(), nullptr, 10);
+						}
+					}
+					
+					// Parse optional size
+					if (argc >= 7) {
+						std::wstring sizeStr = argv[6];
+						if (sizeStr.substr(0, 2) == L"0x" || sizeStr.substr(0, 2) == L"0X") {
+							readSize = static_cast<size_t>(wcstoull(sizeStr.c_str() + 2, nullptr, 16));
+						} else {
+							readSize = static_cast<size_t>(wcstoull(sizeStr.c_str(), nullptr, 10));
+						}
+					}
+					
+					return g_controller->ReadModuleMemory(targetPid, moduleName, offset, readSize) ? 0 : 2;
+				}
+			}
+			
+			// Default: enumerate modules
+			return g_controller->EnumerateProcessModules(targetPid) ? 0 : 2;
+		}
 
         else if (command == L"list-signer") {
             if (argc < 3) {

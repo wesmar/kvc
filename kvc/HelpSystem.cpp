@@ -15,6 +15,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintDSECommands();
     PrintDriverCommands();
 	PrintBasicCommands();
+	PrintModuleCommands();
     PrintProcessTerminationCommands();
     PrintProtectionCommands();
 	PrintSessionManagement();
@@ -131,6 +132,19 @@ void HelpSystem::PrintBasicCommands() noexcept
     PrintCommandLine(L"list", L"List all protected processes with color coding");
     PrintCommandLine(L"get <PID|process_name>", L"Get protection status of specific process");
     PrintCommandLine(L"info <PID|process_name>", L"Get detailed process info including dumpability");
+    std::wcout << L"\n";
+}
+
+void HelpSystem::PrintModuleCommands() noexcept
+{
+    PrintSectionHeader(L"Module Enumeration Commands");
+    PrintCommandLine(L"modules <PID|process_name>", L"List all loaded modules in target process (alias: mods)");
+    PrintCommandLine(L"modules <PID> read <module>", L"Read first 256 bytes from module (PE header)");
+    PrintCommandLine(L"modules <PID> read <module> <offset>", L"Read 256 bytes from specified offset");
+    PrintCommandLine(L"modules <PID> read <module> <offset> <size>", L"Read custom size (max 4096 bytes)");
+    PrintNote(L"Module name supports partial matching: 'ntdll' finds 'ntdll.dll'");
+    PrintNote(L"Offset accepts decimal or hex (0x prefix): 0x1000 or 4096");
+    PrintNote(L"Uses kernel driver for protected process memory access");
     std::wcout << L"\n";
 }
 
@@ -392,9 +406,17 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc kill 1234,5678,9012", L"Terminate multiple processes");
     printLine(L"kvc kill lsass", L"Terminate protected process (auto-elevation)");
     
-    // Memory dumping
+	// Memory dumping
     printLine(L"kvc dump lsass C:\\dumps", L"Dump LSASS to specific folder");
     printLine(L"kvc dump 1044", L"Dump PID 1044 to Downloads folder");
+    
+    // Module enumeration
+    printLine(L"kvc modules explorer.exe", L"List all modules loaded in Explorer");
+    printLine(L"kvc mods lsass", L"List LSASS modules (auto-elevates for protected)");
+    printLine(L"kvc modules 1220", L"List modules by PID");
+    printLine(L"kvc modules explorer read ntdll", L"Read PE header (256 bytes) from ntdll.dll");
+    printLine(L"kvc mods lsass read lsasrv 0x1000", L"Read 256 bytes at offset 0x1000");
+    printLine(L"kvc modules 1234 read kernel32 0 512", L"Read 512 bytes from module start");
     
     // Service installation and management
     printLine(L"kvc install", L"Install as NT service (advanced)");

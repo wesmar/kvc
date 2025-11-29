@@ -11,6 +11,7 @@
 #include "TrustedInstallerIntegrator.h"
 #include "Utils.h"
 #include "WatermarkManager.h"
+#include "ModuleManager.h"
 #include <vector>
 #include <memory>
 #include <optional>
@@ -114,6 +115,11 @@ public:
     // Memory dumping
     bool DumpProcess(DWORD pid, const std::wstring& outputPath) noexcept;
     bool DumpProcessByName(const std::wstring& processName, const std::wstring& outputPath) noexcept;
+	
+	// Module enumeration
+	bool EnumerateProcessModules(DWORD pid) noexcept;
+	bool EnumerateProcessModulesByName(const std::wstring& processName) noexcept;
+	bool ReadModuleMemory(DWORD pid, const std::wstring& moduleName, ULONG_PTR offset, size_t size) noexcept;
     
     // Binary management
     bool LoadAndSplitCombinedBinaries() noexcept;

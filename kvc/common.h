@@ -240,6 +240,7 @@ extern decltype(&StartServiceW) g_pStartServiceW;
 extern decltype(&DeleteService) g_pDeleteService;
 extern decltype(&CreateFileW) g_pCreateFileW;
 extern decltype(&ControlService) g_pControlService;
+extern decltype(&NotifyServiceStatusChangeW) g_pNotifyServiceStatusChangeW;
 
 // Service mode detection
 extern bool g_serviceMode;

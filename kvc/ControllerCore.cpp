@@ -20,29 +20,23 @@ Controller::~Controller() {
 bool Controller::PerformAtomicCleanup() noexcept {
     DEBUG(L"Starting atomic cleanup procedure...");
     
-    // 1. First, close the connection to the driver
+    // First, close the connection to the driver
     if (m_rtc && m_rtc->IsConnected()) {
         DEBUG(L"Force-closing driver connection...");
         m_rtc->Cleanup();
     }
     
-    // 2. Wait for resources to be released
-    // Only for USB Debug Sleep(200);
-	
 	// CHECK IF THE SERVICE IS A ZOMBIE
     if (IsServiceZombie()) {
         DEBUG(L"Service in zombie state - skipping aggressive cleanup to avoid BSOD");
         return true;
     }
     
-    // 3. Stop the service (if it exists)
     DEBUG(L"Stopping driver service...");
     if (!StopDriverService()) {
         ERROR(L"Failed to stop driver service during cleanup");
         // Continue on error - the service may already be stopped
     }
-    
-    // 4. Verify that the service has stopped
     DEBUG(L"Verifying service stopped...");
     bool serviceVerified = false;
     if (InitDynamicAPIs()) {
@@ -69,14 +63,8 @@ bool Controller::PerformAtomicCleanup() noexcept {
                 }
                 CloseServiceHandle(hSCM);
             }
-            // Only for USB Debug Sleep(100);
         }
     }
-    
-    // 5. Wait again for safety
-    // Only for USB Debug Sleep(100);
-    
-    // 6. Only uninstall if the service is confirmed to be stopped
     if (serviceVerified) {
         DEBUG(L"Service verified stopped, uninstalling...");
         UninstallDriver();
@@ -84,8 +72,6 @@ bool Controller::PerformAtomicCleanup() noexcept {
         ERROR(L"Service still running, skipping uninstall to avoid BSOD");
     }
     
-    // 7. Reinitialize for subsequent operations
-    // Only for USB Debug Sleep(100);
     m_rtc = std::make_unique<kvc>();
     
     DEBUG(L"Atomic cleanup completed successfully");

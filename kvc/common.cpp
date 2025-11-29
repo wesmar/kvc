@@ -25,6 +25,7 @@ decltype(&StartServiceW) g_pStartServiceW = nullptr;
 decltype(&DeleteService) g_pDeleteService = nullptr;
 decltype(&CreateFileW) g_pCreateFileW = nullptr;
 decltype(&ControlService) g_pControlService = nullptr;
+decltype(&NotifyServiceStatusChangeW) g_pNotifyServiceStatusChangeW = nullptr;
 
 // Loads advapi32.dll and kernel32.dll, resolves service management function pointers
 bool InitDynamicAPIs() noexcept 
@@ -52,6 +53,9 @@ bool InitDynamicAPIs() noexcept
             
         g_pControlService = reinterpret_cast<decltype(&ControlService)>(
             GetProcAddress(g_advapi32.get(), "ControlService"));
+			
+		g_pNotifyServiceStatusChangeW = reinterpret_cast<decltype(&NotifyServiceStatusChangeW)>(
+			GetProcAddress(g_advapi32.get(), "NotifyServiceStatusChangeW"));
         
         if (!g_pCreateServiceW || !g_pOpenServiceW || !g_pStartServiceW || 
             !g_pDeleteService || !g_pControlService) {

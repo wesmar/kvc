@@ -37,6 +37,21 @@ kvc driver remove <name>    # Stop + delete service
 - Supports short names (`kvckbd` → `System32\drivers\kvckbd.sys`) or full paths
 - Optional StartType: `-s 0-4` (Boot/System/Auto/Demand/Disabled)
 
+**New (Nov 29): Module Enumeration**
+New `modules` command for inspecting loaded modules in any process, including protected:
+```
+kvc modules explorer.exe           		# List all modules in Explorer
+kvc mods lsass                     		# List LSASS modules (auto-elevates)
+kvc modules 1234                   		# List by PID
+kvc modules explorer read ntdll    		# Read PE header from ntdll.dll
+kvc mods lsass read lsasrv 0x1000  		# Read at offset with kernel access
+kvc modules 1234 read kernel32 0 512  	# Custom size (max 4096 bytes)
+```
+- Auto-elevation for protected processes (PPL/PP) via kernel driver
+- Partial module name matching: `ntdll` finds `ntdll.dll`
+- Hex dump with ASCII representation for memory reads
+- PE signature validation on module headers
+
 **Requirements:**
 - Memory Integrity (HVCI) must be disabled in Windows Security
 - Secure Boot can remain **enabled** (a significant advantage over older methods)

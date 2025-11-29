@@ -84,7 +84,8 @@ bool Controller::StopDriverService() noexcept {
         return false;
     }
 
-    SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), SERVICE_STOP | SERVICE_QUERY_STATUS);
+    SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), 
+                                         SERVICE_STOP | SERVICE_QUERY_STATUS);
     if (!hService) {
         DWORD err = GetLastError();
         CloseServiceHandle(hSCM);
@@ -112,22 +113,15 @@ bool Controller::StopDriverService() noexcept {
         return true;
     }
 
+    // Kernel drivers stop synchronously - no waiting required
     if (status.dwCurrentState == SERVICE_RUNNING) {
         if (!g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
             DWORD err = GetLastError();
-            CloseServiceHandle(hService);
-            CloseServiceHandle(hSCM);
-            DEBUG(L"ControlService failed: %d", err);
-            return false;
-        }
-
-        // Wait for service to stop (up to 5 seconds)
-        for (int i = 0; i < 50; i++) {
-            Sleep(100);
-            if (QueryServiceStatus(hService, &status)) {
-                if (status.dwCurrentState == SERVICE_STOPPED) {
-                    break;
-                }
+            if (err != ERROR_SERVICE_NOT_ACTIVE) {
+                DEBUG(L"ControlService failed: %d", err);
+                CloseServiceHandle(hService);
+                CloseServiceHandle(hSCM);
+                return false;
             }
         }
     }

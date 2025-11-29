@@ -24,6 +24,7 @@ public:
     static void PrintDSECommands() noexcept;
     static void PrintDriverCommands() noexcept;
     static void PrintBasicCommands() noexcept;
+    static void PrintModuleCommands() noexcept;
     static void PrintProcessTerminationCommands() noexcept;
     static void PrintProtectionCommands() noexcept;
     static void PrintSessionManagement() noexcept;

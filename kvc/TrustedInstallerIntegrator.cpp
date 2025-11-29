@@ -122,7 +122,8 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
     SC_HANDLE hSCManager = OpenSCManagerW(NULL, SERVICES_ACTIVE_DATABASE, SC_MANAGER_CONNECT);
     if (!hSCManager) return 0;
 
-    SC_HANDLE hService = OpenServiceW(hSCManager, L"TrustedInstaller", SERVICE_QUERY_STATUS | SERVICE_START);
+    SC_HANDLE hService = OpenServiceW(hSCManager, L"TrustedInstaller", 
+                                      SERVICE_QUERY_STATUS | SERVICE_START);
     if (!hService) {
         CloseServiceHandle(hSCManager);
         return 0;
@@ -130,36 +131,59 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
 
     SERVICE_STATUS_PROCESS statusBuffer;
     DWORD bytesNeeded;
-    const DWORD timeout = 3000;
-    DWORD startTime = GetTickCount();
+    
+    // Check initial state
+    if (!QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer, 
+                              sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded)) {
+        CloseServiceHandle(hService);
+        CloseServiceHandle(hSCManager);
+        return 0;
+    }
 
-    while (QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer, sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded))
-    {
-        if (statusBuffer.dwCurrentState == SERVICE_RUNNING) {
+    // Already running - return PID immediately
+    if (statusBuffer.dwCurrentState == SERVICE_RUNNING) {
+        DWORD pid = statusBuffer.dwProcessId;
+        CloseServiceHandle(hService);
+        CloseServiceHandle(hSCManager);
+        return pid;
+    }
+
+    // Service stopped - start it
+    if (statusBuffer.dwCurrentState == SERVICE_STOPPED) {
+        if (!StartServiceW(hService, 0, NULL)) {
             CloseServiceHandle(hService);
             CloseServiceHandle(hSCManager);
-            return statusBuffer.dwProcessId;
+            return 0;
         }
+    }
 
-        if (statusBuffer.dwCurrentState == SERVICE_STOPPED) {
-            if (!StartServiceW(hService, 0, NULL)) {
-                break;
-            }
+    // Check status immediately after start request
+    if (QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer,
+                             sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded)) {
+        if (statusBuffer.dwCurrentState == SERVICE_RUNNING) {
+            DWORD pid = statusBuffer.dwProcessId;
+            CloseServiceHandle(hService);
+            CloseServiceHandle(hSCManager);
+            return pid;
         }
+    }
 
-        if (GetTickCount() - startTime > timeout) {
-            break;
+    // Brief wait only if still starting (rare case)
+    Sleep(100);
+    
+    // Final status check
+    DWORD pid = 0;
+    if (QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer, 
+                             sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded)) {
+        if (statusBuffer.dwCurrentState == SERVICE_RUNNING) {
+            pid = statusBuffer.dwProcessId;
         }
-        
-        DWORD waitHint = statusBuffer.dwWaitHint > 0 ? statusBuffer.dwWaitHint : 100;
-        Sleep(waitHint);
     }
 
     CloseServiceHandle(hService);
     CloseServiceHandle(hSCManager);
-    return 0;
+    return pid;
 }
-
 HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken() 
 {
     DWORD currentTime = GetTickCount();

@@ -203,7 +203,6 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
                 if (QueryServiceStatus(hService, &status) && status.dwCurrentState == SERVICE_STOPPED) {
                     break;
                 }
-                Sleep(100);
             }
             CloseServiceHandle(hService);
             INFO(L"Existing service stopped");
@@ -326,7 +325,6 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
             CloseServiceHandle(hSCM);
             return true;
         }
-        Sleep(100);
     }
     
     ERROR(L"Service stop timed out");
