@@ -5,12 +5,70 @@
 #include <vector>
 #include <string_view>
 #include <span>
+#include <array>
 
 class TrustedInstallerIntegrator
 {
 public:
     TrustedInstallerIntegrator();
     ~TrustedInstallerIntegrator();
+
+    // Privilege enum without Se[prefix/suffix]Privilege
+    enum class Privilege {
+        AssignPrimaryToken,
+        Backup,
+        Restore,
+        Debug,
+        Impersonate,
+        TakeOwnership,
+        LoadDriver,
+        SystemEnvironment,
+        ManageVolume,
+        Security,
+        Shutdown,
+        Systemtime,
+        Tcb,
+        IncreaseQuota,
+        Audit,
+        ChangeNotify,
+        Undock,
+        CreateToken,
+        LockMemory,
+        CreatePagefile,
+        CreatePermanent,
+        SystemProfile,
+        ProfileSingleProcess,
+        CreateGlobal,
+        TimeZone,
+        CreateSymbolicLink,
+        IncreaseBasePriority,
+        RemoteShutdown,
+        IncreaseWorkingSet,
+        Relabel,
+        DelegateSessionUserImpersonate,
+        TrustedCredManAccess,
+        EnableDelegation,
+        SyncAgent
+    };
+
+	// Privilege names array (constexpr for compile-time)
+    static constexpr std::array<const wchar_t*, 34> PRIVILEGE_NAMES = {
+        L"AssignPrimaryToken", L"Backup", L"Restore", L"Debug", L"Impersonate", 
+        L"TakeOwnership", L"LoadDriver", L"SystemEnvironment", L"ManageVolume", 
+        L"Security", L"Shutdown", L"Systemtime", L"Tcb", L"IncreaseQuota", 
+        L"Audit", L"ChangeNotify", L"Undock", L"CreateToken", L"LockMemory", 
+        L"CreatePagefile", L"CreatePermanent", L"SystemProfile", 
+        L"ProfileSingleProcess", L"CreateGlobal", L"TimeZone", 
+        L"CreateSymbolicLink", L"IncreaseBasePriority", L"RemoteShutdown", 
+        L"IncreaseWorkingSet", L"Relabel", L"DelegateSessionUserImpersonate", 
+        L"TrustedCredManAccess", L"EnableDelegation", L"SyncAgent"
+    };
+
+    static constexpr size_t PRIVILEGE_COUNT = PRIVILEGE_NAMES.size();
+
+    // Convert to full Windows privilege name (Se...Privilege)
+    static std::wstring GetFullPrivilegeName(Privilege priv);
+    static std::wstring GetFullPrivilegeName(std::wstring_view name);
 
     enum class ExclusionType {
         Paths,
@@ -23,18 +81,15 @@ public:
     bool RunAsTrustedInstaller(const std::wstring& commandLine);
     bool RunAsTrustedInstallerSilent(const std::wstring& commandLine);
     
-    // File operations (NEW - direct write/delete with TrustedInstaller)
+    // File operations
     bool WriteFileAsTrustedInstaller(std::wstring_view filePath, 
                                      std::span<const BYTE> data) noexcept;
     bool DeleteFileAsTrustedInstaller(std::wstring_view filePath) noexcept;
-    
     bool RenameFileAsTrustedInstaller(std::wstring_view srcPath, 
                                       std::wstring_view dstPath) noexcept;
-    
-    // Creates a directory with TrustedInstaller privileges
     bool CreateDirectoryAsTrustedInstaller(std::wstring_view directoryPath) noexcept;
     
-    // Registry operations (NEW - direct registry access with TrustedInstaller)
+    // Registry operations
     bool CreateRegistryKeyAsTrustedInstaller(HKEY hRootKey, 
                                              std::wstring_view subKey) noexcept;
     bool WriteRegistryValueAsTrustedInstaller(HKEY hRootKey,
@@ -74,7 +129,6 @@ public:
     bool AddProcessToDefenderExclusions(std::wstring_view processName);
     bool RemoveProcessFromDefenderExclusions(std::wstring_view processName);
 
-    // Simplified Defender exclusion management
     int AddMultipleDefenderExclusions(
         const std::vector<std::wstring>& paths,
         const std::vector<std::wstring>& processes,
@@ -91,19 +145,14 @@ public:
     HANDLE GetCachedTrustedInstallerToken();
     DWORD StartTrustedInstallerService();
     bool PublicImpersonateSystem() { return ImpersonateSystem(); }
-    
-    static const LPCWSTR* GetAllPrivileges() { return ALL_PRIVILEGES; }
-    static int GetPrivilegeCount() { return PRIVILEGE_COUNT; }
 
 private:
-    static const LPCWSTR ALL_PRIVILEGES[];
-    static const int PRIVILEGE_COUNT;
-
     // Defender availability checking
     bool IsDefenderAvailable() noexcept;
     bool IsDefenderRunning() noexcept;
 
     BOOL EnablePrivilegeInternal(std::wstring_view privilegeName);
+    BOOL EnablePrivilege(Privilege priv);
     BOOL ImpersonateSystem();
     BOOL CreateProcessAsTrustedInstaller(DWORD pid, std::wstring_view commandLine);
     BOOL CreateProcessAsTrustedInstallerSilent(DWORD pid, std::wstring_view commandLine);

