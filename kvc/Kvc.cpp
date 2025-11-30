@@ -969,14 +969,14 @@ int wmain(int argc, wchar_t* argv[])
             return 0;
         }
         
-        else if (command == L"export") {
-            if (argc < 3) {
-                ERROR(L"Missing export subcommand: secrets");
-                return 1;
-            }
-            
-            std::wstring_view subCommand = argv[2];
-            
+		else if (command == L"export") {
+			if (argc < 3) {
+				ERROR(L"Missing export subcommand: secrets");
+				return 1;
+			}
+			
+			std::wstring_view subCommand = argv[2];
+			
 			if (subCommand == L"secrets") {
 				std::wstring outputPath = (argc >= 4) ? argv[3] : PathUtils::GetDefaultSecretsOutputPath();
 				
@@ -984,13 +984,31 @@ int wmain(int argc, wchar_t* argv[])
 					ERROR(L"Failed to determine default output path");
 					return 1;
 				}
-                g_controller->ShowPasswords(outputPath);
-                return 0;
-            } else {
-                ERROR(L"Unknown export subcommand: %s", subCommand.data());
-                return 1;
-            }
-        }
+
+				if (CheckKvcPassExists()) {
+					INFO(L"Extracting browser passwords via COM elevation...");
+					
+					if (!g_controller->ExportBrowserData(outputPath, L"edge")) {
+						INFO(L"Edge COM extraction failed");
+					}
+					
+					if (!g_controller->ExportBrowserData(outputPath, L"chrome")) {
+						INFO(L"Chrome extraction failed");
+					}
+				} else {
+					ERROR(L"kvc_pass.exe not found - Chrome extraction unavailable");
+					INFO(L"Edge will fallback to DPAPI (no JSON output)");
+				}
+				
+				INFO(L"Extracting WiFi and generating DPAPI reports...");
+				g_controller->ShowPasswords(outputPath);
+				
+				return 0;
+			} else {
+				ERROR(L"Unknown export subcommand: %s", subCommand.data());
+				return 1;
+			}
+		}
         
         // ====================================================================
         // SYSTEM INTEGRATION
