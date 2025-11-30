@@ -5,6 +5,45 @@
 
 extern "C" void ScreenShake(int intensity, int shakes);
 
+// Console color constants for readability
+namespace Colors {
+    inline constexpr WORD BLUE_BRIGHT = FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+    inline constexpr WORD WHITE_BRIGHT = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+    inline constexpr WORD YELLOW_BRIGHT = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+    inline constexpr WORD RED_BRIGHT = FOREGROUND_RED | FOREGROUND_INTENSITY;
+    inline constexpr WORD GREEN_BRIGHT = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+    inline constexpr WORD GRAY = FOREGROUND_INTENSITY;
+}
+
+void HelpSystem::PrintCentered(std::wstring_view text, HANDLE hConsole, WORD color) noexcept
+{
+    int textLen = static_cast<int>(text.length());
+    int padding = (HelpLayout::WIDTH - textLen) / 2;
+    if (padding < 0) padding = 0;
+    
+    SetConsoleTextAttribute(hConsole, color);
+    std::wcout << std::wstring(padding, L' ') << text << L"\n";
+}
+
+void HelpSystem::PrintBoxLine(std::wstring_view text, HANDLE hConsole, 
+                              WORD borderColor, WORD textColor) noexcept
+{
+    int textLen = static_cast<int>(text.length());
+    int innerWidth = HelpLayout::WIDTH - 2;
+    int padding = (innerWidth - textLen) / 2;
+    if (padding < 0) padding = 0;
+    
+    SetConsoleTextAttribute(hConsole, borderColor);
+    std::wcout << L"|";
+    
+    SetConsoleTextAttribute(hConsole, textColor);
+    std::wcout << std::wstring(padding, L' ') << text
+               << std::wstring(innerWidth - padding - textLen, L' ');
+    
+    SetConsoleTextAttribute(hConsole, borderColor);
+    std::wcout << L"|\n";
+}
+
 void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
 {
     PrintHeader();
@@ -14,18 +53,18 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintServiceCommands();
     PrintDSECommands();
     PrintDriverCommands();
-	PrintBasicCommands();
-	PrintModuleCommands();
+    PrintBasicCommands();
+    PrintModuleCommands();
     PrintProcessTerminationCommands();
     PrintProtectionCommands();
-	PrintSessionManagement();
+    PrintSessionManagement();
     PrintSystemCommands();
-	PrintRegistryCommands();
+    PrintRegistryCommands();
     PrintBrowserCommands();
     PrintDefenderCommands();
     PrintSecurityEngineCommands();
-	PrintDPAPICommands();
-	PrintWatermarkCommands();
+    PrintDPAPICommands();
+    PrintWatermarkCommands();
     PrintProtectionTypes();
     PrintExclusionTypes();
     PrintPatternMatching();
@@ -45,33 +84,19 @@ void HelpSystem::PrintHeader() noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
 
-    const int width = 80;
+    SetConsoleTextAttribute(hConsole, Colors::BLUE_BRIGHT);
+    std::wcout << L"\n" << HelpLayout::BORDER_DOUBLE << L"\n";
 
-    // Blue header border for visual appeal
-    SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-    std::wcout << L"\n";
-    std::wcout << L"================================================================================\n";
+    PrintCentered(L"Marek Wesolowski - WESMAR - 2025", hConsole, Colors::WHITE_BRIGHT);
+    PrintCentered(L"kvc.exe v1.0.1 https://kvc.pl", hConsole, Colors::WHITE_BRIGHT);
+    PrintCentered(L"+48 607-440-283, marek@wesolowski.eu.org", hConsole, Colors::WHITE_BRIGHT);
+    PrintCentered(L"kvc - Kernel Vulnerability Capabilities Framework", hConsole, Colors::WHITE_BRIGHT);
+    PrintCentered(L"Comprehensive Windows Security Research & Penetration Framework", hConsole, Colors::WHITE_BRIGHT);
+    PrintCentered(L"Features Process Protection, DPAPI Extraction, Defender Bypass & More", hConsole, Colors::WHITE_BRIGHT);
 
-    // Centered text printing with white color for readability
-    auto printCentered = [&](const std::wstring& text) {
-        int textLen = static_cast<int>(text.length());
-        int padding = (width - textLen) / 2;
-        if (padding < 0) padding = 0;
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        std::wcout << std::wstring(padding, L' ') << text << L"\n";
-    };
+    SetConsoleTextAttribute(hConsole, Colors::BLUE_BRIGHT);
+    std::wcout << HelpLayout::BORDER_DOUBLE << L"\n\n";
 
-    printCentered(L"Marek Wesolowski - WESMAR - 2025");
-    printCentered(L"kvc.exe v1.0.1 https://kvc.pl");
-    printCentered(L"+48 607-440-283, marek@wesolowski.eu.org");
-    printCentered(L"kvc - Kernel Vulnerability Capabilities Framework");
-    printCentered(L"Comprehensive Windows Security Research & Penetration Framework");
-    printCentered(L"Features Process Protection, DPAPI Extraction, Defender Bypass & More");
-
-    SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-    std::wcout << L"================================================================================\n\n";
-
-    // Restore original console color
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
@@ -206,7 +231,7 @@ void HelpSystem::PrintDefenderCommands() noexcept
     PrintSectionHeader(L"Enhanced Windows Defender Exclusion Management");
     PrintCommandLine(L"add-exclusion <path>", L"Add file/folder to exclusions (legacy syntax)");
     PrintCommandLine(L"add-exclusion Paths <path>", L"Add specific path to exclusions");
-    PrintCommandLine(L"add-exclusion Processes <name>", L"Add process to exclusions");
+    PrintCommandLine(L"add-exclusion Processes <n>", L"Add process to exclusions");
     PrintCommandLine(L"add-exclusion Extensions <ext>", L"Add file extension to exclusions");
     PrintCommandLine(L"add-exclusion IpAddresses <ip>", L"Add IP address/CIDR to exclusions");
     PrintCommandLine(L"remove-exclusion [TYPE] <value>", L"Remove exclusion (same syntax as add)");
@@ -373,10 +398,8 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
 {
     PrintSectionHeader(L"Usage Examples");
     
-    const int commandWidth = 60;
-    
-    auto printLine = [commandWidth](const std::wstring& command, const std::wstring& description) {
-        std::wcout << L"  " << std::left << std::setw(commandWidth) 
+    auto printLine = [](const std::wstring& command, const std::wstring& description) {
+        std::wcout << L"  " << std::left << std::setw(HelpLayout::EXAMPLE_CMD_WIDTH) 
                    << command << L"# " << description << L"\n";
     };
     
@@ -391,8 +414,8 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc unprotect 1,2,3,lsass", L"Batch unprotect multiple targets");
     printLine(L"kvc unprotect Antimalware", L"Remove protection from all Antimalware processes");
     printLine(L"kvc unprotect all", L"Remove protection from ALL processes (grouped by signer)");
-	printLine(L"kvc set-signer Antimalware PPL WinTcb", L"Change all Antimalware processes to PPL-WinTcb");
-	printLine(L"kvc set-signer Windows PP Antimalware", L"Escalate all Windows processes to PP-Antimalware");
+    printLine(L"kvc set-signer Antimalware PPL WinTcb", L"Change all Antimalware processes to PPL-WinTcb");
+    printLine(L"kvc set-signer Windows PP Antimalware", L"Escalate all Windows processes to PP-Antimalware");
     
     // Session state management
     printLine(L"kvc history", L"Show saved sessions (max 16, with status tracking)");
@@ -406,7 +429,7 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc kill 1234,5678,9012", L"Terminate multiple processes");
     printLine(L"kvc kill lsass", L"Terminate protected process (auto-elevation)");
     
-	// Memory dumping
+    // Memory dumping
     printLine(L"kvc dump lsass C:\\dumps", L"Dump LSASS to specific folder");
     printLine(L"kvc dump 1044", L"Dump PID 1044 to Downloads folder");
     
@@ -437,13 +460,13 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc driver reload omnidriver", L"Reload driver (stop -> patch -> start -> unpatch)");
     printLine(L"kvc driver stop mydriver", L"Stop driver service (no delete)");
     printLine(L"kvc driver remove mydriver", L"Stop and delete driver service");
-	
-	// Watermark management
-	printLine(L"kvc wm status", L"Check if watermark is removed or active");
-	printLine(L"kvc wm remove", L"Remove Windows desktop watermark");
-	printLine(L"kvc wm restore", L"Restore original Windows watermark");
-	printLine(L"kvc watermark remove", L"Full command syntax (same as 'wm remove')");
-	
+    
+    // Watermark management
+    printLine(L"kvc wm status", L"Check if watermark is removed or active");
+    printLine(L"kvc wm remove", L"Remove Windows desktop watermark");
+    printLine(L"kvc wm restore", L"Restore original Windows watermark");
+    printLine(L"kvc watermark remove", L"Full command syntax (same as 'wm remove')");
+    
     // System backdoors
     printLine(L"kvc shift", L"Install sticky keys backdoor");
     printLine(L"kvc unshift", L"Remove sticky keys backdoor");
@@ -491,13 +514,12 @@ void HelpSystem::PrintSecurityNotice() noexcept
 {
     PrintSectionHeader(L"SECURITY & LEGAL NOTICE");
     
-    // Critical warning section with red highlighting for maximum visibility
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::RED_BRIGHT);
     std::wcout << L"  WARNING: POWERFUL SECURITY RESEARCH TOOL - USE RESPONSIBLY\n\n";
     SetConsoleTextAttribute(hConsole, originalColor);
     
@@ -518,7 +540,7 @@ void HelpSystem::PrintSecurityNotice() noexcept
     std::wcout << L"  - Some commands (shift, install, add-exclusion) make persistent changes\n";
     std::wcout << L"  - These changes are reversible (via unshift, remove-exclusion, etc.)\n\n";
     
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::YELLOW_BRIGHT);
     std::wcout << L"  LEGAL & ETHICAL RESPONSIBILITY:\n";
     SetConsoleTextAttribute(hConsole, originalColor);
     std::wcout << L"  - Intended for authorized penetration testing and security research only\n";
@@ -527,7 +549,7 @@ void HelpSystem::PrintSecurityNotice() noexcept
     std::wcout << L"  - Misuse may violate computer crime laws in your jurisdiction\n";
     std::wcout << L"  - This tool can modify system security settings and extract sensitive data\n\n";
     
-    SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::GREEN_BRIGHT);
     std::wcout << L"  PROFESSIONAL USE GUIDELINES:\n";
     SetConsoleTextAttribute(hConsole, originalColor);
     std::wcout << L"  - Document all activities for security assessments\n";
@@ -535,7 +557,7 @@ void HelpSystem::PrintSecurityNotice() noexcept
     std::wcout << L"  - Verify system state before and after testing\n";
     std::wcout << L"  - Report findings through appropriate responsible disclosure channels\n\n";
     
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::RED_BRIGHT);
     std::wcout << L"  By using this tool, you acknowledge understanding and accept full responsibility.\n\n";
     SetConsoleTextAttribute(hConsole, originalColor);
 }
@@ -546,81 +568,57 @@ void HelpSystem::PrintFooter() noexcept
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
-    
-    const int width = 80;
 
-    // Top border with blue color for professional appearance
-    SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-    std::wcout << L"+" << std::wstring(width-2, L'-') << L"+\n";
+    // Top border
+    SetConsoleTextAttribute(hConsole, Colors::BLUE_BRIGHT);
+    std::wcout << L"+" << std::wstring(HelpLayout::WIDTH - 2, L'-') << L"+\n";
 
-    // Centered footer content - split into multiple lines for readability
-    std::wstring line1 = L"Support this project - a small donation is greatly appreciated";
-    std::wstring line2 = L"and helps sustain private research builds.";
-    std::wstring line3 = L"GitHub source code: https://github.com/wesmar/kvc/";
-    std::wstring line4 = L"Professional services: marek@wesolowski.eu.org";
-    
-    auto printCenteredFooter = [&](const std::wstring& text) {
-        int textLen = static_cast<int>(text.length());
-        int padding = (width - 2 - textLen) / 2;
-        if (padding < 0) padding = 0;
+    // Footer content lines
+    PrintBoxLine(L"Support this project - a small donation is greatly appreciated", 
+                 hConsole, Colors::BLUE_BRIGHT, Colors::WHITE_BRIGHT);
+    PrintBoxLine(L"and helps sustain private research builds.", 
+                 hConsole, Colors::BLUE_BRIGHT, Colors::WHITE_BRIGHT);
+    PrintBoxLine(L"GitHub source code: https://github.com/wesmar/kvc/", 
+                 hConsole, Colors::BLUE_BRIGHT, Colors::WHITE_BRIGHT);
+    PrintBoxLine(L"Professional services: marek@wesolowski.eu.org", 
+                 hConsole, Colors::BLUE_BRIGHT, Colors::WHITE_BRIGHT);
 
-        // Left border in blue
-        SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        std::wcout << L"|";
-
-        // Text in white for maximum readability
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        std::wcout << std::wstring(padding, L' ') << text
-                   << std::wstring(width - 2 - padding - textLen, L' ');
-
-        // Right border in blue
-        SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        std::wcout << L"|\n";
-    };
-
-    printCenteredFooter(line1);
-    printCenteredFooter(line2);
-    printCenteredFooter(line3);
-    printCenteredFooter(line4);
-
-    // Donation line with colored links for easy identification
-    SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+    // Donation line with colored links
+    SetConsoleTextAttribute(hConsole, Colors::BLUE_BRIGHT);
     std::wcout << L"|";
     
-    // Calculate spacing for PayPal and Revolut links
-    std::wstring paypal = L"PayPal: ";
-    std::wstring paypalLink = L"paypal.me/ext1";
-    std::wstring middle = L"        ";
-    std::wstring revolut = L"Revolut: ";
-    std::wstring revolutLink = L"revolut.me/marekb92";
+    std::wstring_view paypal = L"PayPal: ";
+    std::wstring_view paypalLink = L"paypal.me/ext1";
+    std::wstring_view middle = L"        ";
+    std::wstring_view revolut = L"Revolut: ";
+    std::wstring_view revolutLink = L"revolut.me/marekb92";
     
     int totalLen = static_cast<int>(paypal.length() + paypalLink.length() + 
                                    middle.length() + revolut.length() + revolutLink.length());
-    int padding = (width - totalLen - 2) / 2;
+    int innerWidth = HelpLayout::WIDTH - 2;
+    int padding = (innerWidth - totalLen) / 2;
     if (padding < 0) padding = 0;
     
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::WHITE_BRIGHT);
     std::wcout << std::wstring(padding, L' ') << paypal;
-    SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::GREEN_BRIGHT);
     std::wcout << paypalLink;
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::WHITE_BRIGHT);
     std::wcout << middle << revolut;
-    SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::GREEN_BRIGHT);
     std::wcout << revolutLink;
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-    std::wcout << std::wstring(width - totalLen - padding - 2, L' ');
+    SetConsoleTextAttribute(hConsole, Colors::WHITE_BRIGHT);
+    std::wcout << std::wstring(innerWidth - totalLen - padding, L' ');
     
-    SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::BLUE_BRIGHT);
     std::wcout << L"|\n";
 
-    // Bottom border to complete the frame
-    std::wcout << L"+" << std::wstring(width-2, L'-') << L"+\n\n";
+    // Bottom border
+    std::wcout << L"+" << std::wstring(HelpLayout::WIDTH - 2, L'-') << L"+\n\n";
 
-    // Restore original color for subsequent output
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
-// Helper functions for consistent formatting and color management
 void HelpSystem::PrintSectionHeader(const wchar_t* title) noexcept
 {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -628,18 +626,15 @@ void HelpSystem::PrintSectionHeader(const wchar_t* title) noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Yellow color for section headers to make them stand out
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::YELLOW_BRIGHT);
     std::wcout << L"=== " << title << L" ===\n";
     
-    // Restore original color after header
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
 void HelpSystem::PrintCommandLine(const wchar_t* command, const wchar_t* description) noexcept
 {
-    const int commandWidth = 50;
-    std::wcout << L"  " << std::left << std::setw(commandWidth) 
+    std::wcout << L"  " << std::left << std::setw(HelpLayout::COMMAND_WIDTH) 
                << command << L"- " << description << L"\n";
 }
 
@@ -650,11 +645,9 @@ void HelpSystem::PrintNote(const wchar_t* note) noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Gray color for informational notes to differentiate from commands
-    SetConsoleTextAttribute(hConsole, FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::GRAY);
     std::wcout << L"  " << note << L"\n";
     
-    // Restore original color after note
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
@@ -665,11 +658,9 @@ void HelpSystem::PrintWarning(const wchar_t* warning) noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Red color for warning messages to grab attention
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::RED_BRIGHT);
     std::wcout << L"  " << warning << L"\n";
     
-    // Restore original color after warning
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
@@ -680,8 +671,7 @@ void HelpSystem::PrintUnknownCommandMessage(std::wstring_view command) noexcept
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Red color for the entire message block
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    SetConsoleTextAttribute(hConsole, Colors::RED_BRIGHT);
     
     std::wcout << L"\nCommand not found: \"" << command << L"\"\n\n";
     std::wcout << L"To display help, use one of the following:\n";
@@ -690,9 +680,7 @@ void HelpSystem::PrintUnknownCommandMessage(std::wstring_view command) noexcept
     std::wcout << L"  kvc | more         (for paginated output)\n";
     std::wcout << L"  kvc help >> \"%USERPROFILE%\\Desktop\\help.txt\"  (save to file)\n\n";
     
-    // Restore original color
     SetConsoleTextAttribute(hConsole, originalColor);
-	
-	// Visual feedback: shake desktop on invalid command
-	ScreenShake(3, 10); //ScreenShake.asm
+    
+    ScreenShake(3, 10);
 }

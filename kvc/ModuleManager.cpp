@@ -7,22 +7,39 @@
 #include <tlhelp32.h>
 #include <iomanip>
 #include <algorithm>
+#include <sstream>
 
-// Enumerate all loaded modules in target process using Toolhelp32 snapshot
+// Console color codes for visual formatting
+namespace Colors {
+    inline constexpr const wchar_t* YELLOW = L"\033[93m";
+    inline constexpr const wchar_t* CYAN = L"\033[96m";
+    inline constexpr const wchar_t* GREEN = L"\033[92m";
+    inline constexpr const wchar_t* GRAY = L"\033[90m";
+    inline constexpr const wchar_t* RESET = L"\033[0m";
+}
+
+// Pre-computed table header separator line
+namespace {
+    inline const std::wstring HEADER_SEPARATOR = []() {
+        std::wostringstream ss;
+        ss << std::wstring(ModuleTable::Columns::NAME, L'=') << L' '
+           << std::wstring(ModuleTable::Columns::ADDR, L'=') << L' '
+           << std::wstring(ModuleTable::Columns::SIZE, L'=');
+        return ss.str();
+    }();
+}
+
 std::vector<ModuleInfo> ModuleManager::EnumerateModules(DWORD pid) noexcept
 {
     std::vector<ModuleInfo> modules;
     
-    // Create module snapshot for target process
     HANDLE hModuleSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
-	if (hModuleSnap == INVALID_HANDLE_VALUE) {
-        // Return empty vector silently - caller handles elevation and error reporting
+    if (hModuleSnap == INVALID_HANDLE_VALUE) {
         return modules;
     }
     
     MODULEENTRY32W me32 = { sizeof(MODULEENTRY32W) };
     
-    // Iterate through all modules in the snapshot
     if (Module32FirstW(hModuleSnap, &me32)) {
         do {
             ModuleInfo info;
@@ -46,19 +63,18 @@ std::vector<ModuleInfo> ModuleManager::EnumerateModules(DWORD pid) noexcept
     return modules;
 }
 
-// Find specific module by name (case-insensitive partial match)
 std::optional<ModuleInfo> ModuleManager::FindModule(DWORD pid, const std::wstring& moduleName) noexcept
 {
     auto modules = EnumerateModules(pid);
     
-    // First try exact match
+    // First pass: exact match
     for (const auto& mod : modules) {
         if (_wcsicmp(mod.name.c_str(), moduleName.c_str()) == 0) {
             return mod;
         }
     }
     
-    // Then try partial match
+    // Second pass: partial match with lowercase comparison
     std::wstring searchLower = moduleName;
     std::transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::towlower);
     
@@ -74,7 +90,6 @@ std::optional<ModuleInfo> ModuleManager::FindModule(DWORD pid, const std::wstrin
     return std::nullopt;
 }
 
-// Display formatted module list with color-coded output
 void ModuleManager::PrintModuleList(const std::vector<ModuleInfo>& modules) noexcept
 {
     if (modules.empty()) {
@@ -87,42 +102,42 @@ void ModuleManager::PrintModuleList(const std::vector<ModuleInfo>& modules) noex
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     WORD originalColor = csbi.wAttributes;
     
-    // Print header
+    // Table header
     SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
     std::wcout << L"\n";
-    std::wcout << std::left << std::setw(36) << L"Module Name" 
-               << std::right << std::setw(18) << L"Base Address" 
-               << std::setw(14) << L"Size" << L"\n";
+    std::wcout << std::left << std::setw(ModuleTable::Columns::NAME) << L"Module Name" 
+               << std::right << std::setw(ModuleTable::Columns::ADDR) << L"Base Address" 
+               << std::setw(ModuleTable::Columns::SIZE) << L"Size" << L"\n";
     
+    // Header separator
     SetConsoleTextAttribute(hConsole, FOREGROUND_INTENSITY);
-    std::wcout << std::wstring(68, L'=') << L"\n";
+    std::wcout << HEADER_SEPARATOR << L"\n";
     
     SetConsoleTextAttribute(hConsole, originalColor);
     
-    // Print each module entry
+    // Module entries
     for (const auto& mod : modules) {
-        // Truncate long names for clean formatting
+        // Truncate long names for clean alignment
         std::wstring displayName = mod.name;
-        if (displayName.length() > 34) {
-            displayName = displayName.substr(0, 31) + L"...";
+        if (displayName.length() > ModuleTable::Columns::NAME - 2) {
+            displayName = displayName.substr(0, ModuleTable::Columns::NAME - 5) + L"...";
         }
         
-        std::wcout << std::left << std::setw(36) << displayName;
+        std::wcout << std::left << std::setw(ModuleTable::Columns::NAME) << displayName;
         
         // Base address in cyan for visibility
         SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-		std::wcout << L"0x" << std::hex << std::setfill(L'0') << std::setw(16) 
+        std::wcout << L"0x" << std::hex << std::setfill(L'0') << std::setw(16) 
                    << mod.baseAddress << std::dec << std::setfill(L' ') << L"  ";
         
         SetConsoleTextAttribute(hConsole, originalColor);
-        std::wcout << std::setw(14) << FormatSize(mod.size) << L"\n";
+        std::wcout << std::setw(ModuleTable::Columns::SIZE) << FormatSize(mod.size) << L"\n";
     }
     
     std::wcout << L"\n";
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
-// Display hex dump with address offsets and ASCII representation
 void ModuleManager::PrintHexDump(const unsigned char* buffer, size_t size, ULONG_PTR baseAddress) noexcept
 {
     if (!buffer || size == 0) {
@@ -137,7 +152,7 @@ void ModuleManager::PrintHexDump(const unsigned char* buffer, size_t size, ULONG
     
     std::wcout << L"\n";
     
-    // Print in 16-byte rows with address, hex values, and ASCII
+    // Process 16-byte rows with address, hex values, and ASCII representation
     for (size_t i = 0; i < size; i += 16) {
         // Address column
         SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
@@ -152,7 +167,8 @@ void ModuleManager::PrintHexDump(const unsigned char* buffer, size_t size, ULONG
         }
         
         // Padding for incomplete rows
-        for (size_t j = (size - i < 16 ? size - i : 16); j < 16; j++) {
+        size_t remaining = (size - i < 16) ? (size - i) : 16;
+        for (size_t j = remaining; j < 16; j++) {
             std::wcout << L"   ";
         }
         
@@ -170,14 +186,12 @@ void ModuleManager::PrintHexDump(const unsigned char* buffer, size_t size, ULONG
     SetConsoleTextAttribute(hConsole, originalColor);
 }
 
-// Check for valid PE signature (MZ header)
 bool ModuleManager::ValidatePESignature(const unsigned char* buffer, size_t size) noexcept
 {
     if (!buffer || size < 2) return false;
     return (buffer[0] == 'M' && buffer[1] == 'Z');
 }
 
-// Format byte size to human-readable string (KB, MB)
 std::wstring ModuleManager::FormatSize(DWORD size) noexcept
 {
     wchar_t buf[32];

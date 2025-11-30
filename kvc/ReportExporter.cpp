@@ -7,8 +7,98 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <array>
+#include <string_view>
 
 namespace fs = std::filesystem;
+
+// CSS styling definitions as structured data for maintainability and reduced binary footprint
+namespace HTMLStyles {
+    struct StyleRule {
+        std::string_view selector;
+        std::string_view properties;
+    };
+    
+    // Core layout and typography styles
+    static constexpr std::array BASE_STYLES = {
+        StyleRule{ "*", "box-sizing:border-box" },
+        StyleRule{ "body", "font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;margin:0;padding:20px;background:#f0f2f5;color:#333" },
+        StyleRule{ ".container", "max-width:100%;margin:0 auto;background:white;padding:25px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.1)" },
+        StyleRule{ "h1", "color:#2c3e50;border-bottom:3px solid #3498db;padding-bottom:15px;margin-top:0;font-size:28px" },
+    };
+    
+    // Summary and info box styles
+    static constexpr std::array SUMMARY_STYLES = {
+        StyleRule{ ".summary", "background:#e8f4fd;padding:20px;border-radius:8px;margin:25px 0;border-left:5px solid #3498db" },
+        StyleRule{ ".summary strong", "color:#2980b9" },
+    };
+    
+    // Table layout and formatting styles
+    static constexpr std::array TABLE_STYLES = {
+        StyleRule{ "table", "width:100%;border-collapse:collapse;margin:25px 0;table-layout:fixed" },
+        StyleRule{ "th,td", "padding:14px;text-align:left;border:1px solid #ddd;word-wrap:break-word" },
+        StyleRule{ "th", "background:#f8f9fa;font-weight:bold;color:#2c3e50;position:sticky;top:0" },
+        StyleRule{ "tr:nth-child(even)", "background:#f9f9f9" },
+        StyleRule{ "tr:hover", "background:#f0f8ff" },
+    };
+    
+    // Data presentation styles
+    static constexpr std::array DATA_STYLES = {
+        StyleRule{ ".password", "background:#ffe6e6;font-family:'Consolas',monospace;font-size:14px" },
+        StyleRule{ ".status-decrypted", "color:#27ae60;font-weight:bold" },
+        StyleRule{ ".status-extracted", "color:#ffc107;font-weight:bold" },
+        StyleRule{ ".hex-data", "font-family:'Consolas','Monaco',monospace;font-size:11px;word-break:break-all;background:#f8f9fa;padding:4px 8px;border-radius:4px" },
+    };
+    
+    // Color-coded category indicators
+    static constexpr std::array CATEGORY_STYLES = {
+        StyleRule{ ".chrome", "border-left:5px solid #4285f4" },
+        StyleRule{ ".edge", "border-left:5px solid #0078d4" },
+        StyleRule{ ".wifi", "border-left:5px solid #ff6b35" },
+        StyleRule{ ".masterkey", "border-left:5px solid #9b59b6" },
+        StyleRule{ ".section-title", "font-size:20px;color:#2c3e50;margin:30px 0 15px 0;padding-bottom:10px;border-bottom:2px solid #3498db" },
+    };
+    
+    // Build minified CSS from all style arrays
+    inline std::string BuildCSS() {
+        std::ostringstream css;
+        
+        auto appendStyles = [&css](const auto& styles) {
+            for (const auto& rule : styles) {
+                css << rule.selector << "{" << rule.properties << "}";
+            }
+        };
+        
+        appendStyles(BASE_STYLES);
+        appendStyles(SUMMARY_STYLES);
+        appendStyles(TABLE_STYLES);
+        appendStyles(DATA_STYLES);
+        appendStyles(CATEGORY_STYLES);
+        
+        return css.str();
+    }
+}
+
+// Table column width definitions for HTML generation
+namespace TableWidths {
+    // Master keys table
+    static constexpr std::array MASTER_KEYS = { "15%", "40%", "40%", "5%" };
+    static constexpr std::array<std::string_view, 4> MASTER_KEYS_HEADERS = { 
+        "Key Type", "Raw Data (Hex)", "Processed Data (Hex)", "Status" 
+    };
+    
+    // Browser passwords table
+    static constexpr std::array PASSWORDS = { "15%", "15%", "25%", "15%", "20%", "10%" };
+    static constexpr std::array<std::string_view, 6> PASSWORDS_HEADERS = {
+        "Browser", "Profile", "URL", "Username", "Password", "Status"
+    };
+    
+    // WiFi credentials table
+    static constexpr std::array WIFI = { "30%", "40%", "15%", "15%" };
+    static constexpr std::array<std::string_view, 4> WIFI_HEADERS = {
+        "Network Name", "Password", "Type", "Status"
+    };
+}
 
 // ReportData implementation with automatic statistics calculation
 ReportData::ReportData(const std::vector<PasswordResult>& results, 
@@ -16,9 +106,8 @@ ReportData::ReportData(const std::vector<PasswordResult>& results,
                        const std::wstring& path)
     : passwordResults(results), masterKeys(keys), outputPath(path)
 {
-    // Generate timestamp for report
-std::wstring wts = TimeUtils::GetFormattedTimestamp("datetime_display");
-timestamp = StringUtils::WideToUTF8(wts);
+    std::wstring wts = TimeUtils::GetFormattedTimestamp("datetime_display");
+    timestamp = StringUtils::WideToUTF8(wts);
     
     CalculateStatistics();
 }
@@ -28,7 +117,6 @@ void ReportData::CalculateStatistics()
     stats = Stats{};
     stats.masterKeyCount = static_cast<int>(masterKeys.size());
     
-    // Count passwords by type
     for (const auto& result : passwordResults) {
         if (!result.password.empty()) {
             stats.totalPasswords++;
@@ -43,7 +131,6 @@ void ReportData::CalculateStatistics()
     }
 }
 
-// Professional report export in multiple formats
 bool ReportExporter::ExportAllFormats(const ReportData& data) noexcept
 {
     INFO(L"Generating comprehensive password reports...");
@@ -108,7 +195,6 @@ void ReportExporter::DisplaySummary(const ReportData& data) noexcept
     std::wcout << L"\n";
 }
 
-// HTML content generation with modern styling
 std::string ReportExporter::GenerateHTMLContent(const ReportData& data) noexcept
 {
     std::ostringstream html;
@@ -130,36 +216,10 @@ std::string ReportExporter::BuildHTMLHeader(const ReportData& data) noexcept
     header << "<!DOCTYPE html>\n<html>\n<head>\n";
     header << "    <meta charset=\"utf-8\">\n";
     header << "    <title>kvc DPAPI Extraction Results - Kernel Vulnerability Capabilities Framework by WESMAR</title>\n";
-    header << "    <style>\n";
-    
-    // Modern CSS styling
-    header << "        * { box-sizing: border-box; }\n";
-    header << "        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f0f2f5; color: #333; }\n";
-    header << "        .container { max-width: 100%; margin: 0 auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }\n";
-    header << "        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; margin-top: 0; font-size: 28px; }\n";
-    header << "        .summary { background: #e8f4fd; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 5px solid #3498db; }\n";
-    header << "        .summary strong { color: #2980b9; }\n";
-    header << "        table { width: 100%; border-collapse: collapse; margin: 25px 0; table-layout: fixed; }\n";
-    header << "        th, td { padding: 14px; text-align: left; border: 1px solid #ddd; word-wrap: break-word; }\n";
-    header << "        th { background: #f8f9fa; font-weight: bold; color: #2c3e50; position: sticky; top: 0; }\n";
-    header << "        tr:nth-child(even) { background: #f9f9f9; }\n";
-    header << "        tr:hover { background: #f0f8ff; }\n";
-    header << "        .password { background: #ffe6e6; font-family: 'Consolas', monospace; font-size: 14px; }\n";
-    header << "        .status-decrypted { color: #27ae60; font-weight: bold; }\n";
-    header << "        .status-extracted { color: #ffc107; font-weight: bold; }\n";
-    header << "        .hex-data { font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; word-break: break-all; background: #f8f9fa; padding: 4px 8px; border-radius: 4px; }\n";
-    
-    // Color coding for different data types
-    header << "        .chrome { border-left: 5px solid #4285f4; }\n";
-    header << "        .edge { border-left: 5px solid #0078d4; }\n";
-    header << "        .wifi { border-left: 5px solid #ff6b35; }\n";
-    header << "        .masterkey { border-left: 5px solid #9b59b6; }\n";
-    header << "        .section-title { font-size: 20px; color: #2c3e50; margin: 30px 0 15px 0; padding-bottom: 10px; border-bottom: 2px solid #3498db; }\n";
-    
-    header << "    </style>\n";
+    header << "    <style>" << HTMLStyles::BuildCSS() << "</style>\n";
     header << "</head>\n<body>\n";
     header << "    <div class=\"container\">\n";
-    header << "        <h1>🔓 kvc DPAPI Extraction Results - Kernel Vulnerability Capabilities Framework by WESMAR</h1>\n";
+    header << "        <h1>&#128274; kvc DPAPI Extraction Results - Kernel Vulnerability Capabilities Framework by WESMAR</h1>\n";
     
     return header.str();
 }
@@ -190,16 +250,17 @@ std::string ReportExporter::BuildMasterKeysTable(const ReportData& data) noexcep
     table << "        <table>\n";
     table << "            <thead>\n";
     table << "                <tr>\n";
-    table << "                    <th style=\"width: 15%;\">Key Type</th>\n";
-    table << "                    <th style=\"width: 40%;\">Raw Data (Hex)</th>\n";
-    table << "                    <th style=\"width: 40%;\">Processed Data (Hex)</th>\n";
-    table << "                    <th style=\"width: 5%;\">Status</th>\n";
+    
+    for (size_t i = 0; i < TableWidths::MASTER_KEYS.size(); ++i) {
+        table << "                    <th style=\"width: " << TableWidths::MASTER_KEYS[i] << ";\">" 
+              << TableWidths::MASTER_KEYS_HEADERS[i] << "</th>\n";
+    }
+    
     table << "                </tr>\n";
     table << "            </thead>\n";
     table << "            <tbody>";
     
     for (const auto& masterKey : data.masterKeys) {
-        // Extract key type from full registry path
         std::string keyType = "Unknown";
         if (masterKey.keyName.find(L"DPAPI_SYSTEM") != std::wstring::npos) {
             keyType = "DPAPI_SYSTEM";
@@ -209,11 +270,9 @@ std::string ReportExporter::BuildMasterKeysTable(const ReportData& data) noexcep
             keyType = "DefaultPassword";
         }
         
-        // Convert binary data to hex strings
-		std::string rawHex = CryptoUtils::BytesToHex(masterKey.encryptedData, 32);
-		std::string processedHex = CryptoUtils::BytesToHex(masterKey.decryptedData, 32);
+        std::string rawHex = CryptoUtils::BytesToHex(masterKey.encryptedData, 32);
+        std::string processedHex = CryptoUtils::BytesToHex(masterKey.decryptedData, 32);
         
-        // Truncate for display if too long
         if (rawHex.length() > 64) {
             rawHex = rawHex.substr(0, 64) + "...";
         }
@@ -222,7 +281,7 @@ std::string ReportExporter::BuildMasterKeysTable(const ReportData& data) noexcep
         }
         
         std::string statusClass = masterKey.isDecrypted ? "status-decrypted" : "status-extracted";
-        std::string statusText = masterKey.isDecrypted ? "✓" : "⚡";
+        std::string statusText = masterKey.isDecrypted ? "&#10004;" : "&#9889;";
         
         table << "                <tr class=\"masterkey\">\n";
         table << "                    <td><strong>" << keyType << "</strong></td>\n";
@@ -244,17 +303,16 @@ std::string ReportExporter::BuildPasswordsTable(const ReportData& data) noexcept
     table << "        <table>\n";
     table << "            <thead>\n";
     table << "                <tr>\n";
-    table << "                    <th style=\"width: 15%;\">Browser</th>\n";
-    table << "                    <th style=\"width: 15%;\">Profile</th>\n";
-    table << "                    <th style=\"width: 25%;\">URL</th>\n";
-    table << "                    <th style=\"width: 15%;\">Username</th>\n";
-    table << "                    <th style=\"width: 20%;\">Password</th>\n";
-    table << "                    <th style=\"width: 10%;\">Status</th>\n";
+    
+    for (size_t i = 0; i < TableWidths::PASSWORDS.size(); ++i) {
+        table << "                    <th style=\"width: " << TableWidths::PASSWORDS[i] << ";\">" 
+              << TableWidths::PASSWORDS_HEADERS[i] << "</th>\n";
+    }
+    
     table << "                </tr>\n";
     table << "            </thead>\n";
     table << "            <tbody>";
     
-    // Filter and display browser passwords
     for (const auto& result : data.passwordResults) {
         if (result.type.find(L"Chrome") != std::wstring::npos || 
             result.type.find(L"Edge") != std::wstring::npos) {
@@ -284,15 +342,16 @@ std::string ReportExporter::BuildWiFiTable(const ReportData& data) noexcept
     table << "        <table>\n";
     table << "            <thead>\n";
     table << "                <tr>\n";
-    table << "                    <th style=\"width: 30%;\">Network Name</th>\n";
-    table << "                    <th style=\"width: 40%;\">Password</th>\n";
-    table << "                    <th style=\"width: 15%;\">Type</th>\n";
-    table << "                    <th style=\"width: 15%;\">Status</th>\n";
+    
+    for (size_t i = 0; i < TableWidths::WIFI.size(); ++i) {
+        table << "                    <th style=\"width: " << TableWidths::WIFI[i] << ";\">" 
+              << TableWidths::WIFI_HEADERS[i] << "</th>\n";
+    }
+    
     table << "                </tr>\n";
     table << "            </thead>\n";
     table << "            <tbody>";
     
-    // Filter and display WiFi credentials
     for (const auto& result : data.passwordResults) {
         if (result.type.find(L"WiFi") != std::wstring::npos) {
             table << "                <tr class=\"wifi\">\n";
@@ -308,7 +367,6 @@ std::string ReportExporter::BuildWiFiTable(const ReportData& data) noexcept
     return table.str();
 }
 
-// TXT report generation for lightweight output
 std::wstring ReportExporter::GenerateTXTContent(const ReportData& data) noexcept
 {
     std::wostringstream txt;

@@ -1,0 +1,2816 @@
+ Volume in drive C is SYSTEM
+ Volume Serial Number is 0000-0002
+
+ Directory of C:\Projekty\github\kvc
+
+11/30/2025  04:49 PM    <DIR>          .
+11/30/2025  02:29 AM    <DIR>          ..
+11/30/2025  03:26 PM    <DIR>          .git
+09/23/2025  12:50 AM               254 .gitignore
+11/30/2025  03:24 PM    <DIR>          data
+09/30/2025  02:39 PM             1,849 git-push.sh
+11/29/2025  01:00 PM    <DIR>          images
+11/30/2025  02:29 AM    <DIR>          kvc
+10/21/2025  07:25 AM             2,144 kvc.sln
+11/27/2025  08:47 PM               551 kvc.slnx
+09/16/2025  02:43 PM             9,315 LICENSE.md
+09/23/2025  12:49 AM               463 pack-data.sh
+11/29/2025  01:05 PM            92,655 README.md
+11/30/2025  04:49 PM                 0 struktura.txt
+               8 File(s)        107,231 bytes
+
+ Directory of C:\Projekty\github\kvc\.git
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  04:49 PM    <DIR>          ..
+11/30/2025  03:26 PM                34 COMMIT_EDITMSG
+09/18/2025  10:41 PM               274 config
+09/17/2025  08:44 PM                73 description
+11/30/2025  03:26 PM                89 FETCH_HEAD
+10/15/2025  11:58 AM                21 HEAD
+09/17/2025  08:44 PM    <DIR>          hooks
+11/30/2025  03:26 PM            10,357 index
+09/17/2025  08:44 PM    <DIR>          info
+09/17/2025  08:46 PM    <DIR>          logs
+11/30/2025  03:26 PM    <DIR>          objects
+10/15/2025  11:58 AM                41 ORIG_HEAD
+09/17/2025  08:51 PM    <DIR>          refs
+               7 File(s)         10,889 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\hooks
+
+09/17/2025  08:44 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:44 PM               478 applypatch-msg.sample
+09/17/2025  08:44 PM               896 commit-msg.sample
+09/17/2025  08:44 PM             4,726 fsmonitor-watchman.sample
+09/17/2025  08:44 PM               189 post-update.sample
+09/17/2025  08:44 PM               424 pre-applypatch.sample
+09/17/2025  08:44 PM             1,649 pre-commit.sample
+09/17/2025  08:44 PM               416 pre-merge-commit.sample
+09/17/2025  08:44 PM             1,374 pre-push.sample
+09/17/2025  08:44 PM             4,898 pre-rebase.sample
+09/17/2025  08:44 PM               544 pre-receive.sample
+09/17/2025  08:44 PM             1,492 prepare-commit-msg.sample
+09/17/2025  08:44 PM             2,783 push-to-checkout.sample
+09/17/2025  08:44 PM             2,308 sendemail-validate.sample
+09/17/2025  08:44 PM             3,650 update.sample
+              14 File(s)         25,827 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\info
+
+09/17/2025  08:44 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:44 PM               240 exclude
+               1 File(s)            240 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\logs
+
+09/17/2025  08:46 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/30/2025  03:26 PM            20,180 HEAD
+09/18/2025  10:41 PM    <DIR>          refs
+               1 File(s)         20,180 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\logs\refs
+
+09/18/2025  10:41 PM    <DIR>          .
+09/17/2025  08:46 PM    <DIR>          ..
+09/18/2025  10:41 PM    <DIR>          heads
+09/17/2025  08:51 PM    <DIR>          remotes
+               0 File(s)              0 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\logs\refs\heads
+
+09/18/2025  10:41 PM    <DIR>          .
+09/18/2025  10:41 PM    <DIR>          ..
+11/30/2025  03:26 PM            17,477 main
+               1 File(s)         17,477 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\logs\refs\remotes
+
+09/17/2025  08:51 PM    <DIR>          .
+09/18/2025  10:41 PM    <DIR>          ..
+09/18/2025  10:41 PM    <DIR>          origin
+               0 File(s)              0 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\logs\refs\remotes\origin
+
+09/18/2025  10:41 PM    <DIR>          .
+09/17/2025  08:51 PM    <DIR>          ..
+09/18/2025  10:41 PM               138 HEAD
+11/30/2025  03:26 PM            13,782 main
+               2 File(s)         13,920 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  11:43 AM    <DIR>          00
+10/20/2025  12:35 AM    <DIR>          01
+11/29/2025  01:08 PM    <DIR>          02
+10/19/2025  11:18 PM    <DIR>          03
+11/29/2025  02:07 PM    <DIR>          04
+11/29/2025  01:08 PM    <DIR>          05
+11/27/2025  11:39 PM    <DIR>          06
+11/28/2025  12:00 AM    <DIR>          07
+09/30/2025  02:30 PM    <DIR>          08
+10/20/2025  12:42 AM    <DIR>          09
+10/21/2025  07:39 AM    <DIR>          0a
+10/16/2025  10:10 AM    <DIR>          0b
+10/20/2025  12:45 AM    <DIR>          0c
+11/27/2025  11:39 PM    <DIR>          0d
+10/16/2025  01:35 PM    <DIR>          0e
+10/02/2025  07:38 AM    <DIR>          10
+11/30/2025  06:37 AM    <DIR>          11
+10/11/2025  11:17 AM    <DIR>          12
+10/19/2025  01:17 AM    <DIR>          13
+10/15/2025  10:50 PM    <DIR>          14
+10/19/2025  01:17 AM    <DIR>          15
+11/28/2025  11:00 PM    <DIR>          16
+10/02/2025  12:08 AM    <DIR>          18
+10/19/2025  01:17 AM    <DIR>          19
+11/28/2025  04:49 PM    <DIR>          1a
+10/02/2025  11:44 AM    <DIR>          1b
+10/16/2025  01:35 PM    <DIR>          1c
+10/04/2025  09:05 PM    <DIR>          1d
+10/05/2025  11:43 AM    <DIR>          1e
+09/30/2025  02:30 PM    <DIR>          1f
+11/27/2025  11:39 PM    <DIR>          21
+11/28/2025  12:20 PM    <DIR>          22
+10/15/2025  12:41 AM    <DIR>          23
+10/19/2025  11:18 PM    <DIR>          24
+10/04/2025  09:05 PM    <DIR>          25
+10/15/2025  11:46 AM    <DIR>          26
+11/27/2025  11:39 PM    <DIR>          27
+11/29/2025  01:08 PM    <DIR>          28
+10/04/2025  09:05 PM    <DIR>          29
+11/27/2025  11:39 PM    <DIR>          2a
+11/30/2025  12:11 AM    <DIR>          2b
+10/20/2025  12:56 AM    <DIR>          2c
+10/19/2025  01:17 AM    <DIR>          2d
+11/30/2025  03:26 PM    <DIR>          2e
+10/16/2025  01:35 PM    <DIR>          2f
+11/29/2025  12:17 AM    <DIR>          30
+10/19/2025  01:17 AM    <DIR>          31
+11/27/2025  11:39 PM    <DIR>          32
+10/03/2025  08:46 AM    <DIR>          33
+11/29/2025  01:08 PM    <DIR>          34
+09/30/2025  02:30 PM    <DIR>          35
+09/30/2025  02:30 PM    <DIR>          36
+10/20/2025  01:27 AM    <DIR>          37
+10/16/2025  09:02 AM    <DIR>          38
+11/30/2025  06:37 AM    <DIR>          39
+11/27/2025  11:39 PM    <DIR>          3a
+09/25/2025  11:44 AM    <DIR>          3b
+10/20/2025  12:28 AM    <DIR>          3c
+11/29/2025  12:17 AM    <DIR>          3d
+10/16/2025  01:35 PM    <DIR>          3e
+11/28/2025  12:00 AM    <DIR>          3f
+10/18/2025  02:32 PM    <DIR>          40
+10/02/2025  10:11 PM    <DIR>          41
+10/20/2025  01:40 AM    <DIR>          42
+10/23/2025  10:36 PM    <DIR>          43
+11/29/2025  01:08 PM    <DIR>          44
+10/20/2025  01:33 AM    <DIR>          45
+10/18/2025  01:01 AM    <DIR>          46
+10/23/2025  10:36 PM    <DIR>          47
+11/27/2025  11:39 PM    <DIR>          49
+10/20/2025  12:56 AM    <DIR>          4a
+11/28/2025  11:00 PM    <DIR>          4b
+09/21/2025  10:42 PM    <DIR>          4c
+10/20/2025  12:35 AM    <DIR>          4d
+10/11/2025  11:17 AM    <DIR>          4e
+11/29/2025  12:17 AM    <DIR>          4f
+10/15/2025  12:37 AM    <DIR>          50
+10/15/2025  12:15 AM    <DIR>          52
+11/28/2025  12:20 PM    <DIR>          53
+10/05/2025  11:43 AM    <DIR>          54
+10/24/2025  08:05 AM    <DIR>          55
+11/29/2025  01:08 PM    <DIR>          56
+10/05/2025  11:43 AM    <DIR>          57
+10/20/2025  06:29 AM    <DIR>          58
+10/19/2025  11:18 PM    <DIR>          59
+11/29/2025  05:31 PM    <DIR>          5a
+11/29/2025  12:17 AM    <DIR>          5b
+10/16/2025  10:31 PM    <DIR>          5c
+11/29/2025  12:27 AM    <DIR>          5d
+11/28/2025  11:00 PM    <DIR>          5e
+11/28/2025  12:20 PM    <DIR>          60
+10/20/2025  12:42 AM    <DIR>          61
+11/28/2025  12:20 PM    <DIR>          62
+11/29/2025  12:17 AM    <DIR>          63
+10/20/2025  06:29 AM    <DIR>          64
+10/15/2025  10:50 PM    <DIR>          65
+11/29/2025  05:31 PM    <DIR>          66
+11/27/2025  11:39 PM    <DIR>          67
+11/29/2025  01:08 PM    <DIR>          69
+10/16/2025  10:31 PM    <DIR>          6a
+11/30/2025  12:11 AM    <DIR>          6b
+11/29/2025  01:08 PM    <DIR>          6c
+10/24/2025  08:05 AM    <DIR>          6d
+10/20/2025  12:51 AM    <DIR>          6e
+10/20/2025  12:54 AM    <DIR>          6f
+11/29/2025  01:08 PM    <DIR>          70
+10/05/2025  09:05 PM    <DIR>          71
+10/18/2025  01:01 AM    <DIR>          72
+11/30/2025  12:11 AM    <DIR>          73
+11/29/2025  01:08 PM    <DIR>          74
+10/08/2025  12:01 AM    <DIR>          75
+10/16/2025  04:40 PM    <DIR>          76
+09/30/2025  02:30 PM    <DIR>          77
+10/02/2025  10:11 PM    <DIR>          78
+09/17/2025  08:45 PM    <DIR>          79
+09/23/2025  09:15 PM    <DIR>          7a
+10/23/2025  10:36 PM    <DIR>          7b
+10/18/2025  01:01 AM    <DIR>          7c
+11/29/2025  05:31 PM    <DIR>          7d
+11/27/2025  11:39 PM    <DIR>          7e
+09/23/2025  09:15 PM    <DIR>          7f
+10/18/2025  01:01 AM    <DIR>          80
+11/29/2025  12:17 AM    <DIR>          81
+11/30/2025  12:11 AM    <DIR>          82
+11/28/2025  04:49 PM    <DIR>          83
+10/18/2025  01:01 AM    <DIR>          84
+09/30/2025  02:31 PM    <DIR>          85
+09/30/2025  02:31 PM    <DIR>          86
+10/16/2025  01:35 PM    <DIR>          87
+10/19/2025  01:17 AM    <DIR>          88
+09/25/2025  01:08 PM    <DIR>          89
+11/27/2025  11:39 PM    <DIR>          8a
+09/21/2025  10:44 PM    <DIR>          8b
+11/29/2025  01:08 PM    <DIR>          8c
+11/29/2025  01:08 PM    <DIR>          8d
+10/16/2025  10:31 PM    <DIR>          8e
+10/02/2025  08:28 PM    <DIR>          8f
+10/24/2025  08:05 AM    <DIR>          90
+10/02/2025  07:38 AM    <DIR>          91
+11/29/2025  12:27 AM    <DIR>          92
+11/30/2025  03:26 PM    <DIR>          94
+09/23/2025  09:13 PM    <DIR>          95
+11/30/2025  06:37 AM    <DIR>          96
+10/18/2025  02:32 PM    <DIR>          97
+11/29/2025  05:31 PM    <DIR>          98
+10/16/2025  01:35 PM    <DIR>          99
+11/30/2025  03:26 PM    <DIR>          9a
+10/16/2025  10:10 AM    <DIR>          9b
+09/17/2025  08:45 PM    <DIR>          9d
+10/20/2025  01:33 AM    <DIR>          9e
+09/30/2025  10:38 PM    <DIR>          9f
+11/30/2025  12:11 AM    <DIR>          a0
+11/28/2025  04:49 PM    <DIR>          a1
+10/20/2025  01:33 AM    <DIR>          a2
+10/15/2025  10:50 PM    <DIR>          a3
+10/07/2025  10:16 AM    <DIR>          a4
+10/02/2025  10:11 PM    <DIR>          a5
+11/29/2025  01:08 PM    <DIR>          a6
+10/15/2025  11:58 AM    <DIR>          a7
+11/28/2025  11:00 PM    <DIR>          a8
+11/28/2025  11:00 PM    <DIR>          a9
+10/02/2025  11:14 PM    <DIR>          aa
+10/04/2025  09:05 PM    <DIR>          ab
+10/02/2025  10:11 PM    <DIR>          ac
+09/17/2025  08:45 PM    <DIR>          ad
+11/29/2025  01:08 PM    <DIR>          ae
+10/20/2025  01:21 AM    <DIR>          af
+11/28/2025  01:17 PM    <DIR>          b0
+09/23/2025  12:40 AM    <DIR>          b1
+10/18/2025  01:15 AM    <DIR>          b2
+11/29/2025  12:17 AM    <DIR>          b3
+11/29/2025  01:08 PM    <DIR>          b4
+11/28/2025  11:00 PM    <DIR>          b5
+11/29/2025  01:08 PM    <DIR>          b6
+10/18/2025  02:32 PM    <DIR>          b7
+11/30/2025  06:37 AM    <DIR>          b8
+09/18/2025  10:52 PM    <DIR>          b9
+11/29/2025  01:08 PM    <DIR>          ba
+10/23/2025  10:36 PM    <DIR>          bb
+10/20/2025  12:28 AM    <DIR>          bc
+09/17/2025  08:45 PM    <DIR>          bd
+10/04/2025  09:05 PM    <DIR>          be
+10/05/2025  09:05 PM    <DIR>          bf
+10/19/2025  12:06 PM    <DIR>          c0
+10/02/2025  08:28 PM    <DIR>          c1
+10/15/2025  10:52 PM    <DIR>          c2
+10/15/2025  10:50 PM    <DIR>          c3
+10/20/2025  12:45 AM    <DIR>          c4
+10/21/2025  07:39 AM    <DIR>          c5
+11/27/2025  11:39 PM    <DIR>          c6
+10/20/2025  12:51 AM    <DIR>          c7
+09/23/2025  12:38 AM    <DIR>          c8
+10/15/2025  12:15 AM    <DIR>          c9
+09/17/2025  08:45 PM    <DIR>          ca
+10/20/2025  01:27 AM    <DIR>          cb
+11/30/2025  03:26 PM    <DIR>          cc
+10/20/2025  01:40 AM    <DIR>          cd
+11/27/2025  11:39 PM    <DIR>          cf
+11/27/2025  11:39 PM    <DIR>          d0
+10/16/2025  10:10 AM    <DIR>          d1
+10/20/2025  01:40 AM    <DIR>          d2
+11/27/2025  11:39 PM    <DIR>          d3
+09/30/2025  02:30 PM    <DIR>          d4
+10/15/2025  11:46 AM    <DIR>          d5
+10/23/2025  10:36 PM    <DIR>          d6
+10/16/2025  10:10 AM    <DIR>          d7
+10/18/2025  01:01 AM    <DIR>          d8
+10/16/2025  10:10 AM    <DIR>          da
+10/16/2025  04:40 PM    <DIR>          db
+10/20/2025  12:54 AM    <DIR>          dc
+09/21/2025  10:44 PM    <DIR>          dd
+11/28/2025  11:00 PM    <DIR>          de
+11/29/2025  01:08 PM    <DIR>          df
+10/16/2025  04:54 PM    <DIR>          e0
+11/30/2025  03:26 PM    <DIR>          e1
+11/29/2025  12:17 AM    <DIR>          e2
+11/29/2025  02:07 PM    <DIR>          e3
+11/29/2025  02:07 PM    <DIR>          e4
+11/28/2025  11:00 PM    <DIR>          e5
+10/07/2025  10:16 AM    <DIR>          e6
+09/30/2025  02:30 PM    <DIR>          e7
+11/29/2025  01:08 PM    <DIR>          e8
+10/15/2025  12:15 AM    <DIR>          e9
+10/19/2025  11:18 PM    <DIR>          ea
+11/30/2025  03:26 PM    <DIR>          eb
+10/02/2025  11:13 PM    <DIR>          ec
+10/03/2025  08:46 AM    <DIR>          ed
+09/23/2025  12:38 AM    <DIR>          ef
+09/30/2025  02:31 PM    <DIR>          f1
+09/30/2025  10:38 PM    <DIR>          f2
+11/30/2025  03:26 PM    <DIR>          f3
+11/29/2025  12:17 AM    <DIR>          f4
+10/02/2025  07:38 AM    <DIR>          f5
+10/20/2025  12:30 AM    <DIR>          f6
+10/02/2025  07:38 AM    <DIR>          f7
+10/15/2025  11:58 AM    <DIR>          f8
+11/29/2025  02:07 PM    <DIR>          f9
+10/15/2025  10:50 PM    <DIR>          fa
+10/04/2025  11:35 PM    <DIR>          fb
+10/05/2025  11:43 AM    <DIR>          fd
+10/16/2025  04:40 PM    <DIR>          fe
+09/17/2025  08:44 PM    <DIR>          info
+09/17/2025  08:44 PM    <DIR>          pack
+               0 File(s)              0 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\00
+
+10/05/2025  11:43 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  11:43 AM             5,346 73564551010f59ee1aea0361492398841bcabe
+09/25/2025  01:08 PM            13,515 a9c82d9f3509e6fb723b1a03aea9e77d856eaa
+09/23/2025  09:13 PM            10,300 ae8ca236722ca10213bcb9dab0717aa4eac1b3
+09/30/2025  02:31 PM             2,303 c3f06f228568eb86abd901833ba3858ae0b17d
+09/23/2025  12:39 AM               210 ea64dc03ae394d96525b14be37fd63ced294f7
+               5 File(s)         31,674 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\01
+
+10/20/2025  12:35 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  10:50 PM            11,906 46b015f6f7fc58c9ee3a2901051eda2cb4ee31
+10/20/2025  12:35 AM            30,951 7cbef505648222e89dd6d06be15f8408f08a0b
+               2 File(s)         42,857 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\02
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  11:44 AM               177 2127c08ad3be59b25cb92ec0b9cc58b0e8ed78
+11/29/2025  01:08 PM            10,296 35e1d880317e167be63149ef09205991ecff8d
+09/19/2025  11:47 AM             1,612 e333176184963f7438b274b7ae47913d5ecaae
+10/19/2025  01:17 AM             1,914 e8485aa8f7e2d64c4c743620585cf9c0de6006
+               4 File(s)         13,999 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\03
+
+10/19/2025  11:18 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  10:38 PM             9,332 d0e9e33634707153f6fbf08d93370a1d9d4915
+10/19/2025  11:18 PM             3,085 f22d4d8961c772db6a2a85a68ba2eff1bd34a7
+10/16/2025  04:54 PM               210 f585e470eec37987c1f0eb0f017a10ba65d479
+               3 File(s)         12,627 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\04
+
+11/29/2025  02:07 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  11:46 AM               210 0de3678050a78ecf6c425e7bdde5231d507780
+11/29/2025  02:07 PM             2,772 77e74397e5a990008d7f1f4f9154c8a3ac12aa
+               2 File(s)          2,982 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\05
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  02:00 AM               210 182c5fd4f8937098445d40242b0424a0d756a9
+10/16/2025  01:35 PM             2,490 449e7d129af6de246f1eb7d533ab1124a351ca
+09/23/2025  12:38 AM             1,783 a31f337ddafb794d6d060a5e08909ec61e66aa
+11/29/2025  01:08 PM             6,120 c4ed5219f0ae893b961466eb34b05b863e4b24
+09/30/2025  02:30 PM             2,844 d7ab8e33a41cd8d6b70c2bea7379f230fcd8d3
+11/28/2025  11:00 PM            10,248 e57438b2ef37049b66ea796166340af67c2400
+10/03/2025  08:46 AM               210 fe5911f596af106f4f2349fbc8969201efe518
+               7 File(s)         23,905 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\06
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  01:08 PM             6,999 08b1d54ff909832cd795cdd95af15ab7d70b20
+10/04/2025  09:05 PM             7,118 407e953c7510c0bd5b61baa53075bb9d8edf19
+10/21/2025  07:39 AM               786 7aa4e0a7c6373ab748a4968f37f71280711b12
+11/27/2025  11:39 PM               282 e650ec5b00eaac1065dd71bf32db86e887b61f
+               4 File(s)         15,185 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\07
+
+11/28/2025  12:00 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/28/2025  12:00 AM               177 0223776f1e82b3aee3594b3b1d16eecfd35e57
+09/30/2025  02:30 PM            10,299 68ed17367d81e8bb3bf4c7217e1352a8f61d3f
+09/23/2025  12:51 AM               179 ccc81a8d708c622f3bfe0c3efbf8d0b2a71526
+10/02/2025  11:44 AM             2,463 e850700309965e5936412fa68bcc7c98ae39a3
+               4 File(s)         13,118 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\08
+
+09/30/2025  02:30 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM             1,472 0b5833ae6c757b82239ee8bd15413f3590d761
+               1 File(s)          1,472 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\09
+
+10/20/2025  12:42 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  12:42 AM               176 95d6f54b9a72c9ef3fcf0d181be3356e7993f1
+10/03/2025  08:46 AM            15,126 a4f78da226ae101c512d10285d94813c22c7fb
+               2 File(s)         15,302 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\0a
+
+10/21/2025  07:39 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/21/2025  07:39 AM               210 676272b62b2df1cb988e2ab85742fe0ed65a46
+10/20/2025  12:35 AM               209 d4e8ed6bbf372066defc5262fb6f84d353c627
+               2 File(s)            419 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\0b
+
+10/16/2025  10:10 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             4,265 2a6a4f8ccaa19b80ea49a4871efd53c26bd7e5
+10/15/2025  11:58 AM               178 68131325e60360b0499bcf3f02054dcfedc4b9
+09/18/2025  10:41 PM               176 a5dbb1c73e7497906eea31be00c54896147d52
+10/16/2025  10:10 AM               179 d5de87652ba61e62bfffecffca009a6ead5928
+               4 File(s)          4,798 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\0c
+
+10/20/2025  12:45 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  12:45 AM               209 2c7f66c9dfe333d8fa16ecd6fdec9dd0e13a40
+10/20/2025  12:45 AM            31,007 4f16d6034854f71b706adf99c6597efb66c88b
+09/30/2025  10:38 PM               178 cfead131a778abeaba1090936df3eb7503d106
+               3 File(s)         31,394 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\0d
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:48 AM               210 55e351f79c42c3a8c8f01b0d056cfe6ca78ecd
+11/27/2025  11:39 PM             1,567 9171e22af07a6267edfae11bef640115c136f8
+               2 File(s)          1,777 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\0e
+
+10/16/2025  01:35 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  01:35 PM             1,139 6c85ea61babe9719bccfa5ca6e3d5a6f6525ff
+               1 File(s)          1,139 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\10
+
+10/02/2025  07:38 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM            10,316 3076b3ce2324320a92a124de3c337413da706a
+09/17/2025  08:45 PM               499 fee7010f03b31c814663cac3027fd07b800111
+               2 File(s)         10,815 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\11
+
+11/30/2025  06:37 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  12:27 AM               177 3171d25409513b8711c20139414fc41b34e84a
+11/29/2025  12:17 AM             2,907 7df83fd04346fee7ca1336bfd67160e3be84cf
+11/30/2025  06:37 AM               234 e3853a2659680481f458c92247bc578f0af8f4
+               3 File(s)          3,318 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\12
+
+10/11/2025  11:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/11/2025  11:17 AM             7,903 9b0b6bf2b66cf4ca7fba59212272783a8ecf7e
+               1 File(s)          7,903 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\13
+
+10/19/2025  01:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:42 PM             1,588 2de88ebd7cf805b3ae7febe530d840d044219a
+09/23/2025  09:13 PM             3,620 346a10bfa25e9f72131bb5818d514aa8e3a758
+10/04/2025  09:05 PM             2,322 3f24d5e72ae1c832ff8dab19eda7cc33af803d
+10/15/2025  12:15 AM             3,888 5a691f896790a25a953b9c44fc4a49d3c2d80f
+10/04/2025  09:05 PM             4,359 710217031c570db4bdd39af1d26c70bb8927fd
+10/19/2025  01:17 AM             8,414 a3b0cc6e433d6fc384d0359b6ef5aebbe2defb
+               6 File(s)         24,191 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\14
+
+10/15/2025  10:50 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  10:50 PM               209 b79270595c1749b97b651f3b3c4666c8224eb5
+10/05/2025  11:43 AM             8,066 cd698c0366aea665ff31ed1468630f406227fc
+10/04/2025  09:05 PM             9,308 e2c479ea7673d1119f7413a6293b7b0f8fa97c
+09/23/2025  12:40 AM             7,878 edb2f3405ee8a740669bd3dbe06f33bac6498e
+               4 File(s)         25,461 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\15
+
+10/19/2025  01:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:41 PM               176 0045c2f1bfe130a2cee2985fe6a4f28b25e61a
+09/23/2025  09:15 PM             1,744 6c4d31623ce3afcb169734fafc7402de61925e
+10/19/2025  01:17 AM             2,515 7fa48adae8c2d3dd3ce7be47c954943db20518
+10/19/2025  01:17 AM             9,857 9fa8decfc4acd9c4ed365776219d3b9177a87c
+10/15/2025  12:15 AM             3,874 bd32668a6891872e2a38645689006df8e5f866
+10/16/2025  04:41 PM             2,666 c5a5b695c8dabb5189eedef916845a58564b0e
+               6 File(s)         20,832 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\16
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  04:41 PM               210 9269de72e8c273d18f44e56d7a36b64f1876cf
+09/23/2025  09:15 PM             9,679 abdbe3991b499c3011f9a68b118dcf733ba541
+10/16/2025  04:40 PM            10,972 b69224eb57271b1da94f004b1a0717c9e19124
+11/28/2025  11:00 PM             2,880 bd8981c6ec02b7f9057c4ab104ffa346203869
+               4 File(s)         23,741 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\18
+
+10/02/2025  12:08 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  12:08 AM            10,268 28d60c8ac70fd3455d748a0e1ef7951acef808
+10/02/2025  12:08 AM             2,246 bfea1bd8469372c54a6d0a412cc87099f8fb6d
+               2 File(s)         12,514 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\19
+
+10/19/2025  01:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  08:28 PM             8,871 36216b7492feb46a33e87f687137011ac71171
+10/19/2025  01:17 AM                52 f686efa0a717cd1a28f6fc4c4bc0b601221785
+               2 File(s)          8,923 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\1a
+
+11/28/2025  04:49 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             3,366 080923d48cc2473243353ee518c954d0a5faf1
+09/30/2025  02:30 PM             1,562 1b21e14eca92605b95665dbcf44983c7f2134c
+10/04/2025  09:05 PM             3,928 5d190e84e0a053c01a760bfc8f3477111d9682
+11/28/2025  04:49 PM             3,200 d37a51097fc2421f3e6fa1b83903a7a3ec93f8
+10/02/2025  11:13 PM            10,522 f43d04a84af68b5f5c72ee6348000dc556d258
+10/02/2025  08:28 PM            10,561 fc8df7c51fdfaa9a8e6c6918a5eca4e0ba2954
+               6 File(s)         33,139 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\1b
+
+10/02/2025  11:44 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  02:00 AM             8,837 3ebb17466ac645c5c119d552d63f69f09f0e15
+10/02/2025  11:44 AM             3,496 a2255f0c1bb28c617d26610e35da029432b8a2
+09/30/2025  02:30 PM               548 ee18c9d74984fbde5f7567d34f72436b50da4b
+               3 File(s)         12,881 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\1c
+
+10/16/2025  01:35 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  01:35 PM             8,149 84b0d913ea2ac1f654ee1c2b50585362918c21
+               1 File(s)          8,149 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\1d
+
+10/04/2025  09:05 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             3,918 b34d4c574d52266b1db15a545a6802be991184
+               1 File(s)          3,918 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\1e
+
+10/05/2025  11:43 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  11:43 AM             3,298 3b25614a6cc5f6eda949e587b84170dd382739
+10/05/2025  11:43 AM               178 f3c0edc596ad8a40af31c6445c3cc7a98b301c
+               2 File(s)          3,476 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\1f
+
+09/30/2025  02:30 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             2,491 531c7593e57fb22d5c47e2a810c2e29ecfd24e
+09/17/2025  08:45 PM             2,194 d4fd369cf9a2acdd30fc9c270c6a9a87457eaa
+               2 File(s)          4,685 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\21
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/27/2025  11:39 PM               566 cc0b7432c81be9f391312c38f3dd9602a43f64
+               1 File(s)            566 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\22
+
+11/28/2025  12:20 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  04:54 PM             1,853 0dc2ebcba6f9c68c20761eb7a47957d36ecd80
+11/28/2025  12:20 PM             4,983 614947f406c29e921c4126e60c30180b959aa7
+10/04/2025  09:05 PM             3,746 6bd9af4ed8097558ddfbc1ecc1da5c183cda3c
+09/23/2025  09:13 PM             4,342 afd234e7ce3ab9d1ca81e030210946a571d970
+09/17/2025  08:45 PM            11,350 c098eac29092354f4136d2d27882bf6781ae13
+10/02/2025  07:38 AM             3,158 ead797a14772a4287a91409ff0e633e11edc9b
+               6 File(s)         29,432 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\23
+
+10/15/2025  12:41 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             3,554 0599e605089abc4904ef927dbd8ba71d4bffcf
+10/15/2025  12:41 AM               178 a8570aa928ff996c7bd301cd09b66e2eae0863
+10/02/2025  07:38 AM             1,442 c724bc686ecd81aa78843e9a8112ad07ca8500
+10/15/2025  12:15 AM             7,901 f5bd6a006cb1b36095280a75eeb98ed0c27719
+               4 File(s)         13,075 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\24
+
+10/19/2025  11:18 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/18/2025  01:01 AM             2,660 5ae4514cccb6ab44e0f0d53c14802db0337395
+10/07/2025  10:16 AM             2,520 5c74b29ce27263043458c47d8b94efd9527d96
+09/30/2025  02:30 PM               749 748d355f6a01abe35bcb29c054d96e8a69733b
+10/15/2025  12:37 AM               209 c6194c483d3c37b420ae4988b387719eb8b512
+10/19/2025  11:18 PM             2,580 d69ebcf1111f9de1cc60e1b6cb66e3ef8f0d6a
+               5 File(s)          8,718 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\25
+
+10/04/2025  09:05 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             9,544 4b5b3126f3470e7dcb8905b29a9c0ad5265c5b
+09/18/2025  10:37 PM               176 f6c1c4c3f0991fee0820442d6dec5430c5e41d
+               2 File(s)          9,720 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\26
+
+10/15/2025  11:46 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:46 AM               840 a43694cefdfaafab739a4af38fd40d957a8b3d
+10/15/2025  11:46 AM             3,165 e4bf62db958bdd38fdf64d5ceb6e6018db2cf4
+               2 File(s)          4,005 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\27
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/27/2025  11:39 PM             2,531 8868b4c9caa32f9b8d7d91694ecc1e8a1837ee
+               1 File(s)          2,531 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\28
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             1,780 5da4a85dc84dfac48d3e743e8cf79e0825c5f7
+10/15/2025  12:41 AM               209 c4ca759836bda06cbb458acefd4fce8c92a14b
+11/29/2025  01:08 PM             9,918 c9431eabbd7dbe3db67d5558a06eaec9e13c76
+               3 File(s)         11,907 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\29
+
+10/04/2025  09:05 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  11:44 AM               209 06416a9ce77115a912ae584a2f7daa6de43143
+09/30/2025  02:31 PM            15,239 df96d5396f906b3e04bd7c7fe2a831215c9b58
+10/04/2025  09:05 PM               179 e28d4894c52dd237ad05427c2aff2b4e88d125
+               3 File(s)         15,627 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\2a
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/27/2025  11:39 PM             3,465 6cd03e6a5e98f8cb31b39f98b78ba4135f71bd
+               1 File(s)          3,465 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\2b
+
+11/30/2025  12:11 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  11:35 PM               210 076872f1310b295e41ec4bfab02f2b39bbb221
+09/30/2025  02:30 PM             1,729 2e07ff7c92f72a9da5f32c98fe7e083ab95f63
+11/30/2025  12:11 AM             4,313 47b2cd0d5dd72385d0b76890fda31b004c19a8
+10/11/2025  11:17 AM               177 5baf2afc86bece94285d21e1301cacaed72a3f
+09/25/2025  01:08 PM            11,632 e75830a93611f66985abcebe1c1fa906efe04b
+               5 File(s)         18,061 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\2c
+
+10/20/2025  12:56 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  01:35 PM             2,666 58bcba9be1564dcdb5422fc9be65880e235bdd
+10/20/2025  12:56 AM               177 b313ae136afd3884142856184504df70f462d5
+10/04/2025  09:05 PM             1,242 b35ce9288ccde75392aa7458dd1e864f3e29af
+10/02/2025  07:38 AM            10,475 b8258a12a47b9e452f5f382ea72d7b1876f2b6
+               4 File(s)         14,560 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\2d
+
+10/19/2025  01:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  12:08 AM               210 0efe03b5000282a4d4303666f766b0ed5fd8b2
+10/15/2025  10:50 PM               636 12eba500298ddec502e2d8f88c61b438b20cbe
+09/23/2025  09:13 PM             7,971 18081681f89b252194cff7c5abbc1acad1542b
+09/30/2025  10:38 PM               442 190ab8866097350a9c0586ed1288345e1907e3
+10/05/2025  11:43 AM             4,021 21fcd6177cfdea7d1ae5c889cb7b5642e80beb
+10/19/2025  01:17 AM             1,932 5ba8a61e11dc3c51fe9690724c711c9bb8b0fb
+09/30/2025  02:31 PM               840 75f86142abce3d9fd8cf02d4ce8885104196eb
+               7 File(s)         16,052 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\2e
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             9,565 5261e92881ecc7285f74dd5bb68ead8b1a90e6
+10/20/2025  12:48 AM               177 b29937ba2f87673b4eeae6caf26933f21e5350
+11/30/2025  03:26 PM            10,868 e5795fe8d137288986a286193f2e27f0840374
+               3 File(s)         20,610 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\2f
+
+10/16/2025  01:35 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:42 PM            14,590 179c7ad804a07ae1d2f36cf21618a829d0b866
+10/16/2025  01:35 PM             9,052 7beb50cd0668ac80e8e85b8c731969c26d5006
+09/18/2025  10:41 PM               176 86e20aa6183673558e9be232c3ac0f1031c3c5
+10/02/2025  07:38 AM             4,097 ee2ef1fa8b7f4df1ae93defa69da837d902748
+               4 File(s)         27,915 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\30
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  12:17 AM             2,553 e24fc524a51cd7b9fed01951390a87dfcfb255
+10/15/2025  10:50 PM            10,359 f3f82ee87290cf7297fec0dcbf7405bc05549f
+               2 File(s)         12,912 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\31
+
+10/19/2025  01:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/19/2025  01:17 AM             1,166 c2683b2146b894b849a9fc108a2003a2b4c8a1
+               1 File(s)          1,166 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\32
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  09:02 AM             2,663 3fcc92d89ca1f561253bc502d8a536feb92c0c
+10/16/2025  04:40 PM             2,699 525eebe201c2d5e6a55329159c9d799dc58efb
+11/27/2025  11:39 PM             3,744 a2cfd874db2b8e33cfe3e8a11242af6040a226
+09/23/2025  09:15 PM             8,619 ff162e3c57070b3695b7ba055ec2fd0a1d6f3b
+               4 File(s)         17,725 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\33
+
+10/03/2025  08:46 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:46 AM            10,615 2716bfd7ee92bf1bdcea068f3ccfc0f967f7b9
+09/23/2025  09:15 PM             2,438 740e74aec2c3a13227c62fb9f37d2f3a307b8e
+09/23/2025  12:39 AM               846 925846766eb1959988d2827a93ac6c23c433e9
+10/02/2025  11:13 PM             3,801 d8d5ebc3574f8b68f879e150158ca7fb8d7b76
+               4 File(s)         17,700 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\34
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  11:58 AM               210 3e540ef463c3c417bcc767b9fed05762e7d95c
+11/29/2025  01:08 PM             1,052 71093d384405536cbe633ab667791ca8b21305
+10/16/2025  10:10 AM             1,482 ae27bd5e824b5d16df64527ebc6c632d063510
+               3 File(s)          2,744 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\35
+
+09/30/2025  02:30 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  01:08 PM            14,179 7e2acb3334421668f554a29b9a1389b7afe072
+09/30/2025  02:30 PM             2,299 c460410365432c57066b4f4a9ddb3f8cf39e07
+               2 File(s)         16,478 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\36
+
+09/30/2025  02:30 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM               161 9c483ef0631183f24bb399a6bbe10d7480e536
+               1 File(s)            161 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\37
+
+10/20/2025  01:27 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             3,129 6a6f4edc77fb1b52425f9fc1a6e30dd8f7d65e
+10/20/2025  01:27 AM            33,144 6f30ba63cf740577cc4e910a89f6a803db911f
+10/02/2025  07:38 AM             5,020 76e7e138cac9e6dcba826fce78fa7b4b1be2c4
+09/30/2025  02:30 PM             1,065 9b2a704176aef422d892943121dd7bdfdb97ef
+               4 File(s)         42,358 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\38
+
+10/16/2025  09:02 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  09:02 AM             3,361 005fc7fad23834833dfa6ec5617eadeecdfb92
+10/03/2025  08:48 AM               183 11f65d21d574396420678d99024bfc8496b523
+10/02/2025  11:14 PM               209 4a521ec5d85e4a70024089774701d1dba6cfb7
+09/17/2025  08:45 PM             1,224 974e7fb0ca4fe3f44b703581be1feca19ea275
+               4 File(s)          4,977 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\39
+
+11/30/2025  06:37 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  10:50 PM             3,904 1a3bc8ef2b0144e6534ea2b20914bdfa7cd94f
+11/30/2025  06:37 AM             3,011 8a251a0e4b8fa662be285968bc415fb8a22c69
+09/17/2025  08:45 PM             1,799 aad17b334b45c7fbc57433dfa5d11752651144
+               3 File(s)          8,714 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\3a
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  01:27 AM               177 2dcb985042be0fc547abe9f6aa283a191fa359
+10/20/2025  01:21 AM               209 7763573a7374b0fb61f509484256a398a646fc
+11/27/2025  11:39 PM             9,339 836068f7b10b46e24e0ad2004e6effaaf8c610
+09/30/2025  02:31 PM             9,412 8e658bcc4d4501b671eb3b9d860555a218b491
+09/17/2025  08:45 PM             1,076 ef00b89dead1557f4303d42133efe77cea3b28
+               5 File(s)         20,213 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\3b
+
+09/25/2025  11:44 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:31 PM             8,841 2101a1867de0045368432239e5b8cdaa9a2668
+               1 File(s)          8,841 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\3c
+
+10/20/2025  12:28 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  12:28 AM               177 10c97b8c625f09f1f166fd9fa63051c427d06d
+10/15/2025  12:15 AM               521 2d2ba499b83dd5a71f4c8bb09a092266428867
+09/23/2025  12:38 AM               882 56a438f3fc15c7e8656884c208d147adeef85e
+09/23/2025  12:38 AM             1,742 5fc496610e0dd2f3931e636ab1ffe398456f4c
+10/02/2025  11:14 PM             2,521 cc3c48586bd64b6c0f430fb5a978393b94b517
+10/02/2025  07:38 AM             2,427 ec5ddac81871d5fc15aa50b4f616e9c67db7bc
+               6 File(s)          8,270 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\3d
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  12:17 AM               179 85174e00f50c96406724ae84571b4240eabaa0
+10/19/2025  01:17 AM             2,668 be2194d6d1358da9fc9ae1b1d726a8d54e5e6d
+               2 File(s)          2,847 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\3e
+
+10/16/2025  01:35 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  01:35 PM             2,289 3913a58b436a02dd44b7e24303915b965e1b6f
+09/23/2025  09:13 PM             7,922 455791976b2b0773e841ed15b2c1a760e465c3
+10/04/2025  09:05 PM             3,381 8524771e0cc114ca27eb88f9390a40ff6322a0
+10/15/2025  10:52 PM               210 e3a50a30a88f337d95f9e668d10deea765ac43
+09/18/2025  10:37 PM            10,026 f9f3fc50a9bd1c3588b6a8eaa2a64720be1c81
+               5 File(s)         23,828 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\3f
+
+11/28/2025  12:00 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/28/2025  12:00 AM               235 06ac8a91a12ec253e8264a14b203c7f7d03413
+09/23/2025  12:40 AM             8,613 59eff6bee55ae0b1d3f717179b8e6a23f284df
+10/24/2025  08:05 AM               209 808ce64f3b87016a8e2757c64a97b8850b5b27
+09/25/2025  08:44 AM             1,744 a2b656225b6a323b743856b6858ad137125d49
+10/04/2025  11:35 PM               177 a4db880b2017cff49afd279e12e52ba766637e
+10/18/2025  02:32 PM             2,663 e568c578e48f6e5c9df8d343ae6da3f2425c9d
+               6 File(s)         13,641 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\40
+
+10/18/2025  02:32 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             2,492 47e5d1b63627ca6a173b3080027ee755463fe1
+09/23/2025  12:51 AM               209 5ab64cc1c370a0a0c2e50163f6f3d2f590e12c
+10/18/2025  02:32 PM               210 97d268ad6e1418480ab1322f642383579bb16c
+09/30/2025  10:38 PM             1,589 fffca92a6d7960f66b0cd4f756296f9bb3ebf4
+               4 File(s)          4,500 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\41
+
+10/02/2025  10:11 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             3,562 324a0636168e96d29ad5a2b25b9882d8058350
+10/02/2025  10:11 PM             9,063 47a85b4a3a6704e52f1628abb332f59f0e622d
+               2 File(s)         12,625 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\42
+
+10/20/2025  01:40 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  01:40 AM            33,403 fe198fcdd8b8869fcadf3e7542355f730760fb
+               1 File(s)         33,403 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\43
+
+10/23/2025  10:36 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  12:38 AM             1,779 37e6eb2866db15c5ae7527aa618a1b32d0f631
+10/23/2025  10:36 PM            10,006 ba4e7949f008fa71b7e65ed15c017c6c5f6f9d
+               2 File(s)         11,785 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\44
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  11:58 AM             2,610 3d18de19a88c6fc5fff2fde0f9371d7d505215
+11/28/2025  01:17 PM            35,092 b6338e281879a37d8582ba79a33244a042675c
+10/19/2025  11:18 PM               209 b7cdbca6d2482382cbf27c40ca9cace4635903
+11/29/2025  01:08 PM             2,041 b9a2edaf0108bd4221f8ea38ac6b12ea10a9ba
+10/20/2025  12:51 AM               210 faba2e231486c7e9a353dd4c56f71bc6d203f6
+               5 File(s)         40,162 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\45
+
+10/20/2025  01:33 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  10:10 AM               925 0a7f4da031a82e33429f89ff7631fede12688a
+10/02/2025  01:24 PM               178 16f331ab737d768f84628d2d3aec48973273b4
+09/17/2025  08:45 PM             1,322 24e467e792021dfc3df5b7897d3c6b3035cd3e
+10/16/2025  10:10 AM               210 8f789c7fb86e639c678d186bd7726b9f2d4010
+10/15/2025  10:50 PM             9,157 d4b3f8b60249569e5abeef7ef363b4a26b9a55
+10/20/2025  01:33 AM               209 d5e91899c8f27916a767e852bdac7cbad80965
+               6 File(s)         12,001 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\46
+
+10/18/2025  01:01 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/18/2025  01:01 AM               178 4728f3dd9d243dae55d1b9b255acf9f97373ba
+09/18/2025  10:37 PM             7,002 e8d1dfa17248ebc6bc5ee16bf93e66d57af123
+               2 File(s)          7,180 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\47
+
+10/23/2025  10:36 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  01:11 AM            30,971 392942a77aaff24adc80c24271527e5b5ada4c
+10/23/2025  10:36 PM             2,773 c838fbc3b527652dd6e92e469ecee6eae458d4
+               2 File(s)         33,744 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\49
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  04:40 PM               210 0c8b09bb7771ae1e470c5be16f3670553efb7c
+11/27/2025  11:39 PM             6,754 b2b0055f03cf5d673bf3b45ef48c1f3cd6f4a6
+               2 File(s)          6,964 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\4a
+
+10/20/2025  12:56 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/19/2025  11:18 PM             9,606 1379ab396da837a4fde75b8ff6cc4da80e3490
+09/18/2025  10:41 PM               841 84ad4d6303cb1533f8260c8db39f9c7d69aea9
+09/17/2025  08:45 PM           333,914 c4ed4576c4eb5d225821ee9bbe4ff5d30da31c
+10/20/2025  12:56 AM               210 c8c9792d1ab8fa66877de03d3d9b78e2c383f7
+10/03/2025  08:46 AM            15,178 c97dae06ffffcf314d5967bc2f28df99f1d550
+               5 File(s)        359,749 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\4b
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:46 AM             3,932 092c6f425b33588b06add7aa3a584fff194952
+11/28/2025  04:49 PM             2,881 34acadc48c2a9bc43a22a1deb249e0b4a5b421
+09/18/2025  10:41 PM               175 4a0c17f597bdc61a021972402822dc726096e4
+10/15/2025  10:50 PM            12,359 c3ecf5f7a7aeae8b6f13b34fab21ca1f5df11a
+11/28/2025  11:00 PM               177 e5b4678a2d06925c50566baef28e6fed9eb57e
+               5 File(s)         19,524 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\4c
+
+09/21/2025  10:42 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:44 PM               246 5515fe847ff07ae7d6d361d32dbc7f37b32774
+09/17/2025  08:45 PM               275 e93482940952adf0b6ff1868626a946fd7fb89
+               2 File(s)            521 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\4d
+
+10/20/2025  12:35 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             3,814 515a10f8efd7378ab197efae38b118236ca215
+09/23/2025  09:13 PM             8,962 b504f05970c7bfa1f0559f215038fd0f4c1865
+10/20/2025  12:35 AM               178 bc63bb20b354103f54ed2d77debfc292c8225f
+               3 File(s)         12,954 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\4e
+
+10/11/2025  11:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             2,564 2b42446eb8ddab21ca5bd266ab196ecf93bea2
+10/11/2025  11:17 AM             1,101 51ab4bc1d101a6ed5fe2823bb37ac893f5c293
+09/23/2025  12:40 AM             3,869 5454b4143f2e8d309f3d88689dc04e7b4fa6f6
+10/02/2025  01:24 PM               210 6dc5fef23387980dc4b658b0be34aba4fc0913
+10/02/2025  01:24 PM             1,411 822d8778fe414915f708cea996dfdc6728a3ad
+09/18/2025  11:04 PM               177 dc4d6787dd9079a92a02d18d4d020956d2f6d2
+               6 File(s)          9,332 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\4f
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  12:41 AM            16,109 15150d8acb164b56dcb302e52520c4c4dff155
+09/25/2025  02:00 AM               178 5417aeb6eb1f89ab46f2e59ef87182c842cbc7
+10/15/2025  11:46 AM               177 6cf1bdb9bc1e83a3c4f623b989a85f6ee52478
+10/21/2025  07:39 AM               178 715d21a3d6e3042fa7e1aeacbc18d4c9eac1d2
+11/29/2025  12:17 AM             1,041 8795f452ed49b93c054468185463a79d2dea39
+09/30/2025  02:30 PM             1,113 f9aaf8c75fad866e8d7e5643f6dd9a09655b84
+               6 File(s)         18,796 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\50
+
+10/15/2025  12:37 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  12:51 AM             1,706 6034d72f1bba6fd569b3659733ca1473304fc2
+10/05/2025  11:43 AM             1,871 9d17001b5e987fd39f01c2db991915cc3def45
+10/15/2025  12:37 AM               178 a9ed359422391493eb32f8690a4d646e7d5329
+               3 File(s)          3,755 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\52
+
+10/15/2025  12:15 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  12:15 AM            10,051 13ed493e26bc5543b05de2fc340e99a7904e9c
+10/15/2025  12:15 AM             2,525 4a49cede6cac3ea2aa8eeac48610660af17f5c
+09/18/2025  10:37 PM             6,274 b36e4ad162f8e400c5d4999f713637392e6a15
+10/05/2025  11:43 AM             9,995 e527c6592d9dae970f82f7868e7ec4041e3dec
+               4 File(s)         28,845 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\53
+
+11/28/2025  12:20 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  12:30 AM            31,052 410b0cdac47f9334c30ab82ed91543dab9d252
+09/23/2025  09:15 PM             7,762 6d1b8a8af98e5b69ed283ac07065fcac17dcfa
+11/28/2025  12:20 PM               177 6d55c395da1d1f5e55a71b9d5003a1dc245a55
+09/30/2025  02:30 PM               351 aae0be04d509f9ab639d850abb1584a511cf74
+               4 File(s)         39,342 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\54
+
+10/05/2025  11:43 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  11:43 AM             1,815 44efe541a39004067f4c349804030de533ce4a
+10/02/2025  07:38 AM             8,477 aa1edd4063ad3ead33ff6eb5348847e521a78b
+               2 File(s)         10,292 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\55
+
+10/24/2025  08:05 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/24/2025  08:05 AM            10,334 2f5374ca54a0eccea19a421b8cd20b9d3736a6
+10/20/2025  01:39 AM               176 ba91d64d4f72c6f9d4d00d7a9e5943f15fc243
+               2 File(s)         10,510 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\56
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/21/2025  07:39 AM               627 3bba9288cf17598379df274d65e74fb88cee8f
+10/02/2025  07:38 AM             2,161 462a1b3049d17bdf1a955e6f569b753d257f72
+11/29/2025  01:08 PM               650 665a1b40aa1f4913b5d9629f3b63be0797d71e
+               3 File(s)          3,438 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\57
+
+10/05/2025  11:43 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:41 PM               839 3ec0dfe59b5717e74c2f265be110c83e64bc09
+10/05/2025  11:43 AM             2,488 5e2756f7888e18e140e0c75c96b060c4d8b40e
+               2 File(s)          3,327 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\58
+
+10/20/2025  06:29 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             5,124 78c8b4b6714e6843951f4ebf7ef446048e1930
+10/20/2025  06:29 AM               176 cfcf1f0f1788d65eb3f969a0679aa6d3c9061e
+               2 File(s)          5,300 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\59
+
+10/19/2025  11:18 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/19/2025  11:18 PM             2,664 0be63c302ab51c2db2c83f8b04a667c561e522
+09/23/2025  12:40 AM               179 30d2d7db4852277c2ca7403ccefbdee7ff78c4
+10/02/2025  07:38 AM             1,895 b0fed9a9915989d60c1720fae8bb460f12580e
+10/08/2025  12:01 AM             2,501 caf3ca0a26b4c0cd3f2baadf501941a18be7b5
+               4 File(s)          7,239 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\5a
+
+11/29/2025  05:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/24/2025  08:05 AM             2,771 68046301439596fdffdbfec8649f2881f15532
+10/04/2025  09:05 PM             1,190 9bc7847cf60b9288cfd5d3a1e58c9e1a1be9bf
+10/02/2025  08:28 PM               178 aff0c4f9d512d33da1ec746e16ae550c9bc156
+11/29/2025  05:31 PM               178 b55e1f29c8af8fa16af587e1851aea5bf838a1
+10/15/2025  10:50 PM             3,675 b9d0ffb8e041e3e38a491cfbff8cb8f889a4bc
+10/02/2025  07:38 AM            10,239 bd4da8f302209341a193942cd013260348ecd0
+10/16/2025  04:40 PM             1,567 c716bae5328d4217b7ec0fba38354933bf3ce9
+               7 File(s)         19,798 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\5b
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  12:51 AM               177 72aaf1f92d56fe9ad20e9d1a6a6c744498b35b
+10/20/2025  12:48 AM            31,020 a3bceb773299a0317817a2e77b9441943bc374
+11/29/2025  12:17 AM            10,755 c63435667d5c17bfdeb2ebc729031b1bd6322b
+               3 File(s)         41,952 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\5c
+
+10/16/2025  10:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             2,104 6e7f7be65f2c2cd01a9842e77aa94403df1cf7
+09/23/2025  09:13 PM             1,744 79d6248877317949e5e4500082874750f7fadb
+10/16/2025  10:31 PM               210 fb17b32218655dd6cbdcaa60bd65d28f4727ad
+               3 File(s)          4,058 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\5d
+
+11/29/2025  12:27 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             4,345 23b22dce079f5d8b109c9b0419680dc0e00027
+10/20/2025  01:11 AM               209 2ee31689414ef2753d0b37a700fa919a9b8080
+11/29/2025  12:27 AM            35,203 fb6ad83126b838ef140de1887a8fdaaff26507
+               3 File(s)         39,757 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\5e
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             6,026 0397650569cef72ced389201851c1f35510d5b
+11/28/2025  11:00 PM             3,961 1ffbfabf65554e3dbaed0c7b7f7a2cd106193e
+11/28/2025  04:49 PM            10,162 7c67dea412379ba7e5ac11e186a356fa8fb10c
+10/20/2025  12:26 AM            31,062 d80c0a2e8f4906300a2c7767a6949eaae0a755
+               4 File(s)         51,211 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\60
+
+11/28/2025  12:20 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:37 PM             3,941 35665f3cbb5daee1d631e0e8c639d6bed16aba
+10/21/2025  07:39 AM             1,259 763b35ebdc001b855fb84620c1e837d5010653
+11/28/2025  12:20 PM             2,888 d4dc6b8fab598e9e7fad2c495dc2c2fd8bfa7f
+10/16/2025  10:10 AM               955 e79d53cee01ce001b8a390305b0a68bb4a782b
+               4 File(s)          9,043 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\61
+
+10/20/2025  12:42 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:46 PM                52 0db51465904332dc3cf1115b0628c0cbc2dbf7
+10/15/2025  12:15 AM             8,910 0df6c4ada6b63f1b07b426932ecd34ee1aa274
+09/23/2025  12:38 AM               246 35ad4858d6fca6c030bfa9d9fe6b9bec4a0b5b
+09/30/2025  02:30 PM             5,359 cad81bf3e7c7a79081b08f8dee1b4c40829d29
+10/05/2025  11:43 AM             2,464 f74104fcb19c1c7b623577699f12141334cdb9
+10/20/2025  12:42 AM               209 f83563b8f385c9b5f0265a0e2c32910f0f1980
+               6 File(s)         17,240 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\62
+
+11/28/2025  12:20 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  12:15 AM               725 3935086440b402e37af0b8c557257d70c3ce5c
+11/28/2025  12:20 PM               235 9a36ff3064f22b0387285a6b7b2bee5d63030d
+10/04/2025  09:05 PM             8,560 cf2607e600aaceb3f7428c7233028a697b17a4
+09/17/2025  08:45 PM             1,292 f9a99a63753422174d629e1d1e7c417a743614
+               4 File(s)         10,812 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\63
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  10:10 AM             3,400 04cf1d634d2d53cc65de5dfdc053cfc83eeacb
+11/29/2025  12:17 AM               235 4f3497c7ce9dd055b9f52e3dd66bb51b0fcf72
+10/20/2025  12:48 AM               210 7f08d1f1797915971b54e52df2b87150e9f627
+09/18/2025  10:52 PM               630 cd048997843099c7208e09802c46bee588454a
+10/15/2025  10:52 PM             2,662 ed5eccb17dcdac80b2a524de13f5f298fa68c3
+               5 File(s)          7,137 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\64
+
+10/20/2025  06:29 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  06:29 AM               209 44454f2a2055fea02fa36e34175830578220e0
+               1 File(s)            209 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\65
+
+10/15/2025  10:50 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  12:38 AM             7,209 0482052c47840d6a2bc6800c3104c7626fda52
+09/23/2025  12:51 AM               210 17daefcec76915245d344f921c5018e40b961d
+10/15/2025  10:50 PM               471 247893e7f22033ed0d95a6551fac2d28c10642
+09/21/2025  10:44 PM               245 6e420194a0309594d27cfbabee8a1a92c2aee6
+09/18/2025  10:42 PM             3,166 8cb425e41accd56cfe033a79ecebe8f3fab180
+10/02/2025  11:13 PM            10,252 c6d7f841bfcd134992a3bee79cc1cca3447bc9
+09/18/2025  10:37 PM             1,588 c70f43e1ca50fecd1ad3b1d1b7e7e598babb39
+10/15/2025  10:50 PM             3,351 eaff07cbb46b8789c9a5bb97eb083471bea277
+               8 File(s)         26,492 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\66
+
+11/29/2025  05:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/19/2025  11:18 PM               177 30673cfb00de0ca7ca5aa986ff1f0d63682035
+11/29/2025  05:31 PM             3,410 640194891a37dd16658df3fd37eb62c3631f4b
+10/04/2025  09:05 PM             3,446 94a9af8dca6e82a00db1c444aa535158c0a0f2
+               3 File(s)          7,033 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\67
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  01:21 AM               178 673b5c701164d0cfd36a4bb1d74ee1cfcfc0c8
+11/27/2025  11:39 PM               467 836e0290452f9eb63bc1956b1bee9adfe17b78
+09/30/2025  10:38 PM             1,271 bd01fe5c89b13f9fc45c592e23ff124503e7b5
+10/02/2025  08:28 PM             6,666 daab7fc1a2ae74d3ca18e920acad8ccda09ec4
+               4 File(s)          8,582 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\69
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:42 PM             2,202 13bdb8e111b30bb0d1fed75ac9415ca739a0e9
+11/29/2025  01:08 PM            35,563 17c28a2c8884b13650671bfdc02941ad6547dc
+10/16/2025  10:31 PM             3,220 29ddda6e2624e7d199c329998b3e22c5af30f7
+10/15/2025  10:50 PM             1,301 3957e9c73e831a401d1aa61fc8777a9af33eab
+10/02/2025  07:38 AM             5,014 4942baab7d50846617e1773f0f002a23c4d87c
+               5 File(s)         47,300 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\6a
+
+10/16/2025  10:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  09:15 PM            10,111 43095b03eda98815dcb857d377137b0b555f4a
+10/16/2025  10:31 PM               177 ca5067154cf0c7607675e6d44a715af62b3d1b
+10/16/2025  01:35 PM               210 df9e8e88b3ebb25e656eb31858081af1e071a6
+               3 File(s)         10,498 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\6b
+
+11/30/2025  12:11 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  12:56 AM            30,832 01fa9887c18b8001a25b68de3045b1ecbfd72d
+10/11/2025  11:17 AM             2,553 146c73ec5945de5554b4bce9c6ee16705a3511
+11/30/2025  12:11 AM               176 5ab040d7dd091a8b98e92f060249cf648415d7
+11/29/2025  01:08 PM             1,778 a672ed598f40d059bf688ef2d58f7e2659fb7d
+               4 File(s)         35,339 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\6c
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/18/2025  01:01 AM             3,417 415b46c27ac8a6a85ba0cd3aaeab293d639bba
+10/02/2025  07:38 AM               177 b33b0183ec62bd07714e65be02b583ab85b7c0
+11/29/2025  01:08 PM             2,410 b8817c5417983aa379b2628d994e3fadcc84a2
+10/20/2025  12:28 AM            31,077 e05c73fc81f019c99402a42ece08b9b694207c
+               4 File(s)         37,081 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\6d
+
+10/24/2025  08:05 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  11:44 AM               179 0a033122fd95f0a01e597842fca144596452ff
+09/30/2025  10:38 PM             7,904 97633d681c75f2ed61791efa9ddc87f3c25993
+10/24/2025  08:05 AM               177 f3ee00eb612342961ac3d2d99c6ea48d7750df
+               3 File(s)          8,260 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\6e
+
+10/20/2025  12:51 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:44 PM               844 331b9eb0bed7ccd0581879000ed73f54a03e3c
+10/02/2025  07:38 AM             1,506 444c6a458852cc838f202b8ef3fcac6e7b5c4b
+10/04/2025  11:35 PM             3,494 73a359cbf693f29b84874e2452db50ab755fbe
+09/30/2025  02:31 PM               181 8e094f5c3e8d59c54b4a5154450739abac537a
+10/02/2025  07:38 AM             3,645 abeb81faf133184565c891b507aacb289f2061
+10/20/2025  12:51 AM            31,018 fa0b2ed0cc99d485466cd98f3192ae85f06fdd
+               6 File(s)         40,688 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\6f
+
+10/20/2025  12:54 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:46 PM               135 58a6d40a128de9c9f4e7f871644a69bc3a0338
+10/16/2025  10:10 AM               859 a46fe855b3dbdc57ce7ab7aa72b76ec39e6340
+10/20/2025  12:54 AM               210 dffb955a887f435f551b67fb7b4d4c616a35a0
+10/02/2025  07:38 AM             2,438 fbbd8ce9bafeb8749752b6a9ea48468cefd68c
+               4 File(s)          3,642 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\70
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             2,102 0f33f14b67b03b7f92ad2fc0638efb5aa3f3e1
+09/25/2025  08:44 AM             1,259 4055faf6d4fca522e5e10fd9b0c1de2c7df370
+09/30/2025  02:30 PM               496 43250fc12d4f59dde6c0c6838fb6e35c61c727
+09/19/2025  11:46 AM               177 9fb837821610ad2fc25e698209fbcd0b6ef05d
+10/05/2025  11:43 AM             3,504 d8c852e8ac4ef5a354a219f549e7f369ac0fa2
+11/29/2025  01:08 PM               187 ee1016816a2ce0d5fd38d9094c185e48358814
+10/19/2025  12:06 PM             2,665 fbbea0077b828f3852643f469dbd7bd0f9479e
+               7 File(s)         10,390 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\71
+
+10/05/2025  09:05 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             1,545 064f2b3cde26d2d1410b668e8d225a57f01cc2
+10/03/2025  08:46 AM               210 573d7e008d39e0548e5714e200b792dedcc058
+10/05/2025  09:05 PM             9,890 ab16d456f647ce6aa14f6716249f5107be90ea
+               3 File(s)         11,645 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\72
+
+10/18/2025  01:01 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  01:08 PM             7,666 6ec012d71af4d20b3809287b0aeeb8e3b403ce
+09/21/2025  10:42 PM             3,379 ca359b7e3eb6a83d6580462fbfd9e73c5b077d
+10/18/2025  01:01 AM             3,271 dd02c30e27f1ef3dfd0b7f0684951acd11bb52
+10/05/2025  12:34 PM               209 f85889ccf4f12fab95c6ddb2f0a4b3e04f3bd6
+               4 File(s)         14,525 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\73
+
+11/30/2025  12:11 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  01:24 PM             2,465 04fe9f4a5250756d01fde9bd99216deee32fec
+09/18/2025  10:41 PM               176 323f32e211023d020adb0606da96d15ffe5b4e
+09/17/2025  08:46 PM               150 6a8eb68540df00eb77c683604780b7b0e1a5ff
+11/30/2025  12:11 AM             3,737 7f68c21acf01f3800271446662c20018fb44d3
+               4 File(s)          6,528 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\74
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  09:15 PM             8,619 0d47e68b1c91b2bc332947f76e4edf9d9c4f4a
+09/23/2025  12:38 AM             4,783 3bd58c18b9dcb6cabdf98509afe9b0590c1c1b
+10/21/2025  07:39 AM             2,772 486b96ba86a7a54c092dc557232bf7ffade5b3
+10/04/2025  11:35 PM             9,897 78e7e54b70e3a84ac406ade0c970ca75609f35
+11/29/2025  01:08 PM               595 93d11b1ebff1eaffa3e01be480d6574294c327
+               5 File(s)         26,666 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\75
+
+10/08/2025  12:01 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  11:44 AM               928 563b496565fa191e9815b20250ac97c47e68c9
+10/02/2025  07:38 AM             3,050 a5890e68a4114af46988983740b4a76425c91a
+10/08/2025  12:01 AM             1,855 bab406bc8703f396efbcf5c399b6f13a50c46b
+               3 File(s)          5,833 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\76
+
+10/16/2025  04:40 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  04:40 PM               177 20fd8aa8b5d136ec443f89fe0a83005d7d58a2
+09/23/2025  12:38 AM             2,212 58796c5395fc03b17ec3c27f77d3e5cf80d993
+10/04/2025  09:05 PM             1,184 65df9a0394adabddc8cadb167e04cf17b00621
+09/25/2025  11:44 AM             1,744 d1770c6f6e840297670a6f7fb4dcd606edda5a
+               4 File(s)          5,317 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\77
+
+09/30/2025  02:30 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM             1,323 d531757060deb8d57923e3f75bbe792b2ef69a
+               1 File(s)          1,323 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\78
+
+10/02/2025  10:11 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM             8,696 54e1a696dbcca55f2aa00e5b9a9da63758a3a2
+09/30/2025  02:30 PM             8,189 64a08a49e220b65d33d6cd9baa14be63897273
+10/02/2025  10:11 PM               177 f8ca5a7b848acda05f36b0fd988bc95fe7b658
+               3 File(s)         17,062 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\79
+
+09/17/2025  08:45 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM               831 396012febc7152f1374da54ed81fe51fcc8372
+               1 File(s)            831 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\7a
+
+09/23/2025  09:15 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  12:39 AM               209 15a7dede0f01228197cba287674affeacd445c
+09/21/2025  10:42 PM             1,677 36edfae9ec8fd654d7caa2850a886615d4adf9
+10/02/2025  07:38 AM             4,021 b9ad4cdaa8a6a9951c5a01500c01fe64929390
+               3 File(s)          5,907 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\7b
+
+10/23/2025  10:36 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             3,155 6ccfde88409c5f628b836abebabd31d9fac633
+10/18/2025  02:32 PM               762 88da5394646529f7e352be6229600ee09c0022
+09/18/2025  10:37 PM             2,084 e94435ac5ffc20f086d147de18004311ed5024
+10/23/2025  10:36 PM            10,386 f3654c5bc9fe8e912b13a2e43609e4889e9cb2
+               4 File(s)         16,387 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\7c
+
+10/18/2025  01:01 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  11:35 PM             2,484 1b6a9f0a82ca6daf095fbf478ebbdaf36654d0
+09/25/2025  01:08 PM               177 9106e62f4d6eda17c6fcd41bee5143d718acb3
+10/18/2025  01:01 AM             9,217 b2919c9d23f9c8b97fbc402f564dcd910cfb0f
+               3 File(s)         11,878 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\7d
+
+11/29/2025  05:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/08/2025  12:01 AM             1,683 33b808094a0c50969d241ead1ff468df13e7b2
+10/02/2025  11:44 AM             3,844 61a12c641e64193bfe9adeeb855db0b46ff0d5
+11/29/2025  05:31 PM               234 f9e85ed2e0861313ea6f74d2aa3a365b177e5c
+               3 File(s)          5,761 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\7e
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  09:13 PM               178 1640f44767b961a1acda3747d708d290dfbd3a
+09/17/2025  08:45 PM             1,722 37f31d0a568fdf0f3749c3f1e2f86c15c5a440
+11/27/2025  11:39 PM               178 80c63fe5dd0cb9138000c21540bcc9eef5c0a0
+09/17/2025  08:45 PM             1,078 8607676b72018de02dd0840c3876cc7a1e1bc0
+               4 File(s)          3,156 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\7f
+
+09/23/2025  09:15 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:44 PM               246 066edcd8ef7990e1264598985f712e60608eae
+09/23/2025  09:15 PM               179 400a971ea9a94516df999f88a0f388448d21b9
+10/02/2025  07:38 AM             5,213 c6ebc3908419037bec556d1ec21c0717a575b5
+               3 File(s)          5,638 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\80
+
+10/18/2025  01:01 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/18/2025  01:01 AM            10,114 4ec804c2163bdd8d497f8cfd730b13f1fbcde0
+10/15/2025  10:50 PM             3,605 a444fe6432d562b28c0bb62c2b3841a9453dce
+               2 File(s)         13,719 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\81
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  09:13 PM             1,791 232b58252f11d439631f57491d728f0ea2df96
+10/04/2025  09:05 PM            14,077 34dae71e544d510d409c8ce037f6bba3649ac9
+11/29/2025  12:17 AM             9,862 963451b894d74ea4a66ec30bbb50a33bef8b1f
+09/17/2025  08:45 PM            14,537 99d2dd368db91c12641eb09f5fd7b6430be231
+10/02/2025  07:38 AM             2,749 fea0232db499def12268759d4558b35b6c1d12
+               5 File(s)         43,016 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\82
+
+11/30/2025  12:11 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/30/2025  12:11 AM               235 4880e7fb0565ba179f1d931e8f65ac06524449
+09/18/2025  10:41 PM               175 7c72d074f94a263f3fa611a09b60027ba6adeb
+               2 File(s)            410 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\83
+
+11/28/2025  04:49 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  12:34 PM             2,489 7373a8724bd10e8e6d5e583b2f180749ca8133
+10/05/2025  11:43 AM             9,574 a3b4f716234e11259eb06dc941af5ec723628f
+11/28/2025  04:49 PM               235 d61bc28fff55331390b234d061742f4ac56e53
+               3 File(s)         12,298 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\84
+
+10/18/2025  01:01 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  10:31 PM             2,664 0f7aa4eaf58cbcf0252ddfcc4860cc95e004ac
+09/17/2025  08:45 PM               749 4c79f3f23c89f0369f644c62753c0daec3d151
+10/18/2025  01:01 AM             5,479 683cdb772a9f6eb20cf9454bc9a4ce82acf849
+10/02/2025  12:08 AM             3,785 6c50cc6d990d1a0f2595b0c2c265cdccccf117
+               4 File(s)         12,677 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\85
+
+09/30/2025  02:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:31 PM             4,958 5c10d298877dbc88e33ee7fa4e58052752d8e2
+09/30/2025  02:30 PM               714 a25bdb21ef0f7d3f2a66670e0b8c2f1e570d76
+09/17/2025  08:45 PM             9,963 eb9dbbc5aeb32491630b189c63edb5ca57a192
+               3 File(s)         15,635 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\86
+
+09/30/2025  02:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:31 PM               210 a2a2460bc4a4d7b8a2349fca79dc7c7548b993
+               1 File(s)            210 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\87
+
+10/16/2025  01:35 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  11:46 AM               532 0aa310e95b591a53975cb6434a74f072277c20
+10/15/2025  12:15 AM             1,007 16ed22bdfaebaa628834ed7f2cddeb589a0e74
+09/30/2025  02:30 PM               673 64127584930b38130d557aeacd7cdf31991537
+10/16/2025  01:35 PM             3,268 dc977651710a05f8ef1553df21daff54d85544
+09/30/2025  10:38 PM             2,231 fff61509ddbb372ccdb3f8d441f34fb2c5f577
+               5 File(s)          7,711 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\88
+
+10/19/2025  01:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  10:38 PM             2,381 770719897ec8d641ec7fa1749a31b6eb6f3b1c
+10/19/2025  01:17 AM             1,322 857f18377e81ea86bc2ce99b770fd6d0af9847
+10/21/2025  07:39 AM               158 a550947edbc3c5003a41726f0749201fdb6822
+10/04/2025  09:05 PM             5,866 c75395c08936a9d4c7638cac818bcc979200a2
+10/05/2025  12:34 PM               179 d3bd204f823625da8b3225df0c9ea502101996
+               5 File(s)          9,906 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\89
+
+09/25/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM             7,237 3e00c52ba706e4b4ce6c451386a279aa9459e1
+               1 File(s)          7,237 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\8a
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/21/2025  07:39 AM             6,364 528611d31ad3e33f16d27b3bf5381d91ba8024
+09/21/2025  10:42 PM             8,532 a5037bceb3a1545325ed90a1944b35cd3f29c4
+09/18/2025  10:41 PM             3,304 a6cface214a174973489c3ddbe6e21d064cb63
+11/27/2025  11:39 PM               539 be31e78afc89f0cb6ab65558d172b3b2d5c791
+10/19/2025  01:17 AM             5,039 fff0594da19e667583504a8774514d514103e9
+               5 File(s)         23,778 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\8b
+
+09/21/2025  10:44 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             2,411 0ff488fd8c499a030d86cc2a64893da58fa431
+09/21/2025  10:44 PM               184 ada3f68ff4e1ea8a4c3535cc44826102facc10
+               2 File(s)          2,595 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\8c
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:31 PM               209 23a9faf482a60d1c8e8c8d1128c07fa2803377
+10/20/2025  06:29 AM            34,222 4114ef60892b9f5c38b0fec53fd338720f223b
+09/23/2025  12:38 AM             3,286 62ae115a597195479d8afecb34abc048b6d2c0
+10/15/2025  10:50 PM                52 7a1cf468db1ac31475ef86c20a0582f98319af
+11/29/2025  01:08 PM               234 a5de1a90a78dba041a0bb9fe6c042667cc0939
+               5 File(s)         38,003 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\8d
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  01:08 PM             2,333 2efa88f6c79af48ea7f3addcdce829e99503e4
+09/18/2025  10:42 PM             3,983 3c703398edf14b5e4b26bc47aab834f3f5276e
+10/20/2025  01:39 AM               209 57fa98c6046d197d7fd925b571043f15f59376
+09/17/2025  08:45 PM               129 a8badbe0935593aa9261dd334c8705b902ee07
+10/02/2025  07:38 AM             3,782 ce31c332f5431915a937befc5b85e542b06a9d
+               5 File(s)         10,436 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\8e
+
+10/16/2025  10:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM           176,347 1a7f432e144fc2e6beecdf2c09cb962b2ed064
+10/16/2025  10:31 PM             9,695 83c63dc647cf54928fc7e0156b7ffb89756dbb
+09/18/2025  10:41 PM             3,166 88260eb0575f66b0c699c03cf815320b72ad56
+10/02/2025  12:08 AM             3,445 dd4f2f6c3484357f4a8c79d26e4ada00583d7e
+               4 File(s)        192,653 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\8f
+
+10/02/2025  08:28 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  12:08 AM               574 6772fbd345ba70806c2ce1ac397031991b1074
+09/25/2025  02:00 AM             3,687 cc1d4e8d01df78538344766b4df31f2aeaacd3
+10/02/2025  08:28 PM               808 e317f4cb84f3b4d1ff7bcbca2997c68778543b
+               3 File(s)          5,069 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\90
+
+10/24/2025  08:05 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  11:58 AM               183 75be737589b87be54fab9aef6dd4ff64f1eafe
+10/24/2025  08:05 AM             9,537 ee4adec40894b9121963296f576e3cc7243bf6
+               2 File(s)          9,720 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\91
+
+10/02/2025  07:38 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM               209 39e42f01b020c40c0e257867f3ce6d00ff2612
+10/04/2025  09:05 PM             2,871 4a9422270a1a0097105ff926ca26da6d2ada58
+               2 File(s)          3,080 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\92
+
+11/29/2025  12:27 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:42 PM               176 20141f90ddaf6d4b62a05bae9062661d83dbde
+11/28/2025  04:49 PM             9,778 347e24830982bbddb56296a103296a36dfca20
+11/27/2025  11:39 PM             1,828 43dcbe291d84e17d94fbcf798fbd08412fd5ee
+10/18/2025  01:01 AM             8,357 ad060b2fe938873ef565d875151989aa253096
+11/27/2025  11:39 PM             1,260 e16833411e3ead325ad5df4ef2e1863311ce3c
+11/29/2025  12:27 AM               235 f59fa736223417852f027b96324094f27e33ed
+               6 File(s)         21,634 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\94
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/27/2025  11:39 PM             1,855 168f6dc1a102eb3f04a1221e30314f87679707
+09/21/2025  10:42 PM               542 56bc7534bb717906ae717ef5aa787fe82be938
+11/30/2025  03:26 PM             2,374 7fa72be9e3cacd8719ca080e7682e1c39034e0
+11/29/2025  01:08 PM            11,394 a970ab9835512a6133ea647362f757c05757eb
+10/05/2025  09:05 PM               179 b1657a938f53295faa37998ce30680d5f08250
+               5 File(s)         16,344 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\95
+
+09/23/2025  09:13 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:42 PM               179 8f9b029960f3265eb366c36160f0495cbb6135
+09/23/2025  09:13 PM               209 a801a7f216700bacfec841771185f6bcb611e9
+               2 File(s)            388 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\96
+
+11/30/2025  06:37 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  12:26 AM               209 30449330a45547050505c1d709c8744a1115c7
+11/30/2025  06:37 AM             1,792 7bf64dbe9bf043b7c98a18cb0aa5cc1bad30bf
+11/28/2025  01:17 PM               176 fd2c4c01fb0142d2bd65f7d2ed2ec9935bd878
+               3 File(s)          2,177 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\97
+
+10/18/2025  02:32 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/18/2025  02:32 PM            10,296 041e666e9a8840aea5dc96160b50e91cc654cc
+10/02/2025  07:38 AM             6,742 20707f53d6c6df03c70c761e5094b9827032c5
+10/02/2025  10:11 PM             2,524 2c56b1dfb8ade98b0cfd21d25b39f4e7515583
+               3 File(s)         19,562 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\98
+
+11/29/2025  05:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  05:31 PM             3,012 0572504d7d861ea2e5a9927711deb4587f3d18
+               1 File(s)          3,012 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\99
+
+10/16/2025  01:35 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  01:35 PM               176 26238fb0f0e0781f76981a67535ce976b8048a
+10/16/2025  10:10 AM             1,668 b61afc756bf721185a94b8579771ba54534e30
+               2 File(s)          1,844 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\9a
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/23/2025  10:36 PM            10,981 136ca5eaa53ed5e302818c74d8fe5b5859bd66
+10/18/2025  01:15 AM            15,836 1831d98d1e5579fdd3f968ec48e4e02f4c1902
+09/25/2025  11:44 AM             3,690 6a931105faf792dc837b6bd88f1615fd9f7ab5
+11/30/2025  03:26 PM             4,050 a228a15ba095ac4cbddf86478c77550ff0fdcb
+10/19/2025  12:06 PM               179 abcb3f3b42ea44cefc94440826d89f734fc2b3
+               5 File(s)         34,736 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\9b
+
+10/16/2025  10:10 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  12:08 AM               883 18e6a500a7388ec09b2e12e44fc0ed86fa61bd
+10/16/2025  10:10 AM               866 bded9ed05f78f2cd404e115db24271162a559a
+               2 File(s)          1,749 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\9d
+
+09/17/2025  08:45 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             9,678 36d69358d1d6c0a9865ddc86fada463097f3d6
+09/17/2025  08:45 PM               737 828b99cb1efd1800addde4a026a3a1c7eebb07
+               2 File(s)         10,415 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\9e
+
+10/20/2025  01:33 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/11/2025  11:17 AM             1,811 188b71b9b3b2dfcee248df70df5ef24c08245b
+10/02/2025  07:38 AM             2,774 5cc1da785208de41424e8df916696f8328ed54
+10/05/2025  11:43 AM             2,732 a12578a4afa77ca8a2f52664d4269580f44171
+09/17/2025  08:45 PM               880 c0befdbfce90df2f8fff61975b262fb922378d
+10/20/2025  01:33 AM               178 e844dc8aa8aed6c50feeff0a31997a382184cf
+               5 File(s)          8,375 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\9f
+
+09/30/2025  10:38 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  10:38 PM               295 2bc20622fe0857eb648691bc5f3539cd442134
+               1 File(s)            295 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a0
+
+11/30/2025  12:11 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             8,959 5855a89c56d00fa5a9281ce64cbf0fd06c2751
+10/05/2025  11:43 AM               210 992f3852f6725cee250393a53817fbb8547fd6
+11/30/2025  12:11 AM             3,014 be66262e649749549e7be351ac99a4b61d99db
+               3 File(s)         12,183 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a1
+
+11/28/2025  04:49 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/28/2025  04:49 PM               179 4c012198ecbc6f6b68860ef29ea3c2ce5e457c
+09/17/2025  08:45 PM               473 8cb3080144d93a3a9e10db818448db4a4d3fb5
+               2 File(s)            652 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a2
+
+10/20/2025  01:33 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  10:38 PM               209 099884b75902a682cdb12b7a129fc3b3457a48
+10/20/2025  01:33 AM            33,323 29274f833b63f9981a098f8a1bbc2cf429e41a
+10/15/2025  10:50 PM             2,790 aa7d510e7c66cf51492835545734a18a4a5ddb
+10/15/2025  12:15 AM               176 c6d7f03d83109be61e27160af60131d9e57f35
+09/30/2025  02:31 PM             3,508 e67d0036a58e5ccf3b31b952aa502b41febd9b
+               5 File(s)         40,006 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a3
+
+10/15/2025  10:50 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/07/2025  10:16 AM             9,902 401b14658578e66c1d2bbb83968d95d9e8ce55
+09/30/2025  02:31 PM               210 5e35d5aa5b9157169a400865d6bdd402d7e0ea
+10/02/2025  07:38 AM               210 cd50256003183d77e20ce290cc3de60e0e7c3a
+10/15/2025  10:50 PM             2,513 d7038174bafea9319f2a9e72abef944461b3ab
+               4 File(s)         12,835 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a4
+
+10/07/2025  10:16 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM               976 2c9bc968c3367f2319463a9e27bc705e555b80
+10/07/2025  10:16 AM               210 8c5504c287b491ab1fd338387e820b35a1540f
+               2 File(s)          1,186 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a5
+
+10/02/2025  10:11 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  12:38 AM             7,961 300e2ae709a933f5c09a6838445afc8262f7bc
+10/02/2025  10:11 PM               210 76695a26f05f5562ef50c5b93e08c9e8dd8093
+09/18/2025  10:41 PM            14,809 ab3f7770ef2117f8521958092bae8643215243
+09/23/2025  12:38 AM               558 fcbc24fb4116c4f962a35b44e65761a884f266
+               4 File(s)         23,538 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a6
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:52 PM               210 1d377728c02ad03079d7ae7662adc4abf9438c
+10/16/2025  09:02 AM               210 28049f7af3b298670da04ea0d5115936096af1
+11/29/2025  01:08 PM             3,679 525fb0af0a7096e6c225f4f07e162ec917d3be
+10/15/2025  10:50 PM             3,710 9f6bbcd13e7888d1928b524c34257f98bcbfe0
+               4 File(s)          7,809 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a7
+
+10/15/2025  11:58 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  11:58 AM            15,643 66e73f2d20f3db386650e50558afbdf9d90712
+09/30/2025  02:30 PM             4,306 88e1d7718ebf5dbdf33ae1032940df250d6c15
+               2 File(s)         19,949 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a8
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:41 PM            14,543 3b4347b6e0ba8766d06bb2e331b105e37b5223
+09/18/2025  10:42 PM               165 4cb5ba92f46335b82f0fb04fea1b942eeaa8c7
+09/25/2025  01:08 PM            10,980 5638726908a6fb36b86fda6f179c153e1b33cd
+10/05/2025  09:05 PM               209 6dbfd191fa45d5c79d9163176ffbd37508db69
+10/02/2025  08:28 PM             2,525 ada0ca2881a3a49d622def43235b9ce6732ffc
+11/28/2025  11:00 PM               235 de32f6d2dd6eff522bb2ce9aacd4f16fd85759
+               6 File(s)         28,657 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\a9
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/27/2025  11:39 PM             3,300 7d52bd1f395692a90fafaad464ecf0d6a2c075
+10/15/2025  12:15 AM               210 ab2322a0cda70b2d5e730355f053cfcede24ba
+10/05/2025  11:43 AM             3,871 b2e02ee1757652e2d674df4596f7c6366ec347
+09/17/2025  08:46 PM             1,588 b7478e3eb44bd8e6a155d711eafbd6f549ad7a
+10/04/2025  09:05 PM             3,455 c02f5670ffe04b898d289546b1b6b85e41d856
+11/28/2025  11:00 PM             6,098 cefde07f167b37c45f446784d0cf24902f770b
+10/02/2025  08:28 PM             2,313 e0510b851f0ea0611227daf5785b7fd7691c3d
+               7 File(s)         20,835 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\aa
+
+10/02/2025  11:14 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:31 PM               181 3dd56fe2d08a3331224f72cafa93506d7f28d3
+09/23/2025  09:13 PM             9,438 c9ab7f68ab99e217ccbb853cabc7db5d4f26c4
+10/02/2025  11:14 PM               179 dbbc0a6b1f0ae9e6456db14011790f1ba92d9b
+               3 File(s)          9,798 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ab
+
+10/04/2025  09:05 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             2,992 0f46f362f1a32e576f1e2951ad3e80684c585b
+10/04/2025  09:05 PM             4,196 9f4b6f502f2d5bb7cb207733007f8bfe3a638c
+09/18/2025  10:41 PM             1,586 b33dadcbc113c58522e488dad118adf046cd68
+               3 File(s)          8,774 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ac
+
+10/02/2025  10:11 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:31 PM               177 3c84f963846bcf516c9a62e61e8dbe957886c4
+10/02/2025  10:11 PM            10,556 a8b4083c82624ae249fe80bbadc91c2ab9d4bf
+               2 File(s)         10,733 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ad
+
+09/17/2025  08:45 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM               700 0a547ae2414fbf8b82ddd286a6bb7a80728fdd
+09/17/2025  08:45 PM             3,682 241a138374f908c1decd2e48074ac40176c2ae
+               2 File(s)          4,382 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ae
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  01:08 PM               177 289cf9bd8f20c475e807f47ceaccba1864de64
+10/04/2025  09:05 PM             2,661 3673e38f949274c59c23b0980cf9785275cb95
+10/23/2025  10:36 PM               210 89ab6733f32d21c23fad04fd7d48bf31820934
+               3 File(s)          3,048 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\af
+
+10/20/2025  01:21 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  01:21 AM            32,070 3e70fc678679128c8794c13f1ef77dc7e4f15c
+09/25/2025  01:08 PM               209 684902328392d0539b8903d26d7bc2e6fafcc9
+               2 File(s)         32,279 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b0
+
+11/28/2025  01:17 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/28/2025  01:17 PM               235 63077d923e03a62aa42720d825c00f8deeea11
+09/30/2025  02:30 PM             1,455 c60b87329959f4dfbeac53b1c8cdf9f2848761
+09/21/2025  10:42 PM               830 e818d859f64a172e7cb47ab1057b3091933c75
+09/30/2025  02:30 PM            87,743 e931e3ffa7d6bec4bc9eb5d2007d26c13665dc
+10/18/2025  01:01 AM               210 fefca337a5d0213bda90f1cffe3979a2f4a2d5
+               5 File(s)         90,473 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b1
+
+09/23/2025  12:40 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             3,167 159e4d437164ebb381d17837a43b588cab0284
+09/23/2025  12:40 AM               210 59865f84c014ee77f17d7310965332165b6e6e
+               2 File(s)          3,377 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b2
+
+10/18/2025  01:15 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/18/2025  01:01 AM               725 758a460567e901871594adcb7ee55d4f230330
+10/08/2025  12:01 AM               210 ba46a8d6d38636fd2e87e8793e856850bb0d73
+10/18/2025  01:15 AM               210 ee6448fe841ef863c686b6342bc04aebee1b64
+               3 File(s)          1,145 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b3
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  12:17 AM               642 d148be215e45577a45ae085f34d1c3dace9200
+               1 File(s)            642 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b4
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  01:08 PM             2,924 07210ef099593d39c786a38508ddb223aad2bb
+10/20/2025  01:39 AM            33,657 857b336d5bfc3c04baf74edf027a70cbac5e1d
+10/05/2025  12:34 PM            13,982 c316a9a05aaf2e467129cea4238922535d8b2a
+               3 File(s)         50,563 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b5
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/28/2025  11:00 PM             1,992 690b8519f794b7ed2b6af5129055823cdc574b
+09/18/2025  10:37 PM               160 b92a2aaa0773b3d4368e6b758b86dd8845d797
+10/02/2025  07:38 AM             2,084 c6c65b39686d59e33955b17d8f071da9309518
+09/17/2025  08:45 PM           344,991 f535f250e69383c76d5539976a2daa91cbca82
+               4 File(s)        349,227 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b6
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  01:08 PM             3,173 75da9eeae065a5800951067e9a42973a5d6a6f
+10/15/2025  12:15 AM             1,779 90750c067eea360f66d723bf50b908daaac823
+10/15/2025  11:58 AM               855 bedf40f3cc37f46e83936710ceb5b4c90ec077
+10/19/2025  01:17 AM               177 c670f485723df1295fa24f4da7c0be8f1b3a73
+               4 File(s)          5,984 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b7
+
+10/18/2025  02:32 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/18/2025  02:32 PM             1,526 e3f2c32fb2fe95684dc21526252e8ef8404eb9
+               1 File(s)          1,526 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b8
+
+11/30/2025  06:37 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             7,865 42149efe4b95955536670f22b4c3d5393e0a36
+11/30/2025  06:37 AM               179 abb765acc27a752146158285331a5ea1683d46
+10/18/2025  02:32 PM             5,005 d93db47495b8317e0eadecbae08c3fa29d27d3
+10/04/2025  09:05 PM               210 dc1fee53cbc6e344bdcc29e25db2fd879ae115
+09/21/2025  10:44 PM               182 ec1cfa14966087051f550f8137863c1bc22dda
+               5 File(s)         13,441 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\b9
+
+09/18/2025  10:52 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:52 PM            14,590 0b7dc02e23c309915720f28b8c05c9925c61a7
+               1 File(s)         14,590 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ba
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  01:08 PM            39,111 2ed2a8011b69cc3e1a06ae4a7ff073ba5f114d
+09/17/2025  08:45 PM             1,326 5c3b56dd5f264e16a82418c8a49e789466d5fe
+10/05/2025  11:43 AM             2,753 93ac1ab279b5a2efefd89607abca43c1d3b51a
+10/02/2025  08:28 PM               210 996b5f8a569c71cef996b4daef0e95c4099ad3
+               4 File(s)         43,400 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\bb
+
+10/23/2025  10:36 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:46 AM            10,136 0e008ad01fb459203a2639bc2b1388d8e7bb8b
+10/23/2025  10:36 PM               177 6e4cae4f56140433b501980c31c532fe5e5385
+10/15/2025  11:46 AM             2,638 cf05bd21db2344b6ac727f1de66a3c584fccb0
+               3 File(s)         12,951 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\bc
+
+10/20/2025  12:28 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             4,587 2a8c4bb45a73fca87fb5052255d3b4277d3dd7
+10/20/2025  12:28 AM               210 4579647c78c6e76f9e35ee688948dc52424d77
+10/04/2025  09:05 PM               763 6fc0d8a81d09973bfe719b74566c3e690152ea
+               3 File(s)          5,560 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\bd
+
+09/17/2025  08:45 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM                53 3d74037df418f43de8bdea23097465d766958a
+               1 File(s)             53 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\be
+
+10/04/2025  09:05 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             3,464 73e861f22df4b2ebb495217e83227e18d20a55
+               1 File(s)          3,464 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\bf
+
+10/05/2025  09:05 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  09:05 PM             2,520 80744131e741c312e04e8c168d2d5f3d0d21df
+10/02/2025  07:38 AM             9,661 e43f03114b557ebeeb0f4a880019e3e690519b
+               2 File(s)         12,181 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c0
+
+10/19/2025  12:06 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/19/2025  12:06 PM               210 2c1246db15cb2e594bda0202ea52ce9eaff727
+09/25/2025  01:08 PM               210 9de8c28805a1c76121c85534b667fdd89ebd8f
+09/18/2025  10:41 PM               841 d30fa73f76386ccb0a7d867d3abdfba4d38a7b
+               3 File(s)          1,261 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c1
+
+10/02/2025  08:28 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  08:28 PM               584 8441399597a7cff8f8a34c7087d1b5af49796a
+09/18/2025  10:37 PM             6,881 b67242508c1043e2cf494bd3363c114e94c7fe
+               2 File(s)          7,465 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c2
+
+10/15/2025  10:52 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             3,536 017bc3f08acc6b13c4f4c722c14b89d9321e9b
+10/15/2025  10:52 PM               176 bda40e5bac4a0fb6cc5888a8fdbf2a01ec00f6
+               2 File(s)          3,712 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c3
+
+10/15/2025  10:50 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  10:50 PM             1,925 8feb22f85fe1b292bc619c2aa98ab3a6b54d55
+09/23/2025  12:40 AM             2,426 a5a9ebbca4c7d9e1677851d07f69334399fcad
+               2 File(s)          4,351 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c4
+
+10/20/2025  12:45 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  12:45 AM               178 0226aafe190a46d3b0991d163a00e350bf12e8
+09/17/2025  08:46 PM               176 74a082eaa387e4ef2f03b7159cbdf831735db2
+09/18/2025  10:41 PM             1,586 b0b064723278306828d4f277122f544c7b49df
+10/04/2025  09:05 PM             5,316 dc71d33f822342086ac8ec8f0dbaa4e734158d
+10/02/2025  07:38 AM             8,948 f2e59821793ee6b7f33fb15f4fb41f157d7899
+               5 File(s)         16,204 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c5
+
+10/21/2025  07:39 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/19/2025  01:17 AM             3,232 0daab19d9a33cbd508b2f97442f550a17d9a31
+10/21/2025  07:39 AM               497 ba1f5de23d523a15b68096763384f0d2f74ba8
+               2 File(s)          3,729 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c6
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/27/2025  11:39 PM             2,887 2900ed8517911921ef3372d77404cd470b7183
+               1 File(s)          2,887 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c7
+
+10/20/2025  12:51 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM               210 83b7e3c978faa41b3b315be966e44bf6f1cb0a
+10/20/2025  12:51 AM               179 bdb17c1d524e8989d4b7559ae99a6ad1ac2f84
+               2 File(s)            389 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c8
+
+09/23/2025  12:38 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  09:13 PM             7,171 ca989b76c30f9dba3a08c4c8cc2b8ee88a97f5
+               1 File(s)          7,171 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\c9
+
+10/15/2025  12:15 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  12:15 AM             2,636 08e17651fad5300647b13b7201033bd4215f4f
+10/02/2025  07:38 AM             5,602 9833cc3c24b64c12eccf67bc041c21a7e54245
+               2 File(s)          8,238 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ca
+
+09/17/2025  08:45 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             1,862 b2b1a0aa69020f65f0ce4ce6930e6e53923f3f
+               1 File(s)          1,862 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\cb
+
+10/20/2025  01:27 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  01:27 AM               209 01d4c434e8d850739d4fc0e9a923a9e18a36a1
+10/18/2025  01:15 AM               178 42afe40290f61f028c190644d54a97c858f0a8
+10/18/2025  01:01 AM               779 ae68797fcdebf875ca975d8f053b89c4a75881
+10/19/2025  01:17 AM             2,951 baf3aaee354d6efa173b475861ab39342911ea
+               4 File(s)          4,117 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\cc
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:37 PM             3,274 2b8ed064ab68168b5e5791c205455ac8ca6303
+10/20/2025  12:42 AM            31,019 4aaf242d5952fb3477753ebab76054f3f5fa7c
+11/30/2025  03:26 PM             1,064 5419f5a5522d264d76e739b662a8dff9b11dd1
+10/02/2025  07:38 AM             9,676 5ed25af630d739e6d51da9ac835078e9b9d3e9
+09/23/2025  12:38 AM             1,082 836a13dd085f61b44c81b5925831b888cd7623
+10/04/2025  09:05 PM               867 e7e6ec82b84b471fb0e3eba1c73de91b32e469
+               6 File(s)         46,982 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\cd
+
+10/20/2025  01:40 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  11:13 PM            10,702 08cbcb8097316dfdebb14ebea83035830f2269
+09/23/2025  09:15 PM            10,958 1a72009a769722ce15b40fc708260b7765a2a9
+10/03/2025  08:46 AM               177 2ddc12340e9a05b583445b73eac37e8fd5092d
+10/20/2025  01:40 AM               177 3f29586e90053866d215a41cf650045efeb46c
+10/04/2025  09:05 PM               799 7ae60e93ebbc8f5f1d793f6aa53e467d25197e
+09/23/2025  12:40 AM             5,454 ffc87ee4a84a7e49d02de9a436075112157738
+               6 File(s)         28,267 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\cf
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/11/2025  11:17 AM             1,567 83260243322041cd232881c4d50de36898ae47
+11/27/2025  11:39 PM             1,673 9602507096e0f761544baf46c268de026ea53a
+09/23/2025  12:38 AM               474 e0fff445c81642f7d20bbd0e2f7a723d21f2a3
+               3 File(s)          3,714 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d0
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM             1,270 10c71d6cb03dd8d8fab4aea2b91749693c4101
+11/27/2025  11:39 PM             1,256 227493a792a1abd21ce1f71722a4126827da62
+09/19/2025  11:47 AM               174 2ae0d82df5e679740df4a892a85b729f0f0715
+10/02/2025  11:44 AM             2,303 42969bd60ef38a8e36ab69d0171399e080a792
+               4 File(s)          5,003 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d1
+
+10/16/2025  10:10 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  10:10 AM               670 d651de723e83cffe49f78e05d64c7ffc48d49b
+               1 File(s)            670 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d2
+
+10/20/2025  01:40 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/20/2025  01:40 AM               209 467f5326059d5d12aad9fa0d7e35141999494a
+09/17/2025  08:45 PM               529 961bb7125faf6772e840e9f7570a2eb1772a19
+10/03/2025  08:46 AM            10,218 ac2e5697fbae72713b3590ba5266cd116b4b34
+09/30/2025  02:31 PM             6,029 bac48aa9fe3d194f1bf689d5c4c8f89d075265
+09/23/2025  12:51 AM               174 eda2b95fff28f616a06b7091c188ad08a73884
+               5 File(s)         17,159 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d3
+
+11/27/2025  11:39 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/27/2025  11:39 PM               234 0210e7e3b84550485e2d535bb85aa2155d28f7
+10/02/2025  12:08 AM             2,429 9c6ad996cf532791434338bed3b878fa937fc3
+11/27/2025  11:39 PM             1,034 af4532fb855f1a852a9df5f6b3ab869fbf9a15
+09/30/2025  10:38 PM             5,046 c4dacfef8ca8235ac9c93f8c7e5608ec8075f7
+               4 File(s)          8,743 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d4
+
+09/30/2025  02:30 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM               561 be9b92a1f8437828fcec949ada0729139c7c9b
+09/23/2025  12:40 AM             1,736 dcbca4f7c3f4a6f9506497088dbe002b57f6c2
+               2 File(s)          2,297 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d5
+
+10/15/2025  11:46 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             2,103 12d9bb557b84d2c5f503cba99f0ab22a64c95e
+10/15/2025  11:46 AM            10,137 62213cbab8624cd753c3940e1e16cff7dd3252
+09/30/2025  02:31 PM            10,957 d84f754db2fcf9e465de16d782678a63c01f21
+               3 File(s)         23,197 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d6
+
+10/23/2025  10:36 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM               586 4da31ba141501770927c62ddaa1d5f2d141df9
+10/16/2025  10:10 AM             1,316 687f26ad1512d20dab220446696bb4c66a5684
+10/23/2025  10:36 PM             3,419 73ca6dda334ba9aef7a6344406fe55d6199d03
+10/18/2025  02:32 PM             6,118 b397a2e3476d83c2f82b9233794ed8031be5ab
+09/17/2025  08:45 PM               615 c02d9712647def451ef557cf05f314bdff918b
+09/18/2025  10:41 PM               846 fb59442e25efb7f12be4e44852dd896828b778
+               6 File(s)         12,900 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d7
+
+10/16/2025  10:10 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  10:10 AM             6,087 34b7696e1baf8e6b3baf965240d3964cd2927f
+10/04/2025  09:05 PM             2,383 6bd6bae75dfdf95a7a7c1d7f5d59b3fb9465ff
+               2 File(s)          8,470 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\d8
+
+10/18/2025  01:01 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/08/2025  12:01 AM             1,275 2aa37adeb3c0b277ae8ac463b704c7d4921f51
+10/15/2025  10:50 PM             3,462 3718a5ab0592c47ab92d926a8d4bb02198b0f0
+10/18/2025  01:01 AM             1,160 6f4b07beadc4f890eb2c25b88d1724d96d8d61
+09/23/2025  12:38 AM               179 a548c22ed6bf002e91812b0a55104e6892bcf5
+               4 File(s)          6,076 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\da
+
+10/16/2025  10:10 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  10:10 AM             2,669 65f6ea0d8dccf2819c428eb730e2f91adae0a9
+10/15/2025  10:50 PM               178 908ccb24b500e1d776322da153e993d6e630dc
+               2 File(s)          2,847 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\db
+
+10/16/2025  04:40 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  04:40 PM             1,824 4078eca52fdbd5c032a06a2571781acd5324eb
+10/02/2025  07:38 AM             4,085 837d369a9e81a514b703beb24ee3a519013b94
+09/18/2025  10:41 PM            14,914 f4a5ff502dc923140338e39bfcbaa7b23805dc
+               3 File(s)         20,823 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\dc
+
+10/20/2025  12:54 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/18/2025  10:52 PM               176 1e230514243e48212e05790be4a87ca6ef91f6
+09/18/2025  10:41 PM               857 2a1f0717526ae508befeb927ed17795ecac163
+10/16/2025  04:41 PM               178 cf4ccf093636b8529c7d52eed96530d14b3480
+10/20/2025  12:54 AM            30,995 ebb9a1243342e86ca64e08a7b9536d283529c1
+               4 File(s)         32,206 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\dd
+
+09/21/2025  10:44 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:44 PM               176 2ce896a8ac13dafe2b52b0da89e6ed7eba40f7
+09/17/2025  08:45 PM             1,079 f9498c2c75f042cf839a7115146fe9dfa5befc
+               2 File(s)          1,255 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\de
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:46 AM               209 11c9d328bf1a268202957a632f83b977287e6c
+10/02/2025  12:08 AM               176 135c0487dc78737c03803a7171848aa3cd6594
+10/02/2025  07:38 AM             1,826 38bd4dd94f183f53eac9be58d8aae90b6f213a
+10/11/2025  11:17 AM               210 38dc01f0a18e351d65288a2e3979e4b8dcb04a
+10/19/2025  12:06 PM             3,089 3ab9f3710d4a456b9cfe492d5bda4d6f7c4a5a
+11/28/2025  11:00 PM             4,985 6b67b35c386b5b49cef3ff660b3d0df1d3824d
+10/15/2025  10:50 PM               707 6e3541f7edf3ccc76be2de391a855f21f68420
+10/16/2025  10:31 PM             2,558 d38f07fde6af0538c41984456a3253dc21a10c
+               8 File(s)         13,760 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\df
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  01:08 PM             3,013 66362a276b59c6d2973d1f974828001d37e4b1
+10/19/2025  11:18 PM             1,277 749d48497d8d25fc4bc71ca83986a636a32846
+10/02/2025  07:38 AM             3,945 8b8c59979ad5ed679a6782487f889b0310fb00
+09/30/2025  02:30 PM               177 b83cc47e221a4f6614e0c8b40c202cc2f1032c
+10/02/2025  07:38 AM             3,998 f68cd18b25f570484512b1e2a047e465f86419
+               5 File(s)         12,410 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e0
+
+10/16/2025  04:54 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:46 AM               844 7fde8f0bb3402186b0d40720e85481336c5e17
+10/04/2025  09:05 PM             5,395 9176cf9029dff61169b1d4ef728f2b891f2242
+10/16/2025  04:54 PM               175 db9452e4ab8ae224036cd8cf7af0a5a23c86fb
+               3 File(s)          6,414 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e1
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/15/2025  10:50 PM               951 27a395efa898fc4c72fcd4f55c82a3e3e4856b
+10/05/2025  11:43 AM             9,060 2bdb36d8d7fbc93c68f136562f0372f4d6f46e
+10/16/2025  10:10 AM             1,029 4547ab662c06efb96110024e7559fa39d58d87
+10/20/2025  01:11 AM               177 acfcec8a343b21e3403517f80d777dd15e2417
+11/30/2025  03:26 PM               177 c1e2777c2662684f3cb78562097f2e861288e9
+10/19/2025  01:17 AM            11,906 ce86aeb5fb36e8902ce213916de1fc7c3c2a8a
+               6 File(s)         23,300 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e2
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  12:17 AM             3,618 120fdab0006b47a15e85e16160ceb81e7565ba
+10/08/2025  12:01 AM               177 13c51768b5f02071ceb13ee9dbdf414a06813c
+10/20/2025  12:54 AM               178 70aa57f1565160d1a8f6ade38033fab1572837
+               3 File(s)          3,973 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e3
+
+11/29/2025  02:07 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  02:07 PM             3,012 17a81c6faac018152f0000a674e7a4268ac55c
+09/25/2025  01:08 PM             1,745 5aaca490c62d7a082f54797518a6aaeabda196
+               2 File(s)          4,757 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e4
+
+11/29/2025  02:07 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             1,522 1179b4417c82db5808eb98cbaad7430e48bb83
+09/30/2025  02:31 PM             7,824 3c45efbdaaaa11bbeab71492f1e47ab08a01ad
+10/16/2025  04:54 PM             2,666 9909deb76e06bf68ae708159ce3e2e8034cd3b
+11/28/2025  12:00 AM            34,897 aeffaf7e72959d437d0cfcf553e2165a077600
+11/29/2025  02:07 PM               179 b82125b45276c4166eeb3631031c2b08d54948
+10/18/2025  02:32 PM               177 d12fc1df3703dbee557c6d4300ba40e76c65c3
+10/08/2025  12:01 AM             2,522 e4003499add4087c579fafcfa6edd6b97a3b44
+               7 File(s)         49,787 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e5
+
+11/28/2025  11:00 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  10:11 PM               604 39aff18cfaa342c243c279452ef03562290085
+10/16/2025  09:02 AM               176 4bd41f07a1f5d8150479012aba4ae23d89c0ed
+09/17/2025  08:45 PM           179,158 e1912373c4cd59328b893e7a0e8c6a9e11399c
+11/28/2025  11:00 PM             3,258 ea6a4bd0b77188d02ea12d7be25dceb44cabc8
+               4 File(s)        183,196 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e6
+
+10/07/2025  10:16 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  09:05 PM             2,586 36f432dbaa6a46724f8f326e9d0cfaf397658b
+10/05/2025  11:43 AM             3,584 3a31a105bdf11a6f74535d268a79837aa15e52
+10/07/2025  10:16 AM               178 87cf2ff6dda3011d39ffe15e20e580cab285aa
+10/04/2025  09:05 PM             9,855 8e989e445ad82e53bf3cf53056bea69e1988ba
+09/25/2025  08:44 AM               209 dfd4ca5e8b4ffb68040ad6d6732eb0ca0adb04
+10/02/2025  07:38 AM             9,801 f1e8772202cacdb55714e016a1c7d6df6fbbcd
+               6 File(s)         26,213 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e7
+
+09/30/2025  02:30 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM               988 b755f99b230058137e3cc735385d8bf371f2bd
+10/02/2025  07:38 AM             3,277 eebd08faf496d80a3ec4be18a7788151c5c35c
+               2 File(s)          4,265 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e8
+
+11/29/2025  01:08 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  01:08 PM             2,513 df8cbfae73ae040e444735e8bfd09875ef4ace
+               1 File(s)          2,513 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\e9
+
+10/15/2025  12:15 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  12:08 AM             9,769 0ab0e65738959694dc25e66c98c92152f0f46f
+10/15/2025  12:15 AM             9,942 13246a70f4575a36e43fc4aff24147eada17b3
+10/02/2025  07:38 AM             5,984 2007497c9d7763c509fb1c8bd792fd92028084
+10/05/2025  09:05 PM             8,653 2b99b766f030fd5c442c99b22b036fa4ef8178
+10/04/2025  09:05 PM             4,937 6eaa2b86825c096f1c29009edf81790ecaff95
+10/04/2025  09:05 PM             2,908 7d91ad208e43ff143ae156b5cb6782dc5183b1
+10/04/2025  09:05 PM             5,116 e750645018f6f63e7a3f6d990487574ff20266
+               7 File(s)         47,309 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ea
+
+10/19/2025  11:18 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             2,117 0c4d32cbb87e6c1d25f5a3048a5cb69ed65618
+09/25/2025  02:00 AM             1,742 503a63ef95a4e7ef62e38d5f28ee3be50f8bdc
+09/17/2025  08:45 PM               796 5272c41d02fd38172761416f4f4d586965c664
+10/02/2025  07:38 AM             3,404 a82fb5882390a6966e5efd2218469f4fd326d9
+10/19/2025  11:18 PM             5,102 a970c1d7db668f59b960a9c63c77d69aeda7dc
+               5 File(s)         13,161 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\eb
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/30/2025  03:26 PM             3,005 00515f3d632ba45b9e3393b35dec6a50dd4cc3
+10/20/2025  12:26 AM               176 8e6c3fe97b6612b9d719eedb9caf0c6177deb0
+09/18/2025  10:41 PM               839 c93881a87d600dda3547eedf82461758d7af31
+10/19/2025  01:17 AM               711 d4137d9e24b54ce039fd0bef567cca15462d51
+10/02/2025  10:11 PM             2,749 dbcae2e6f0882d6673ea796c570f0411a6cc14
+               5 File(s)          7,480 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ec
+
+10/02/2025  11:13 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/19/2025  11:47 AM             6,952 a8b1c7273f815d64dc70b329327f957a854a1b
+09/23/2025  12:39 AM               182 d1dca04317d2ba3b732f59361c3a4ce0b416fc
+10/02/2025  11:13 PM             1,264 f92fce2131ff1b505de5eabe3b3aedb162329e
+               3 File(s)          8,398 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ed
+
+10/03/2025  08:46 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/03/2025  08:46 AM             2,521 594717d20ff50d8ab4064ffdce13b073bfffdc
+               1 File(s)          2,521 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\ef
+
+09/23/2025  12:38 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:42 PM             7,442 56b68d0bf14ead524096ae443baa797b8d01db
+09/23/2025  12:38 AM             3,219 cf6abd8097d32ef0437b129d187f1271e7e3ec
+               2 File(s)         10,661 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f1
+
+09/30/2025  02:31 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/30/2025  02:30 PM               604 5b2cc48db99e98c205ce8e961daa579ccb76f2
+09/25/2025  02:00 AM             9,552 e66dafb782d5c6548c7cb3ac6066d4cc88ca2f
+09/30/2025  02:31 PM               210 eb203d1160b03867d6c013869f756e6120a790
+               3 File(s)         10,366 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f2
+
+09/30/2025  10:38 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM            10,973 7a8e071395718b3c07ed0b5ae157d1cb757414
+               1 File(s)         10,973 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f3
+
+11/30/2025  03:26 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/25/2025  01:08 PM             1,752 11e2cf18035608155857e819306550f996e897
+11/30/2025  03:26 PM               234 39a2a0751d659d3a25edaa86fa14ddb86dd2f4
+11/30/2025  06:37 AM             9,390 9f09613e1b9aaf73cfa097a755f2a136784d33
+11/27/2025  11:39 PM            10,268 a1a99747119d3363523d928ee380ebcbe99161
+               4 File(s)         21,644 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f4
+
+11/29/2025  12:17 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  09:05 PM             2,791 57b363ed80b4f4036b3efb1b6366c505fa6b1e
+10/19/2025  01:17 AM               210 5dce0e743ec372eebc6cfcc686a79bfb8a2081
+09/23/2025  09:15 PM               209 bbac63217f70d67e1151fefcc0745cf1057306
+11/29/2025  12:17 AM             2,941 c5b6f430866c0b66fa103115d30a774edc30cc
+10/19/2025  01:17 AM            10,978 eceaeb70d753abb8325b70e8a820c767a92c50
+10/02/2025  07:38 AM             3,325 eeec69ea5ba5431926e19b2d48ef2e1a44905d
+10/20/2025  12:30 AM               178 fadf142427a8418f8da48f7275910f877b629b
+               7 File(s)         20,632 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f5
+
+10/02/2025  07:38 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/02/2025  07:38 AM             2,429 b8f8271a974f238c3b2f9dfdc0f9877b0915cb
+               1 File(s)          2,429 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f6
+
+10/20/2025  12:30 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/23/2025  09:15 PM             5,014 bff84616569d7be9a0a6dcd7f3590f41ca93c7
+10/20/2025  12:30 AM               210 c279a4c910570c70f6503e7ff89a0bcc941dfe
+10/02/2025  07:38 AM               176 e23e09437acb2feb3c35c689c8b5bf8d9a748d
+               3 File(s)          5,400 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f7
+
+10/02/2025  07:38 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/17/2025  08:45 PM             1,488 952ef6cee47946bee37d3c4094f12ddd904a7c
+10/02/2025  07:38 AM             9,567 b7a20973dbe98409f6cf8cec69b8005c8530b0
+               2 File(s)         11,055 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f8
+
+10/15/2025  11:58 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/19/2025  11:46 AM               335 1e357b04911d1161eaa7f36ab2af5b20619737
+09/25/2025  01:08 PM               179 3339988b7e7edcc352c02ab158826e98231a39
+10/15/2025  11:58 AM               210 6400bb571299d2dadc29c4fc566d64a2593607
+10/11/2025  11:17 AM             3,876 f1b03d1f6df09e2d8aa11c61a9f3e1b9648821
+10/15/2025  12:15 AM             4,029 f3cf679578b09fce994984ed86f80d29e569b6
+               5 File(s)          8,629 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\f9
+
+11/29/2025  02:07 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/29/2025  02:07 PM               234 2bc13f609ba1e1f072ea0b24d88399582206fb
+10/02/2025  07:38 AM             5,801 3a7f7a035d3f4084ef7a58c2873c693894ab61
+               2 File(s)          6,035 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\fa
+
+10/15/2025  10:50 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+09/21/2025  10:44 PM               183 36c49edb91944b1528b1a3c30affcd6bbd70e1
+10/15/2025  12:37 AM            16,067 91af4bad27572f05df2a0020a9c34e9c05502f
+10/15/2025  10:50 PM             2,545 e7de2b635f47b170a8a8aed4af3fd9a0bf398b
+               3 File(s)         18,795 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\fb
+
+10/04/2025  11:35 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/04/2025  11:35 PM            14,045 542ae30dba50bfb4b99ec7c06ab366e3e98587
+10/02/2025  11:44 AM               209 676440809663fa91f4a6dc5002e36c0694083b
+               2 File(s)         14,254 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\fd
+
+10/05/2025  11:43 AM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/05/2025  11:43 AM             3,282 a89c27783660a629ff1a53977c911bf6f4aa85
+               1 File(s)          3,282 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\fe
+
+10/16/2025  04:40 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+10/16/2025  04:40 PM            12,072 272b493ab67c71b693926cf5474274822a0e16
+09/25/2025  08:44 AM               177 69b81d9e7f8a5b428fbbf91951e4ff4c4da1d3
+               2 File(s)         12,249 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\info
+
+09/17/2025  08:44 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+               0 File(s)              0 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\objects\pack
+
+09/17/2025  08:44 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+               0 File(s)              0 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\refs
+
+09/17/2025  08:51 PM    <DIR>          .
+11/30/2025  03:26 PM    <DIR>          ..
+11/30/2025  03:26 PM    <DIR>          heads
+09/17/2025  08:51 PM    <DIR>          remotes
+09/18/2025  10:41 PM    <DIR>          tags
+               0 File(s)              0 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\refs\heads
+
+11/30/2025  03:26 PM    <DIR>          .
+09/17/2025  08:51 PM    <DIR>          ..
+11/30/2025  03:26 PM                41 main
+               1 File(s)             41 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\refs\remotes
+
+09/17/2025  08:51 PM    <DIR>          .
+09/17/2025  08:51 PM    <DIR>          ..
+11/30/2025  03:26 PM    <DIR>          origin
+               0 File(s)              0 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\refs\remotes\origin
+
+11/30/2025  03:26 PM    <DIR>          .
+09/17/2025  08:51 PM    <DIR>          ..
+09/18/2025  10:41 PM                30 HEAD
+11/30/2025  03:26 PM                41 main
+               2 File(s)             71 bytes
+
+ Directory of C:\Projekty\github\kvc\.git\refs\tags
+
+09/18/2025  10:41 PM    <DIR>          .
+09/17/2025  08:51 PM    <DIR>          ..
+09/18/2025  10:41 PM                41 v1.0.1
+               1 File(s)             41 bytes
+
+ Directory of C:\Projekty\github\kvc\data
+
+11/30/2025  03:24 PM    <DIR>          .
+11/30/2025  04:49 PM    <DIR>          ..
+11/30/2025  03:24 PM         2,372,085 kvc.7z
+11/30/2025  04:48 PM           499,712 kvc.dat
+11/30/2025  04:48 PM         1,067,008 kvc.enc
+01/01/2026  12:00 AM           567,296 kvc.exe
+11/27/2025  11:29 PM    <DIR>          other-tools
+11/27/2025  11:35 PM             8,933 README.txt
+               5 File(s)      4,515,034 bytes
+
+ Directory of C:\Projekty\github\kvc\data\other-tools
+
+11/27/2025  11:29 PM    <DIR>          .
+11/30/2025  03:24 PM    <DIR>          ..
+10/19/2025  08:02 PM             8,192 ExplorerFrame?.dll
+01/01/2026  12:00 AM           281,600 implementer.exe
+11/30/2025  04:48 PM         1,067,008 kvc.enc
+01/01/2026  12:00 AM           567,296 kvc.exe
+11/20/2025  02:11 PM            14,251 kvc.ico
+10/20/2025  11:23 PM               100 kvc.ini
+08/25/2025  12:25 AM            14,024 kvc.sys
+11/27/2025  10:56 PM             6,995 kvckbd.bat
+01/01/2026  12:00 AM            31,208 kvckbd.sys
+11/27/2025  11:11 PM            79,900 kvckbd_split.c
+01/01/2026  12:00 AM            80,896 KvcXor.exe
+01/01/2026  12:00 AM           338,944 kvc_crypt.dll
+10/15/2025  07:17 PM             3,774 kvc_orig.ico
+01/01/2026  12:00 AM           160,768 kvc_pass.exe
+11/21/2025  10:58 PM            22,619 MainActivity.kt
+11/26/2025  12:40 AM            13,104 OmniDriver.sys
+11/22/2025  05:43 PM         1,474,951 UdpLogger.apk
+11/21/2025  10:48 PM             8,703 UdpLoggerService.kt
+              18 File(s)      4,174,333 bytes
+
+ Directory of C:\Projekty\github\kvc\images
+
+11/29/2025  01:00 PM    <DIR>          .
+11/30/2025  04:49 PM    <DIR>          ..
+09/30/2025  02:31 PM           165,129 kvc_00.jpg
+09/17/2025  07:29 PM           467,912 kvc_01.jpg
+09/17/2025  07:36 PM           297,161 kvc_02.jpg
+09/17/2025  07:47 PM           499,976 kvc_03.jpg
+09/17/2025  07:15 PM           217,912 kvc_04.jpg
+11/29/2025  01:00 PM            82,821 kvc_05.jpg
+               6 File(s)      1,730,911 bytes
+
+ Directory of C:\Projekty\github\kvc\kvc
+
+11/30/2025  02:29 AM    <DIR>          .
+11/30/2025  04:49 PM    <DIR>          ..
+09/11/2025  02:50 PM             2,520 AbiTramp.asm
+09/30/2025  08:25 PM             5,609 BannerSystem.cpp
+09/30/2025  08:14 PM               503 BannerSystem.h
+09/30/2025  09:44 PM            16,498 BrowserCrypto.cpp
+09/29/2025  11:27 PM             4,238 BrowserCrypto.h
+09/30/2025  09:03 PM            13,528 BrowserHelp.cpp
+09/30/2025  08:52 PM             1,165 BrowserHelp.h
+09/29/2025  02:02 PM             8,434 BrowserProcessManager.cpp
+09/29/2025  02:03 PM             1,664 BrowserProcessManager.h
+11/29/2025  10:37 AM             7,214 common.cpp
+11/29/2025  10:35 AM            18,579 common.h
+10/18/2025  09:39 PM            15,423 CommunicationLayer.cpp
+09/30/2025  08:54 PM             3,232 CommunicationLayer.h
+10/07/2025  11:36 PM             3,358 CommunicationModule.cpp
+09/29/2025  01:57 PM             1,570 CommunicationModule.h
+11/30/2025  12:01 AM            13,850 Controller.h
+10/19/2025  10:59 PM             9,107 ControllerBinaryManager.cpp
+11/29/2025  10:07 AM             5,355 ControllerCore.cpp
+11/30/2025  02:26 PM            14,824 ControllerDriverLoader.cpp
+11/29/2025  09:55 AM            14,011 ControllerDriverManager.cpp
+11/28/2025  10:38 PM            16,292 ControllerDSE.cpp
+09/16/2025  07:24 PM             1,791 ControllerEventLogOperations.cpp
+11/28/2025  04:35 PM            11,866 ControllerMemoryOperations.cpp
+11/29/2025  05:19 PM            10,238 ControllerModuleOperations.cpp
+10/03/2025  08:05 PM            35,032 ControllerPasswordManager.cpp
+11/30/2025  07:15 AM            50,151 ControllerProcessOperations.cpp
+10/15/2025  09:00 PM             5,181 ControllerSystemIntegration.cpp
+10/07/2025  11:09 PM             9,199 CryptCore.cpp
+10/02/2025  07:35 AM             1,123 CryptCore.h
+09/29/2025  01:58 PM            10,837 DataExtraction.cpp
+09/29/2025  01:58 PM             2,848 DataExtraction.h
+10/18/2025  10:12 PM            11,296 DefenderManager.cpp
+10/18/2025  10:13 PM             3,599 DefenderManager.h
+11/28/2025  10:54 PM            18,603 DSEBypass.cpp
+10/18/2025  11:25 AM             1,797 DSEBypass.h
+11/27/2025  07:18 PM             5,952 DSEBypassNG.cpp
+11/27/2025  04:25 PM               805 DSEBypassNG.h
+09/30/2025  08:00 AM             2,864 EdgeDPAPI.cpp
+09/30/2025  08:00 AM               594 EdgeDPAPI.h
+11/29/2025  12:50 PM            35,993 HelpSystem.cpp
+11/29/2025  11:09 AM             2,172 HelpSystem.h
+10/03/2025  08:28 PM            20,882 HiveManager.cpp
+10/16/2025  10:08 AM             4,480 HiveManager.h
+09/30/2025  02:29 PM    <DIR>          ICON
+10/20/2025  11:17 PM            22,742 implementer.cpp
+10/20/2025  10:22 PM               984 implementer.filters
+10/20/2025  10:22 PM             2,367 implementer.rc
+11/20/2025  02:02 PM             3,907 implementer.vcxproj
+09/17/2025  06:11 PM               168 implementer.vcxproj.user
+09/29/2025  02:02 PM             7,332 InjectionEngine.cpp
+09/29/2025  02:02 PM             1,092 InjectionEngine.h
+09/11/2025  09:09 PM             6,327 KeyboardHook.cpp
+10/16/2025  09:58 AM             2,142 KeyboardHook.h
+11/29/2025  11:09 AM            45,168 Kvc.cpp
+09/08/2025  09:37 PM               488 Kvc.manifest
+09/17/2025  08:59 AM             7,576 Kvc.rc
+11/30/2025  07:19 AM             8,165 Kvc.vcxproj
+11/30/2025  02:12 AM             6,663 Kvc.vcxproj.filters
+08/26/2025  12:33 AM               168 Kvc.vcxproj.user
+10/16/2025  10:11 PM             9,306 KvcDrv.cpp
+10/16/2025  09:40 AM             2,662 KvcDrv.h
+09/30/2025  01:40 PM            21,904 KvcXor.cpp
+09/30/2025  02:22 PM             4,700 KvcXor.rc
+11/20/2025  02:02 PM             3,887 KvcXor.vcxproj
+11/20/2025  02:02 PM             1,360 KvcXor.vcxproj.filters
+09/17/2025  06:11 PM               168 KvcXor.vcxproj.user
+09/10/2025  11:05 PM                39 kvc_crypt.def
+09/30/2025  02:22 PM             4,398 kvc_crypt.rc
+09/15/2025  09:50 PM               168 kvc_crypt.user
+11/20/2025  02:02 PM             5,360 kvc_crypt.vcxproj
+09/29/2025  07:32 AM               168 kvc_crypt.vcxproj.user
+09/17/2025  08:59 AM             5,446 kvc_pass.rc
+11/20/2025  02:02 PM             4,746 kvc_pass.vcxproj
+09/10/2025  01:32 PM               168 kvc_pass.vcxproj.user
+11/29/2025  11:10 AM             6,662 Kvc_vcxproj.filters
+10/04/2025  12:55 PM             8,585 MmPoolTelemetry.asm
+11/29/2025  12:45 PM             6,757 ModuleManager.cpp
+11/29/2025  11:07 AM             1,338 ModuleManager.h
+10/02/2025  10:04 PM             7,581 OffsetFinder.cpp
+10/16/2025  09:45 AM             2,407 OffsetFinder.h
+10/02/2025  07:31 AM            14,594 OrchestratorCore.cpp
+09/29/2025  11:58 PM             1,558 OrchestratorCore.h
+09/23/2025  03:39 PM            10,743 ProcessManager.cpp
+10/16/2025  09:52 AM             1,434 ProcessManager.h
+10/03/2025  08:49 PM            17,913 ReportExporter.cpp
+10/16/2025  09:58 AM             2,963 ReportExporter.h
+10/15/2025  09:27 PM               877 resource.h
+10/05/2025  05:34 PM             9,493 ScreenShake.asm
+09/11/2025  05:21 PM            12,119 SelfLoader.cpp
+09/11/2025  05:21 PM             3,095 SelfLoader.h
+09/25/2025  12:54 PM            15,630 ServiceManager.cpp
+10/16/2025  09:38 AM             2,474 ServiceManager.h
+11/27/2025  07:24 PM            31,259 SessionManager.cpp
+11/27/2025  07:19 PM             4,863 SessionManager.h
+11/27/2025  06:56 PM            11,986 SymbolEngine.cpp
+11/27/2025  04:24 PM             1,226 SymbolEngine.h
+09/11/2025  05:44 PM            10,862 syscalls.cpp
+09/10/2025  04:10 PM             5,837 syscalls.h
+11/30/2025  02:25 AM            45,931 TrustedInstallerIntegrator.cpp
+11/30/2025  02:30 AM             6,793 TrustedInstallerIntegrator.h
+10/23/2025  09:41 PM            37,289 Utils.cpp
+10/18/2025  10:35 PM             8,038 Utils.h
+10/18/2025  10:34 PM             7,385 WatermarkManager.cpp
+10/18/2025  10:35 PM             1,616 WatermarkManager.h
+09/11/2025  04:08 PM               240 winsqlite3.def
+09/11/2025  04:52 PM             4,174 winsqlite3.h
+09/11/2025  04:11 PM             3,916 winsqlite3.lib
+             106 File(s)        911,684 bytes
+
+ Directory of C:\Projekty\github\kvc\kvc\ICON
+
+09/30/2025  02:29 PM    <DIR>          .
+11/30/2025  02:29 AM    <DIR>          ..
+10/18/2025  10:25 PM            14,251 kvc.ico
+               1 File(s)         14,251 bytes
+
+     Total Files Listed:
+             970 File(s)     15,849,591 bytes
+             788 Dir(s)  936,354,836,480 bytes free
