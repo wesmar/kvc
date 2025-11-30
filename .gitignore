@@ -2,6 +2,8 @@
 git-push.sh
 pack-release.sh
 pack-data.sh
+release-update.sh
+struktura.txt
 
 # Pliki środowiskowe
 .env
