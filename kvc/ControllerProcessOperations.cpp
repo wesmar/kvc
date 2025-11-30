@@ -8,6 +8,71 @@
 
 extern volatile bool g_interrupted;
 
+// Table formatting constants and utilities for process list display
+namespace TableFormat {
+    using namespace std::string_view_literals;
+    
+    // Column widths for process table
+    struct Columns {
+        static constexpr size_t PID = 7;
+        static constexpr size_t NAME = 30;
+        static constexpr size_t LEVEL = 9;
+        static constexpr size_t SIGNER = 17;
+        static constexpr size_t EXE_SIG = 23;
+        static constexpr size_t DLL_SIG = 23;
+        static constexpr size_t KERNEL_ADDR = 20;
+    };
+    
+    // Common string elements
+    inline constexpr std::wstring_view SEP = L"+";
+    inline constexpr std::wstring_view NL = L"\n";
+    inline constexpr wchar_t DASH = L'-';
+    inline constexpr wchar_t SPACE = L' ';
+    
+    // Pre-computed table divider line with column separators
+    inline const std::wstring DIVIDER = []() {
+        std::wostringstream ss;
+        ss << SPACE;
+        ss << std::wstring(Columns::PID, DASH) << SEP;
+        ss << std::wstring(Columns::NAME, DASH) << SEP;
+        ss << std::wstring(Columns::LEVEL, DASH) << SEP;
+        ss << std::wstring(Columns::SIGNER, DASH) << SEP;
+        ss << std::wstring(Columns::EXE_SIG, DASH) << SEP;
+        ss << std::wstring(Columns::DLL_SIG, DASH) << SEP;
+        ss << std::wstring(Columns::KERNEL_ADDR, DASH) << NL;
+        return ss.str();
+    }();
+    
+    // Table header with column names
+    inline constexpr std::wstring_view HEADER = 
+        L"   PID  |         Process Name         |  Level  |"
+        L"     Signer      |     EXE sig. level    |"
+        L"     DLL sig. level    |    Kernel addr.    \n";
+    
+    // Print colored divider line
+    inline void PrintDivider(const wchar_t* color = Utils::ProcessColors::GREEN) {
+        std::wcout << color << DIVIDER << Utils::ProcessColors::RESET;
+    }
+    
+    // Print table header with appropriate color
+    inline void PrintHeader() {
+        std::wcout << Utils::ProcessColors::HEADER << HEADER << Utils::ProcessColors::RESET;
+    }
+    
+    // Print complete table header (divider + header + divider)
+    inline void PrintTableStart() {
+        std::wcout << NL;
+        PrintDivider();
+        PrintHeader();
+        std::wcout << Utils::ProcessColors::GREEN << DIVIDER;
+    }
+    
+    // Print table footer divider
+    inline void PrintTableEnd() {
+        PrintDivider();
+    }
+}
+
 // Checks for active session within 5s window, reuses if available, otherwise initializes new session
 bool Controller::BeginDriverSession() 
 {
@@ -490,7 +555,6 @@ bool Controller::UnprotectMultipleProcesses(const std::vector<std::wstring>& tar
     EndDriverSession(true);
     return successCount == totalCount;
 }
-
 // Unprotects all processes with specified signer, saves state for restoration
 bool Controller::UnprotectBySigner(const std::wstring& signerName) noexcept 
 {
@@ -707,13 +771,7 @@ bool Controller::ListProtectedProcesses() noexcept
         ERROR(L"Failed to enable console colors");
     }
     
-    std::wcout << Utils::ProcessColors::GREEN
-        << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
-        << Utils::ProcessColors::HEADER
-        << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    "
-        << Utils::ProcessColors::RESET << L"\n"
-        << Utils::ProcessColors::GREEN
-        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
+    TableFormat::PrintTableStart();
 
     DWORD count = 0;
     for (const auto& entry : processes) {
@@ -735,9 +793,7 @@ bool Controller::ListProtectedProcesses() noexcept
         }
     }
     
-    std::wcout << Utils::ProcessColors::GREEN
-        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
-        << Utils::ProcessColors::RESET;
+    TableFormat::PrintTableEnd();
     
     if (count == 0) {
         std::wcout << L"No protected processes found.\n";
@@ -769,13 +825,7 @@ bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept
         ERROR(L"Failed to enable console colors");
     }
 
-    std::wcout << Utils::ProcessColors::GREEN
-        << L"\n -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
-        << Utils::ProcessColors::HEADER
-        << L"   PID  |         Process Name         |  Level  |     Signer      |     EXE sig. level    |     DLL sig. level    |    Kernel addr.    "
-        << Utils::ProcessColors::RESET << L"\n"
-        << Utils::ProcessColors::GREEN
-        << L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n";
+    TableFormat::PrintTableStart();
 
     bool foundAny = false;
     for (const auto& entry : processes) {
@@ -797,16 +847,14 @@ bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept
         }
     }
     
-	if (!foundAny) {
-			std::wcout << Utils::ProcessColors::RESET
-					   << L"\nNo processes found with signer type: " << signerName << L"\n";
-			return false;
-		}
-		
-		std::wcout << Utils::ProcessColors::GREEN
-			<< L" -------+------------------------------+---------+-----------------+-----------------------+-----------------------+--------------------\n"
-			<< Utils::ProcessColors::RESET;
-		return true;
+    if (!foundAny) {
+        std::wcout << Utils::ProcessColors::RESET
+                   << L"\nNo processes found with signer type: " << signerName << L"\n";
+        return false;
+    }
+    
+    TableFormat::PrintTableEnd();
+    return true;
 }
 
 // Retrieves and displays detailed protection info for process by PID

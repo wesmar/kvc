@@ -7,12 +7,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>17.0</VCProjectVersion>
+    <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{4f3de11e-c54a-4dc1-ae8f-c29a720694cc}</ProjectGuid>
     <RootNamespace>kvc</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
@@ -66,7 +66,7 @@
       <TreatWarningAsError>false</TreatWarningAsError>
       <DisableSpecificWarnings>4996;4117</DisableSpecificWarnings>
       <Optimization>MinSpace</Optimization>
-      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
       <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
       <BrowseInformation>false</BrowseInformation>
@@ -77,7 +77,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <UACExecutionLevel>HighestAvailable</UACExecutionLevel>
-      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <AdditionalDependencies>kernel32.lib;user32.lib;psapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/OPT:REF /OPT:ICF=10 /MERGE:.rdata=.text /MERGE:.pdata=.text /NXCOMPAT /INCREMENTAL:NO /Brepro %(AdditionalOptions)</AdditionalOptions>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
@@ -105,15 +105,15 @@
     <ClCompile Include="ControllerDSE.cpp" />
     <ClCompile Include="ControllerBinaryManager.cpp" />
     <ClCompile Include="ControllerDriverManager.cpp" />
-	<ClCompile Include="ControllerDriverLoader.cpp" />
+    <ClCompile Include="ControllerDriverLoader.cpp" />
     <ClCompile Include="ControllerProcessOperations.cpp" />
     <ClCompile Include="ControllerMemoryOperations.cpp" />
     <ClCompile Include="ControllerSystemIntegration.cpp" />
     <ClCompile Include="ControllerPasswordManager.cpp" />
     <ClCompile Include="ControllerEventLogOperations.cpp" />
-	<ClCompile Include="ControllerModuleOperations.cpp" />
+    <ClCompile Include="ControllerModuleOperations.cpp" />
     <ClCompile Include="ProcessManager.cpp" />
-	<ClCompile Include="ModuleManager.cpp" />
+    <ClCompile Include="ModuleManager.cpp" />
     <ClCompile Include="OffsetFinder.cpp" />
     <ClCompile Include="kvc.cpp" />
     <ClCompile Include="kvcDrv.cpp" />
@@ -134,8 +134,8 @@
     <ClInclude Include="TrustedInstallerIntegrator.h" />
     <ClInclude Include="common.h" />
     <ClInclude Include="DSEBypass.h" />
-	<ClInclude Include="DSEBypassNG.h" />
-	<ClInclude Include="SymbolEngine.h" />
+    <ClInclude Include="DSEBypassNG.h" />
+    <ClInclude Include="SymbolEngine.h" />
     <ClInclude Include="Controller.h" />
     <ClInclude Include="OffsetFinder.h" />
     <ClInclude Include="kvcDrv.h" />
@@ -149,7 +149,7 @@
     <ClInclude Include="HelpSystem.h" />
     <ClInclude Include="DefenderManager.h" />
     <ClInclude Include="ProcessManager.h" />
-	<ClInclude Include="ModuleManager.h" />
+    <ClInclude Include="ModuleManager.h" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="MmPoolTelemetry.asm" />
