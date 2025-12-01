@@ -31,21 +31,15 @@ public:
     ULONG_PTR FindCiOptions(ULONG_PTR ciBase) noexcept;
 
     // HVCI bypass workflow
-    bool DisableDSEAfterReboot() noexcept;
-    
-    // ===== NOWE: Upublicznione dla Controller::DisableDSE() =====
     bool RenameSkciLibrary() noexcept;
-    bool SaveDSEState(DWORD originalValue) noexcept;
-    bool CreateRunOnceEntry() noexcept;
+    bool CreatePendingFileRename() noexcept;
 
 private:
     // Internal PE parsing helpers
     std::optional<std::pair<ULONG_PTR, SIZE_T>> GetDataSection(ULONG_PTR moduleBase) noexcept;
     
-    // HVCI bypass helpers (RestoreSkciLibrary pozostaje private)
+    // HVCI bypass helpers
     bool RestoreSkciLibrary() noexcept;
-    bool LoadDSEState(std::wstring& outState, DWORD& outOriginalValue) noexcept;
-    bool ClearDSEState() noexcept;
     
     // HVCI/VBS detection
     bool IsHVCIEnabled(DWORD ciOptionsValue) const noexcept {

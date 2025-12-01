@@ -153,7 +153,7 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
         return false;
     }
     if (!m_rtc->Initialize()) {
-        ERROR(L"Failed to initialize RTCore64 handle");
+        ERROR(L"Failed to initialize handle kvc (kvc.sys)");
         EndDriverSession(true);
         return false;
     }
@@ -232,7 +232,7 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
         return false;
     }
     if (!m_rtc->Initialize()) {
-        ERROR(L"Failed to initialize RTCore64 handle");
+        ERROR(L"Failed to initialize handle kvc (kvc.sys)");
         EndDriverSession(true);
         return false;
     }
