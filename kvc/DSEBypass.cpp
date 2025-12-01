@@ -449,7 +449,7 @@ bool DSEBypass::CreatePendingFileRename() noexcept {
         return false;
     }
     
-    DEBUG(L"PendingFileRenameOperations configured: %s -> %s", srcPath.c_str(), dwPath.c_str());
+    DEBUG(L"PendingFileRenameOperations configured: %s -> %s", srcPath.c_str(), dstPath.c_str());
     SUCCESS(L"File restore will be performed automatically by Windows on next boot");
     return true;
 }

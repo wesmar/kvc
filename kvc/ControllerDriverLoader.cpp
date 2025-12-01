@@ -1,5 +1,5 @@
 // ControllerDriverLoader.cpp
-// External driver loading with DSE bypass (NG method) - HVCI detection added
+// External driver loading with DSE bypass (NG method) - automatic restore
 // Author: Marek Wesolowski, 2025
 
 #include "Controller.h"
@@ -92,19 +92,17 @@ bool Controller::CheckAndHandleHVCI(const std::wstring& operation, const std::ws
     return false; // Don't proceed - reboot required
 }
 
+// [CheckAndHandleHVCI remains unchanged]
+
 std::wstring Controller::NormalizeDriverPath(const std::wstring& input) noexcept {
-    // If contains \ or : -> treat as full path
     if (input.find(L'\\') != std::wstring::npos || input.find(L':') != std::wstring::npos) {
         std::wstring path = input;
-        // Ensure .sys extension
         if (path.length() < 4 || StringUtils::ToLowerCaseCopy(path.substr(path.length() - 4)) != L".sys") {
             path += L".sys";
         }
         return path;
     }
-    // Otherwise -> System32\drivers\<name>.sys
     std::wstring filename = input;
-    // Add .sys if missing
     if (filename.length() < 4 || StringUtils::ToLowerCaseCopy(filename.substr(filename.length() - 4)) != L".sys") {
         filename += L".sys";
     }
@@ -114,12 +112,10 @@ std::wstring Controller::NormalizeDriverPath(const std::wstring& input) noexcept
 }
 
 std::wstring Controller::ExtractServiceName(const std::wstring& driverPath) noexcept {
-    // Find last path separator
     size_t lastSlash = driverPath.find_last_of(L"\\/");
     std::wstring filename = (lastSlash != std::wstring::npos) 
         ? driverPath.substr(lastSlash + 1) 
         : driverPath;
-    // Remove .sys extension if present
     if (filename.length() >= 4) {
         std::wstring ext = StringUtils::ToLowerCaseCopy(filename.substr(filename.length() - 4));
         if (ext == L".sys") {
@@ -134,171 +130,290 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
     std::wstring serviceName = ExtractServiceName(normalizedPath);
     INFO(L"Loading external driver: %s", serviceName.c_str());
     INFO(L"Path: %s", normalizedPath.c_str());
+    
     // Verify file exists
     if (GetFileAttributesW(normalizedPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
         ERROR(L"Driver file not found: %s", normalizedPath.c_str());
         return false;
     }
-    // === CHECK AND HANDLE HVCI (same logic as DisableDSESafe) ===
+    
+    // CHECK AND HANDLE HVCI
     if (!CheckAndHandleHVCI(L"load", normalizedPath)) {
-        return false; // Either HVCI enabled and user cancelled, or reboot initiated
+        return false;
     }
     
-    // === ALWAYS ENSURE DSE-NG IS ACTIVE (Safe Mode) ===
-    // We removed the registry check to force verification against kernel memory
-    INFO(L"Activating DSE bypass (Safe Mode)...");
-    PerformAtomicCleanup();
-    if (!BeginDriverSession()) {
-        ERROR(L"Failed to start driver session");
-        return false;
-    }
-    if (!m_rtc->Initialize()) {
-        ERROR(L"Failed to initialize handle kvc (kvc.sys)");
-        EndDriverSession(true);
-        return false;
-    }
-    if (!m_dseBypassNG) {
-        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
-    }
-    if (!m_dseBypassNG->DisableDSE()) {
-        ERROR(L"Failed to disable DSE");
-        EndDriverSession(true);
-        return false;
-    }
-    EndDriverSession(true);
-    SUCCESS(L"DSE bypass activated successfully");
-
-    // === LOAD THE DRIVER ===
-    bool serviceSuccess = false;
-    if (!InitDynamicAPIs()) {
-        ERROR(L"Failed to initialize service APIs");
-        return false;
-    }
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-    if (!hSCM) {
-        ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
-        return false;
-    }
-    // Try to create service
-    SC_HANDLE hService = g_pCreateServiceW(
-        hSCM,
-        serviceName.c_str(),
-        serviceName.c_str(),
-        SERVICE_ALL_ACCESS,
-        SERVICE_KERNEL_DRIVER,
-        startType,
-        SERVICE_ERROR_NORMAL,
-        normalizedPath.c_str(),
-        nullptr, nullptr, nullptr, nullptr, nullptr
-    );
-    // If service already exists, open it
-    if (!hService && GetLastError() == ERROR_SERVICE_EXISTS) {
-        hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
-    }
-    if (hService) {
-        // Start the service
-        if (g_pStartServiceW(hService, 0, nullptr) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
-            SUCCESS(L"Driver service started successfully");
-            serviceSuccess = true;
-        } else {
-            ERROR(L"Failed to start driver service: %d", GetLastError());
+    bool dseDisabled = false;
+    bool driverLoaded = false;
+    
+    // STEP 1: ACTIVATE DSE BYPASS (Safe Mode)
+    {
+        INFO(L"Activating DSE bypass (Safe Mode)...");
+        PerformAtomicCleanup();
+        
+        if (!BeginDriverSession()) {
+            ERROR(L"Failed to start driver session for DSE bypass");
+            return false;
         }
-        CloseServiceHandle(hService);
-    } else {
-        ERROR(L"Failed to create/open driver service: %d", GetLastError());
+        
+        if (!m_rtc->Initialize()) {
+            ERROR(L"Failed to initialize handle kvc (kvc.sys)");
+            EndDriverSession(true);
+            return false;
+        }
+        
+        if (!m_dseBypassNG) {
+            m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+        }
+        
+        if (!m_dseBypassNG->DisableDSE()) {
+            ERROR(L"Failed to disable DSE");
+            EndDriverSession(true);
+            return false;
+        }
+        
+        dseDisabled = true;
+        SUCCESS(L"DSE bypass activated successfully");
+        EndDriverSession(true); // Close session to avoid conflicts with SCM
     }
-    CloseServiceHandle(hSCM);
-    if (serviceSuccess) {
-        SUCCESS(L"External driver loaded successfully: %s", serviceName.c_str());
+    
+    // STEP 2: LOAD THE DRIVER (with guaranteed DSE restore on exit)
+    {
+        bool serviceSuccess = false;
+        bool apiInitialized = false;
+        
+        // RAII-style DSE restore guarantee
+        auto dseRestoreGuard = [&]() {
+            if (dseDisabled) {
+                INFO(L"Auto-restoring DSE protection...");
+                
+                if (!BeginDriverSession()) {
+                    ERROR(L"Failed to start driver session for DSE restore");
+                    ERROR(L"DSE remains disabled - run 'kvc dse on --safe' manually");
+                    return;
+                }
+                
+                if (!m_rtc->Initialize()) {
+                    ERROR(L"Failed to initialize driver handle for DSE restore");
+                    ERROR(L"DSE remains disabled - run 'kvc dse on --safe' manually");
+                    EndDriverSession(true);
+                    return;
+                }
+                
+                if (!m_dseBypassNG) {
+                    m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+                }
+                
+                if (m_dseBypassNG->RestoreDSE()) {
+                    SUCCESS(L"DSE protection restored successfully");
+                } else {
+                    ERROR(L"Failed to restore DSE protection");
+                    ERROR(L"Run 'kvc dse on --safe' to manually restore kernel protection");
+                }
+                
+                EndDriverSession(true);
+            }
+        };
+        
+        // Try to initialize service APIs
+        apiInitialized = InitDynamicAPIs();
+        if (!apiInitialized) {
+            ERROR(L"Failed to initialize service APIs");
+            dseRestoreGuard();
+            return false;
+        }
+        
+        SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+        if (!hSCM) {
+            ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
+            dseRestoreGuard();
+            return false;
+        }
+        
+        // Try to create service
+        SC_HANDLE hService = g_pCreateServiceW(
+            hSCM,
+            serviceName.c_str(),
+            serviceName.c_str(),
+            SERVICE_ALL_ACCESS,
+            SERVICE_KERNEL_DRIVER,
+            startType,
+            SERVICE_ERROR_NORMAL,
+            normalizedPath.c_str(),
+            nullptr, nullptr, nullptr, nullptr, nullptr
+        );
+        
+        // If service already exists, open it
+        if (!hService && GetLastError() == ERROR_SERVICE_EXISTS) {
+            hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
+        }
+        
+        if (hService) {
+            // Start the service
+            if (g_pStartServiceW(hService, 0, nullptr) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
+                SUCCESS(L"Driver service started successfully");
+                serviceSuccess = true;
+                driverLoaded = true;
+            } else {
+                ERROR(L"Failed to start driver service: %d", GetLastError());
+            }
+            CloseServiceHandle(hService);
+        } else {
+            ERROR(L"Failed to create/open driver service: %d", GetLastError());
+        }
+        
+        CloseServiceHandle(hSCM);
+        
+        // STEP 3: AUTO-RESTORE DSE AFTER DRIVER LOAD (always called, even on failure)
+        dseRestoreGuard();
+        
+        if (driverLoaded) {
+            SUCCESS(L"External driver loaded successfully: %s", serviceName.c_str());
+        }
     }
-    return serviceSuccess;
+    
+    return driverLoaded;
 }
 
 bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noexcept {
     std::wstring normalizedPath = NormalizeDriverPath(driverNameOrPath);
     std::wstring serviceName = ExtractServiceName(normalizedPath);
     INFO(L"Reloading driver: %s", serviceName.c_str());
-    // === CHECK AND HANDLE HVCI (same logic as DisableDSESafe) ===
+    
+    // === CHECK AND HANDLE HVCI ===
     if (!CheckAndHandleHVCI(L"reload", serviceName)) {
-        return false; // Either HVCI enabled and user cancelled, or reboot initiated
+        return false;
     }
     
-    // === ALWAYS ENSURE DSE-NG IS ACTIVE (Safe Mode) ===
-    // We removed the registry check to force verification against kernel memory
-    INFO(L"Activating DSE bypass (Safe Mode)...");
-    PerformAtomicCleanup();
-    if (!BeginDriverSession()) {
-        ERROR(L"Failed to start driver session");
-        return false;
-    }
-    if (!m_rtc->Initialize()) {
-        ERROR(L"Failed to initialize handle kvc (kvc.sys)");
-        EndDriverSession(true);
-        return false;
-    }
-    if (!m_dseBypassNG) {
-        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
-    }
-    if (!m_dseBypassNG->DisableDSE()) {
-        ERROR(L"Failed to disable DSE");
-        EndDriverSession(true);
-        return false;
-    }
-    EndDriverSession(true);
-    SUCCESS(L"DSE bypass activated successfully");
-
-    // === RELOAD THE DRIVER ===
-    if (!InitDynamicAPIs()) {
-        ERROR(L"Failed to initialize service APIs");
-        return false;
-    }
-    // Stop existing service if running (kernel drivers stop synchronously)
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-    if (hSCM) {
-        SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
-        if (hService) {
-            SERVICE_STATUS status;
-            if (g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
-                INFO(L"Service stopped successfully");
-            }
-            CloseServiceHandle(hService);
+    bool dseDisabled = false;
+    bool driverReloaded = false;
+    
+    // STEP 1: ACTIVATE DSE BYPASS (Safe Mode)
+    {
+        INFO(L"Activating DSE bypass (Safe Mode)...");
+        PerformAtomicCleanup();
+        
+        if (!BeginDriverSession()) {
+            ERROR(L"Failed to start driver session");
+            return false;
         }
-        CloseServiceHandle(hSCM);
+        
+        if (!m_rtc->Initialize()) {
+            ERROR(L"Failed to initialize handle kvc (kvc.sys)");
+            EndDriverSession(true);
+            return false;
+        }
+        
+        if (!m_dseBypassNG) {
+            m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+        }
+        
+        if (!m_dseBypassNG->DisableDSE()) {
+            ERROR(L"Failed to disable DSE");
+            EndDriverSession(true);
+            return false;
+        }
+        
+        dseDisabled = true;
+        SUCCESS(L"DSE bypass activated successfully");
+        EndDriverSession(true);
     }
     
-    // Start service
-    bool startSuccess = false;
-    hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-    if (hSCM) {
-        // Ensure service exists
-        SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_START);
-        if (!hService) {
-            // Create if doesn't exist
-            hService = g_pCreateServiceW(
-                hSCM,
-                serviceName.c_str(),
-                serviceName.c_str(),
-                SERVICE_ALL_ACCESS,
-                SERVICE_KERNEL_DRIVER,
-                SERVICE_DEMAND_START,
-                SERVICE_ERROR_NORMAL,
-                normalizedPath.c_str(),
-                nullptr, nullptr, nullptr, nullptr, nullptr
-            );
-        }
-        if (hService) {
-            if (g_pStartServiceW(hService, 0, nullptr) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
-                SUCCESS(L"Driver service restarted successfully");
-                startSuccess = true;
-            } else {
-                ERROR(L"Failed to start service: %d", GetLastError());
+    // STEP 2: RELOAD THE DRIVER (with guaranteed DSE restore)
+    {
+        // RAII-style DSE restore guarantee
+        auto dseRestoreGuard = [&]() {
+            if (dseDisabled) {
+                INFO(L"Auto-restoring DSE protection...");
+                
+                if (!BeginDriverSession()) {
+                    ERROR(L"Failed to start driver session for DSE restore");
+                    ERROR(L"DSE remains disabled - run 'kvc dse on --safe' manually");
+                    return;
+                }
+                
+                if (!m_rtc->Initialize()) {
+                    ERROR(L"Failed to initialize driver handle for DSE restore");
+                    ERROR(L"DSE remains disabled - run 'kvc dse on --safe' manually");
+                    EndDriverSession(true);
+                    return;
+                }
+                
+                if (!m_dseBypassNG) {
+                    m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+                }
+                
+                if (m_dseBypassNG->RestoreDSE()) {
+                    SUCCESS(L"DSE protection restored successfully");
+                } else {
+                    ERROR(L"Failed to restore DSE protection");
+                    ERROR(L"Run 'kvc dse on --safe' to manually restore kernel protection");
+                }
+                
+                EndDriverSession(true);
             }
-            CloseServiceHandle(hService);
+        };
+        
+        if (!InitDynamicAPIs()) {
+            ERROR(L"Failed to initialize service APIs");
+            dseRestoreGuard();
+            return false;
         }
-        CloseServiceHandle(hSCM);
+        
+        // Stop existing service if running
+        SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+        if (hSCM) {
+            SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
+            if (hService) {
+                SERVICE_STATUS status;
+                if (g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
+                    INFO(L"Service stopped successfully");
+                }
+                CloseServiceHandle(hService);
+            }
+            CloseServiceHandle(hSCM);
+        }
+        
+        // Start service
+        bool startSuccess = false;
+        hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+        if (hSCM) {
+            SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_START);
+            if (!hService) {
+                // Create if doesn't exist
+                hService = g_pCreateServiceW(
+                    hSCM,
+                    serviceName.c_str(),
+                    serviceName.c_str(),
+                    SERVICE_ALL_ACCESS,
+                    SERVICE_KERNEL_DRIVER,
+                    SERVICE_DEMAND_START,
+                    SERVICE_ERROR_NORMAL,
+                    normalizedPath.c_str(),
+                    nullptr, nullptr, nullptr, nullptr, nullptr
+                );
+            }
+            
+            if (hService) {
+                if (g_pStartServiceW(hService, 0, nullptr) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
+                    SUCCESS(L"Driver service restarted successfully");
+                    startSuccess = true;
+                    driverReloaded = true;
+                } else {
+                    ERROR(L"Failed to start service: %d", GetLastError());
+                }
+                CloseServiceHandle(hService);
+            }
+            CloseServiceHandle(hSCM);
+        }
+        
+        // STEP 3: AUTO-RESTORE DSE AFTER RELOAD (always called)
+        dseRestoreGuard();
     }
-    return startSuccess;
+    
+    return driverReloaded;
 }
+
+// [StopExternalDriver and RemoveExternalDriver remain unchanged]
 
 bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexcept {
     std::wstring serviceName = ExtractServiceName(driverNameOrPath);
@@ -323,7 +438,6 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
         }
         return false;
     }
-    // Check if already stopped
     SERVICE_STATUS status;
     if (QueryServiceStatus(hService, &status)) {
         if (status.dwCurrentState == SERVICE_STOPPED) {
@@ -333,7 +447,6 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
             return true;
         }
     }
-    // Send stop command (kernel drivers stop synchronously)
     if (!g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
         ERROR(L"Failed to stop service: %d", GetLastError());
         CloseServiceHandle(hService);
@@ -349,7 +462,6 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
 bool Controller::RemoveExternalDriver(const std::wstring& driverNameOrPath) noexcept {
     std::wstring serviceName = ExtractServiceName(driverNameOrPath);
     INFO(L"Removing driver service: %s", serviceName.c_str());
-    // First stop the service
     StopExternalDriver(serviceName);
     if (!InitDynamicAPIs()) {
         ERROR(L"Failed to initialize service APIs");

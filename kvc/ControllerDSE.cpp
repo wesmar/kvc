@@ -1,3 +1,4 @@
+// ControllerDSE.cpp
 #include "Controller.h"
 #include "SessionManager.h"
 #include "common.h"
@@ -55,9 +56,9 @@ bool Controller::DisableDSE() noexcept {
         
         SUCCESS(L"Secure Kernel module prepared for temporary deactivation");
         SUCCESS(L"System configuration: hypervisor bypass prepared (fully reversible)");
-		INFO(L"WARNING: This method temporarily disables Secure Kernel (skci.dll)");
-		INFO(L"Secure Kernel and WSL/WSA will be inactive for the next session");
-		        
+        INFO(L"Note: This method temporarily disables Secure Kernel (skci.dll)");
+        INFO(L"Secure Kernel and WSL/WSA will be inactive for the next session");
+        
         std::wcout << L"\n";
         std::wcout << L"Reboot now to complete DSE bypass? [Y/N]: ";
         
@@ -187,12 +188,12 @@ bool Controller::DisableDSESafe() noexcept {
     }
 
     DWORD currentValue = current.value();
-    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;  // Memory Integrity ON - requires reboot
+    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;
 
     if (hvciEnabled) {
         INFO(L"Memory Integrity is enabled (g_CiOptions = 0x%08X)", currentValue);
         INFO(L"A reboot is required to disable Memory Integrity before DSE bypass");
-		INFO(L"Safe method: preserves VBS functionality (recommended)");
+        INFO(L"Safe method: preserves VBS functionality (recommended)");
         std::wcout << L"\n";
         std::wcout << L"Disable Memory Integrity and reboot now? [Y/N]: ";
         wchar_t choice;
@@ -275,6 +276,30 @@ bool Controller::RestoreDSESafe() noexcept {
 
     if (!m_dseBypassNG) {
         m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+    }
+
+    // Check if we have saved state before attempting restoration
+    auto original = SessionManager::GetOriginalCiCallback();
+    if (original == 0) {
+        INFO(L"No saved DSE state found in registry");
+        
+        // Check current DSE state using the new state checking function
+        auto state = m_dseBypassNG->CheckDSEState();
+        auto stateStr = m_dseBypassNG->GetDSEStateString(state);
+        
+        INFO(L"Current DSE-NG state: %s", stateStr.c_str());
+        
+        if (state == DSEBypassNG::DSEState::NORMAL) {
+            SUCCESS(L"DSE is already enabled (normal state)");
+            EndDriverSession(true);
+            return true;
+        } else if (state == DSEBypassNG::DSEState::PATCHED) {
+            ERROR(L"DSE is disabled but no saved state - cannot restore");
+            ERROR(L"Run 'kvc dse on' (non-safe) or re-run 'kvc dse off --safe' first");
+        }
+        
+        EndDriverSession(true);
+        return false;
     }
 
     bool result = m_dseBypassNG->RestoreDSE();

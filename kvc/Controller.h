@@ -227,6 +227,22 @@ public:
     bool InstallStickyKeysBackdoor() noexcept;
     bool RemoveStickyKeysBackdoor() noexcept;
 
+    // ======================================================
+    // PUBLIC ACCESS METHODS FOR DSE STATUS CHECKING
+    // ======================================================
+    
+    // Driver session management for external access
+    bool BeginDriverSession();
+    void EndDriverSession(bool force = false);
+    
+    // DSE-NG state checking
+    bool CheckDSENGState(DSEBypassNG::DSEState& outState) noexcept;
+    std::wstring GetDSENGStatusInfo() noexcept;
+    
+    // Direct access to DSE bypass objects (for status checking)
+    std::unique_ptr<DSEBypassNG>& GetDSEBypassNG() { return m_dseBypassNG; }
+    std::unique_ptr<kvc>& GetRTC() { return m_rtc; }
+
 private:
     TrustedInstallerIntegrator m_trustedInstaller;
 	std::unique_ptr<kvc> m_rtc;
@@ -257,9 +273,7 @@ private:
     bool m_driverSessionActive = false;
     std::chrono::steady_clock::time_point m_lastDriverUsage;
     
-    bool BeginDriverSession();
-	bool IsServiceZombie() noexcept;
-    void EndDriverSession(bool force = false);
+    bool IsServiceZombie() noexcept;
     void UpdateDriverUsageTimestamp();
     
     // Cache management

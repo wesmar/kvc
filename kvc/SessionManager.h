@@ -1,10 +1,11 @@
-// SessionManager.h - Manages process protection state across boot sessions via registry persistence
+// SessionManager.h - Manages process protection state and DSE-NG symbol cache with LCUVer tracking
 #pragma once
 
 #include "common.h"
 #include <string>
 #include <vector>
 #include <optional>
+#include <tuple>
 
 // Forward declarations
 struct ProcessEntry;
@@ -21,7 +22,7 @@ struct SessionEntry
     std::wstring Status;                // "UNPROTECTED" or "RESTORED"
 };
 
-// Manages protection state tracking and restoration across reboots (max 16 sessions)
+// Manages protection state tracking, restoration, and DSE-NG symbol cache
 class SessionManager
 {
 public:
@@ -63,16 +64,30 @@ public:
     
     // Display session history and statistics
     void ShowHistory() noexcept;
-	
-	// === Global State Management (DSE-NG) ===
+    
+    // === DSE-NG Symbol Cache Management (with LCUVer tracking) ===
+    
+    // Save/load original CiCallback for DSE-NG restoration
     static void SaveOriginalCiCallback(DWORD64 address) noexcept;
     static DWORD64 GetOriginalCiCallback() noexcept;
     static void ClearOriginalCiCallback() noexcept;
     
-    // Save/load symbol offsets for DSE-NG (avoids re-downloading PDBs)
-    static void SaveDSENGOffsets(DWORD64 offSeCi, DWORD64 offZwFlush, DWORD64 kernelBase) noexcept;
-    static std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> GetDSENGOffsets() noexcept;
+    // Save symbol offsets with LCUVersion marker
+    static void SaveDSENGOffsets(DWORD64 offSeCi, DWORD64 offZwFlush, 
+                                 DWORD64 kernelBase, const std::wstring& lcuVer) noexcept;
+    
+    // Get cached offsets if LCUVersion matches current system
+    static std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> 
+        GetDSENGOffsets(const std::wstring& currentLCUVer) noexcept;
+    
+    // Clear all DSE-NG symbol cache (offsets and LCUVersion)
     static void ClearDSENGOffsets() noexcept;
+    
+    // Utility: Get current LCUVersion from system registry
+    static std::wstring GetCurrentLCUVersion() noexcept;
+    
+    // Check if cached LCUVersion differs from current
+    static bool HasLCUVersionChanged(const std::wstring& currentLCUVer) noexcept;
 
 private:
     // Get current boot session ID: "{BootID}_{TickCount}"
@@ -87,11 +102,11 @@ private:
     // Save current boot ID to registry
     void SaveLastBootId(ULONGLONG bootId) noexcept;
     
-	// Read last tick count from registry
-	ULONGLONG GetLastTickCountFromRegistry() noexcept;
-	
-	// Save current tick count to registry
-	void SaveLastTickCount(ULONGLONG tickCount) noexcept;
+    // Read last tick count from registry
+    ULONGLONG GetLastTickCountFromRegistry() noexcept;
+    
+    // Save current tick count to registry
+    void SaveLastTickCount(ULONGLONG tickCount) noexcept;
     
     // Return base registry path for sessions
     std::wstring GetRegistryBasePath() noexcept;

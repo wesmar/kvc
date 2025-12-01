@@ -1,15 +1,23 @@
 // SessionManager.cpp
+// Session state management and DSE-NG symbol cache with LCUVer validation
+
 #include "SessionManager.h"
 #include "Controller.h"
 #include "Utils.h"
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <shlwapi.h>
+
+#pragma comment(lib, "shlwapi.lib")
 
 // Static cache cleared on reboot detection
 static std::wstring g_cachedBootSession;
 
-// Calculate current boot time as unique session ID
+// ============================================================================
+// SESSION MANAGEMENT (existing functionality)
+// ============================================================================
+
 std::wstring SessionManager::CalculateBootTime() noexcept
 {
     FILETIME ftNow;
@@ -132,7 +140,7 @@ void SessionManager::DetectAndHandleReboot() noexcept
         g_cachedBootSession = calculatedSession;
         
         // Enforce session limit
-        EnforceSessionLimit(MAX_SESSIONS);
+        EnforceSessionLimit(16); // Default 16 sessions
     }
     else
     {
@@ -275,143 +283,6 @@ std::wstring SessionManager::GetSessionPath(const std::wstring& sessionId) noexc
     return GetRegistryBasePath() + L"\\Sessions\\" + sessionId;
 }
 
-// ============================================================================
-// DSE-NG STATE PERSISTENCE
-// ============================================================================
-
-void SessionManager::SaveOriginalCiCallback(DWORD64 address) noexcept
-{
-    HKEY hKey;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, nullptr, 
-        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExW(hKey, L"OriginalCiCallback", 0, REG_QWORD, 
-            reinterpret_cast<const BYTE*>(&address), sizeof(DWORD64));
-        RegCloseKey(hKey);
-        DEBUG(L"Saved OriginalCiCallback: 0x%llX to registry", address);
-    }
-}
-
-DWORD64 SessionManager::GetOriginalCiCallback() noexcept
-{
-    HKEY hKey;
-    DWORD64 value = 0;
-    DWORD size = sizeof(DWORD64);
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
-        KEY_READ, &hKey) == ERROR_SUCCESS) {
-        RegQueryValueExW(hKey, L"OriginalCiCallback", nullptr, nullptr, 
-            reinterpret_cast<BYTE*>(&value), &size);
-        RegCloseKey(hKey);
-        DEBUG(L"Loaded OriginalCiCallback: 0x%llX from registry", value);
-    }
-    return value;
-}
-
-void SessionManager::ClearOriginalCiCallback() noexcept
-{
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
-        KEY_WRITE, &hKey) == ERROR_SUCCESS) {
-        RegDeleteValueW(hKey, L"OriginalCiCallback");
-        RegCloseKey(hKey);
-        DEBUG(L"Cleared OriginalCiCallback from registry");
-    }
-}
-
-void SessionManager::SaveDSENGOffsets(DWORD64 offSeCi, DWORD64 offZwFlush, DWORD64 kernelBase) noexcept
-{
-    HKEY hKey;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, nullptr, 
-        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExW(hKey, L"SeCiOffset", 0, REG_QWORD, 
-            reinterpret_cast<const BYTE*>(&offSeCi), sizeof(DWORD64));
-        RegSetValueExW(hKey, L"ZwFlushOffset", 0, REG_QWORD, 
-            reinterpret_cast<const BYTE*>(&offZwFlush), sizeof(DWORD64));
-        RegSetValueExW(hKey, L"KernelBase", 0, REG_QWORD, 
-            reinterpret_cast<const BYTE*>(&kernelBase), sizeof(DWORD64));
-        RegCloseKey(hKey);
-        DEBUG(L"Saved DSE-NG offsets: SeCi=0x%llX, ZwFlush=0x%llX, Base=0x%llX", 
-              offSeCi, offZwFlush, kernelBase);
-    }
-}
-
-std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> SessionManager::GetDSENGOffsets() noexcept
-{
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
-        KEY_READ, &hKey) == ERROR_SUCCESS) {
-        DWORD64 offSeCi = 0, offZwFlush = 0, kernelBase = 0;
-        DWORD size = sizeof(DWORD64);
-        
-        bool success = (RegQueryValueExW(hKey, L"SeCiOffset", nullptr, nullptr, 
-                                         reinterpret_cast<BYTE*>(&offSeCi), &size) == ERROR_SUCCESS) &&
-                       (RegQueryValueExW(hKey, L"ZwFlushOffset", nullptr, nullptr, 
-                                         reinterpret_cast<BYTE*>(&offZwFlush), &size) == ERROR_SUCCESS) &&
-                       (RegQueryValueExW(hKey, L"KernelBase", nullptr, nullptr, 
-                                         reinterpret_cast<BYTE*>(&kernelBase), &size) == ERROR_SUCCESS);
-        
-        RegCloseKey(hKey);
-        
-        if (success) {
-            DEBUG(L"Loaded DSE-NG offsets: SeCi=0x%llX, ZwFlush=0x%llX, Base=0x%llX", 
-                  offSeCi, offZwFlush, kernelBase);
-            return std::make_tuple(offSeCi, offZwFlush, kernelBase);
-        }
-    }
-    return std::nullopt;
-}
-
-void SessionManager::ClearDSENGOffsets() noexcept
-{
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
-        KEY_WRITE, &hKey) == ERROR_SUCCESS) {
-        RegDeleteValueW(hKey, L"SeCiOffset");
-        RegDeleteValueW(hKey, L"ZwFlushOffset");
-        RegDeleteValueW(hKey, L"KernelBase");
-        RegCloseKey(hKey);
-        DEBUG(L"Cleared DSE-NG offsets from registry");
-    }
-}
-
-// Remove all session keys except current boot session
-void SessionManager::CleanupStaleSessions() noexcept
-{
-    std::wstring currentSession = GetCurrentBootSession();
-    std::wstring basePath = GetRegistryBasePath() + L"\\Sessions";
-    
-    HKEY hSessions;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, basePath.c_str(), 0, KEY_READ | KEY_WRITE, &hSessions) != ERROR_SUCCESS)
-        return;
-    
-    DWORD index = 0;
-    wchar_t subKeyName[256];
-    DWORD subKeyNameSize;
-    
-    std::vector<std::wstring> keysToDelete;
-    
-    while (true)
-    {
-        subKeyNameSize = 256;
-        if (RegEnumKeyExW(hSessions, index, subKeyName, &subKeyNameSize, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS)
-            break;
-        
-        std::wstring keyName = subKeyName;
-        if (keyName != currentSession)
-            keysToDelete.push_back(keyName);
-        
-        index++;
-    }
-    
-    // Delete stale sessions
-    for (const auto& key : keysToDelete)
-    {
-        DeleteKeyRecursive(hSessions, key);
-    }
-    
-    RegCloseKey(hSessions);
-}
-
-// Save process state before unprotect operation
 bool SessionManager::SaveUnprotectOperation(const std::wstring& signerName, 
                                            const std::vector<ProcessEntry>& affectedProcesses) noexcept
 {
@@ -440,7 +311,23 @@ bool SessionManager::SaveUnprotectOperation(const std::wstring& signerName,
         entry.SectionSignatureLevel = proc.SectionSignatureLevel;
         entry.Status = L"UNPROTECTED";
         
-        if (!WriteSessionEntry(signerName, index, entry))
+        // Format: "PID|ProcessName|Protection|SigLevel|SecSigLevel|Status"
+        std::wostringstream oss;
+        oss << entry.Pid << L"|"
+            << entry.ProcessName << L"|"
+            << static_cast<int>(entry.OriginalProtection) << L"|"
+            << static_cast<int>(entry.SignatureLevel) << L"|"
+            << static_cast<int>(entry.SectionSignatureLevel) << L"|"
+            << entry.Status;
+        
+        std::wstring valueName = L"Proc_" + std::to_wstring(index);
+        std::wstring valueData = oss.str();
+        
+        LONG result = RegSetValueExW(hKey, valueName.c_str(), 0, REG_SZ, 
+                                      reinterpret_cast<const BYTE*>(valueData.c_str()),
+                                      static_cast<DWORD>((valueData.length() + 1) * sizeof(wchar_t)));
+        
+        if (result != ERROR_SUCCESS)
         {
             RegCloseKey(hKey);
             return false;
@@ -459,100 +346,8 @@ bool SessionManager::SaveUnprotectOperation(const std::wstring& signerName,
     return true;
 }
 
-bool SessionManager::WriteSessionEntry(const std::wstring& signerName, DWORD index, const SessionEntry& entry) noexcept
-{
-    std::wstring sessionPath = GetSessionPath(GetCurrentBootSession());
-    std::wstring signerPath = sessionPath + L"\\" + signerName;
-    
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, signerPath.c_str(), 0, KEY_WRITE, &hKey) != ERROR_SUCCESS)
-        return false;
-    
-    // Format: "PID|ProcessName|Protection|SigLevel|SecSigLevel|Status"
-    std::wostringstream oss;
-    oss << entry.Pid << L"|"
-        << entry.ProcessName << L"|"
-        << static_cast<int>(entry.OriginalProtection) << L"|"
-        << static_cast<int>(entry.SignatureLevel) << L"|"
-        << static_cast<int>(entry.SectionSignatureLevel) << L"|"
-        << entry.Status;
-    
-    std::wstring valueName = L"Proc_" + std::to_wstring(index);
-    std::wstring valueData = oss.str();
-    
-    LONG result = RegSetValueExW(hKey, valueName.c_str(), 0, REG_SZ, 
-                                  reinterpret_cast<const BYTE*>(valueData.c_str()),
-                                  static_cast<DWORD>((valueData.length() + 1) * sizeof(wchar_t)));
-    
-    RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
-}
-
-bool SessionManager::UpdateEntryStatus(const std::wstring& signerName, DWORD index, const std::wstring& newStatus) noexcept
-{
-    std::wstring sessionPath = GetSessionPath(GetCurrentBootSession());
-    std::wstring signerPath = sessionPath + L"\\" + signerName;
-    
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, signerPath.c_str(), 0, KEY_READ | KEY_WRITE, &hKey) != ERROR_SUCCESS)
-        return false;
-    
-    std::wstring valueName = L"Proc_" + std::to_wstring(index);
-    wchar_t valueData[512];
-    DWORD valueSize = sizeof(valueData);
-    
-    if (RegQueryValueExW(hKey, valueName.c_str(), nullptr, nullptr, 
-                        reinterpret_cast<BYTE*>(valueData), &valueSize) != ERROR_SUCCESS)
-    {
-        RegCloseKey(hKey);
-        return false;
-    }
-    
-    // Parse existing entry
-    std::wstring data = valueData;
-    std::vector<std::wstring> parts;
-    std::wstring current;
-    
-    for (wchar_t ch : data)
-    {
-        if (ch == L'|')
-        {
-            parts.push_back(current);
-            current.clear();
-        }
-        else
-        {
-            current += ch;
-        }
-    }
-    if (!current.empty())
-        parts.push_back(current);
-    
-    if (parts.size() < 5)
-    {
-        RegCloseKey(hKey);
-        return false;
-    }
-    
-    // Rebuild with new status
-    std::wostringstream oss;
-    oss << parts[0] << L"|" << parts[1] << L"|" << parts[2] << L"|" 
-        << parts[3] << L"|" << parts[4] << L"|" << newStatus;
-    
-    std::wstring newValueData = oss.str();
-    
-    LONG result = RegSetValueExW(hKey, valueName.c_str(), 0, REG_SZ, 
-                                  reinterpret_cast<const BYTE*>(newValueData.c_str()),
-                                  static_cast<DWORD>((newValueData.length() + 1) * sizeof(wchar_t)));
-    
-    RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
-}
-
 std::vector<SessionEntry> SessionManager::LoadSessionEntries(const std::wstring& signerName) noexcept
 {
-    std::vector<SessionEntry> entries;
-    
     // Normalize signer name for case-insensitive comparison
     std::wstring normalizedSigner = signerName;
     std::transform(normalizedSigner.begin(), normalizedSigner.end(), 
@@ -562,7 +357,7 @@ std::vector<SessionEntry> SessionManager::LoadSessionEntries(const std::wstring&
     
     HKEY hSession;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, sessionPath.c_str(), 0, KEY_READ, &hSession) != ERROR_SUCCESS)
-        return entries;
+        return {};
     
     // Search all subkeys for matching signer (case-insensitive)
     DWORD index = 0;
@@ -593,21 +388,21 @@ std::vector<SessionEntry> SessionManager::LoadSessionEntries(const std::wstring&
     if (foundSignerKey.empty()) {
         RegCloseKey(hSession);
         DEBUG(L"No signer key found for: %s (normalized: %s)", signerName.c_str(), normalizedSigner.c_str());
-        return entries;
+        return {};
     }
     
-    // Use found key name
-    entries = LoadSessionEntriesFromPath(sessionPath, foundSignerKey);
+    // Load entries using actual key name
+    auto entries = LoadSessionEntriesFromPath(sessionPath, foundSignerKey);
     RegCloseKey(hSession);
     
     DEBUG(L"Loaded %zu entries for signer: %s (key: %s)", entries.size(), signerName.c_str(), foundSignerKey.c_str());
     return entries;
 }
 
-std::vector<SessionEntry> SessionManager::LoadSessionEntriesFromPath(const std::wstring& sessionPath, const std::wstring& signerName) noexcept
+std::vector<SessionEntry> SessionManager::LoadSessionEntriesFromPath(const std::wstring& sessionPath, 
+                                                                     const std::wstring& signerName) noexcept
 {
     std::vector<SessionEntry> entries;
-    
     std::wstring signerPath = sessionPath + L"\\" + signerName;
     
     HKEY hKey;
@@ -668,7 +463,6 @@ std::vector<SessionEntry> SessionManager::LoadSessionEntriesFromPath(const std::
     return entries;
 }
 
-// Restore protection for specific signer group
 bool SessionManager::RestoreBySigner(const std::wstring& signerName, Controller* controller) noexcept
 {
     if (!controller)
@@ -763,7 +557,31 @@ bool SessionManager::RestoreBySigner(const std::wstring& signerName, Controller*
         // Restore original protection
         if (controller->SetProcessProtection(kernelAddr.value(), entry.OriginalProtection))
         {
-            UpdateEntryStatus(foundSignerKey, entryIndex, L"RESTORED");
+            // Update status in registry
+            std::wstring sessionPath = GetSessionPath(GetCurrentBootSession());
+            std::wstring signerPath = sessionPath + L"\\" + foundSignerKey;
+            
+            HKEY hKey;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, signerPath.c_str(), 0, KEY_READ | KEY_WRITE, &hKey) == ERROR_SUCCESS)
+            {
+                // Rebuild entry with new status
+                std::wostringstream oss;
+                oss << entry.Pid << L"|"
+                    << entry.ProcessName << L"|"
+                    << static_cast<int>(entry.OriginalProtection) << L"|"
+                    << static_cast<int>(entry.SignatureLevel) << L"|"
+                    << static_cast<int>(entry.SectionSignatureLevel) << L"|"
+                    << L"RESTORED";
+                
+                std::wstring valueName = L"Proc_" + std::to_wstring(entryIndex);
+                std::wstring valueData = oss.str();
+                
+                RegSetValueExW(hKey, valueName.c_str(), 0, REG_SZ, 
+                               reinterpret_cast<const BYTE*>(valueData.c_str()),
+                               static_cast<DWORD>((valueData.length() + 1) * sizeof(wchar_t)));
+                RegCloseKey(hKey);
+            }
+            
             SUCCESS(L"Restored protection for PID %d (%s)", entry.Pid, entry.ProcessName.c_str());
             successCount++;
         }
@@ -779,7 +597,6 @@ bool SessionManager::RestoreBySigner(const std::wstring& signerName, Controller*
     return successCount > 0;
 }
 
-// Restore all saved protection states
 bool SessionManager::RestoreAll(Controller* controller) noexcept
 {
     if (!controller)
@@ -833,7 +650,6 @@ bool SessionManager::RestoreAll(Controller* controller) noexcept
     return anySuccess;
 }
 
-// Display saved session history
 void SessionManager::ShowHistory() noexcept
 {
     std::wstring basePath = GetRegistryBasePath() + L"\\Sessions";
@@ -908,6 +724,43 @@ void SessionManager::ShowHistory() noexcept
     }
 }
 
+void SessionManager::CleanupStaleSessions() noexcept
+{
+    std::wstring currentSession = GetCurrentBootSession();
+    std::wstring basePath = GetRegistryBasePath() + L"\\Sessions";
+    
+    HKEY hSessions;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, basePath.c_str(), 0, KEY_READ | KEY_WRITE, &hSessions) != ERROR_SUCCESS)
+        return;
+    
+    DWORD index = 0;
+    wchar_t subKeyName[256];
+    DWORD subKeyNameSize;
+    
+    std::vector<std::wstring> keysToDelete;
+    
+    while (true)
+    {
+        subKeyNameSize = 256;
+        if (RegEnumKeyExW(hSessions, index, subKeyName, &subKeyNameSize, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS)
+            break;
+        
+        std::wstring keyName = subKeyName;
+        if (keyName != currentSession)
+            keysToDelete.push_back(keyName);
+        
+        index++;
+    }
+    
+    // Delete stale sessions
+    for (const auto& key : keysToDelete)
+    {
+        DeleteKeyRecursive(hSessions, key);
+    }
+    
+    RegCloseKey(hSessions);
+}
+
 HKEY SessionManager::OpenOrCreateKey(const std::wstring& path) noexcept
 {
     HKEY hKey;
@@ -946,4 +799,204 @@ bool SessionManager::DeleteKeyRecursive(HKEY hKeyParent, const std::wstring& sub
     RegDeleteKeyW(hKeyParent, subKey.c_str());
     
     return true;
+}
+
+// ============================================================================
+// DSE-NG SYMBOL CACHE MANAGEMENT (NEW with LCUVer tracking)
+// ============================================================================
+
+void SessionManager::SaveOriginalCiCallback(DWORD64 address) noexcept
+{
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, nullptr, 
+        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(hKey, L"OriginalCiCallback", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&address), sizeof(DWORD64));
+        RegCloseKey(hKey);
+        DEBUG(L"Saved OriginalCiCallback: 0x%llX to registry", address);
+    }
+}
+
+DWORD64 SessionManager::GetOriginalCiCallback() noexcept
+{
+    HKEY hKey;
+    DWORD64 value = 0;
+    DWORD size = sizeof(DWORD64);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_READ, &hKey) == ERROR_SUCCESS) {
+        RegQueryValueExW(hKey, L"OriginalCiCallback", nullptr, nullptr, 
+            reinterpret_cast<BYTE*>(&value), &size);
+        RegCloseKey(hKey);
+        DEBUG(L"Loaded OriginalCiCallback: 0x%llX from registry", value);
+    }
+    return value;
+}
+
+void SessionManager::ClearOriginalCiCallback() noexcept
+{
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        RegDeleteValueW(hKey, L"OriginalCiCallback");
+        RegCloseKey(hKey);
+        DEBUG(L"Cleared OriginalCiCallback from registry");
+    }
+}
+
+void SessionManager::SaveDSENGOffsets(DWORD64 offSeCi, DWORD64 offZwFlush, 
+                                     DWORD64 kernelBase, const std::wstring& lcuVer) noexcept
+{
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, nullptr, 
+        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        
+        // Save offsets
+        RegSetValueExW(hKey, L"SeCiOffset", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&offSeCi), sizeof(DWORD64));
+        RegSetValueExW(hKey, L"ZwFlushOffset", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&offZwFlush), sizeof(DWORD64));
+        RegSetValueExW(hKey, L"KernelBase", 0, REG_QWORD, 
+            reinterpret_cast<const BYTE*>(&kernelBase), sizeof(DWORD64));
+        
+        // Save LCUVersion as cache validity marker
+        RegSetValueExW(hKey, L"LCUVersion", 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(lcuVer.c_str()),
+            static_cast<DWORD>((lcuVer.length() + 1) * sizeof(wchar_t)));
+        
+        // Save timestamp for additional validation
+        FILETIME ft;
+        GetSystemTimeAsFileTime(&ft);
+        RegSetValueExW(hKey, L"CacheTimestamp", 0, REG_QWORD,
+            reinterpret_cast<const BYTE*>(&ft), sizeof(FILETIME));
+        
+        RegCloseKey(hKey);
+        
+        DEBUG(L"Saved DSE-NG offsets: SeCi=0x%llX, ZwFlush=0x%llX, Base=0x%llX, LCUVer=%s", 
+              offSeCi, offZwFlush, kernelBase, lcuVer.c_str());
+    }
+}
+
+std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> 
+SessionManager::GetDSENGOffsets(const std::wstring& currentLCUVer) noexcept
+{
+    // 1. Check if cache exists
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_READ, &hKey) != ERROR_SUCCESS) {
+        return std::nullopt;
+    }
+    
+    // 2. Verify LCUVersion matches
+    wchar_t cachedLCUVer[256] = {0};
+    DWORD lcuSize = sizeof(cachedLCUVer);
+    
+    if (RegQueryValueExW(hKey, L"LCUVersion", nullptr, nullptr,
+        reinterpret_cast<BYTE*>(cachedLCUVer), &lcuSize) != ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        return std::nullopt; // No LCUVersion in cache (old format)
+    }
+    
+    if (std::wstring(cachedLCUVer) != currentLCUVer) {
+        DEBUG(L"LCUVersion mismatch: cached=%s, current=%s", cachedLCUVer, currentLCUVer.c_str());
+        RegCloseKey(hKey);
+        return std::nullopt; // LCUVer changed - cache invalid
+    }
+    
+    // 3. Read offsets
+    DWORD64 offSeCi = 0, offZwFlush = 0, kernelBase = 0;
+    DWORD size = sizeof(DWORD64);
+    
+    bool success = (RegQueryValueExW(hKey, L"SeCiOffset", nullptr, nullptr, 
+                                     reinterpret_cast<BYTE*>(&offSeCi), &size) == ERROR_SUCCESS) &&
+                   (RegQueryValueExW(hKey, L"ZwFlushOffset", nullptr, nullptr, 
+                                     reinterpret_cast<BYTE*>(&offZwFlush), &size) == ERROR_SUCCESS) &&
+                   (RegQueryValueExW(hKey, L"KernelBase", nullptr, nullptr, 
+                                     reinterpret_cast<BYTE*>(&kernelBase), &size) == ERROR_SUCCESS);
+    
+    RegCloseKey(hKey);
+    
+    if (success && offSeCi != 0 && offZwFlush != 0 && kernelBase != 0) {
+        DEBUG(L"Loaded cached offsets: SeCi=0x%llX, ZwFlush=0x%llX, Base=0x%llX", 
+              offSeCi, offZwFlush, kernelBase);
+        return std::make_tuple(offSeCi, offZwFlush, kernelBase);
+    }
+    
+    return std::nullopt;
+}
+
+void SessionManager::ClearDSENGOffsets() noexcept
+{
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        // Remove only symbol offset values, keep others (like OriginalCiCallback)
+        RegDeleteValueW(hKey, L"SeCiOffset");
+        RegDeleteValueW(hKey, L"ZwFlushOffset");
+        RegDeleteValueW(hKey, L"KernelBase");
+        RegDeleteValueW(hKey, L"LCUVersion");
+        RegDeleteValueW(hKey, L"CacheTimestamp");
+        RegCloseKey(hKey);
+        
+        DEBUG(L"Cleared DSE-NG symbol offsets from registry");
+    }
+}
+
+std::wstring SessionManager::GetCurrentLCUVersion() noexcept
+{
+    HKEY hKey;
+    std::wstring lcuVer;
+    
+    // HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\LCUVer
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+                      L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                      0, KEY_READ | KEY_WOW64_64KEY, &hKey) == ERROR_SUCCESS) {
+        wchar_t buffer[256] = {0};
+        DWORD size = sizeof(buffer);
+        DWORD type = 0;
+        
+        if (RegQueryValueExW(hKey, L"LCUVer", nullptr, &type,
+            reinterpret_cast<BYTE*>(buffer), &size) == ERROR_SUCCESS && 
+            type == REG_SZ) {
+            lcuVer = buffer;
+        } else {
+            DEBUG(L"LCUVer not found in registry (type: %d, error: %d)", 
+                  type, GetLastError());
+        }
+        RegCloseKey(hKey);
+    }
+    
+    return lcuVer;
+}
+
+bool SessionManager::HasLCUVersionChanged(const std::wstring& currentLCUVer) noexcept
+{
+    // Get cached LCUVersion from registry
+    HKEY hKey;
+    std::wstring cachedLCUVer;
+    
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
+        KEY_READ, &hKey) == ERROR_SUCCESS) {
+        wchar_t buffer[256] = {0};
+        DWORD size = sizeof(buffer);
+        
+        if (RegQueryValueExW(hKey, L"LCUVersion", nullptr, nullptr,
+            reinterpret_cast<BYTE*>(buffer), &size) == ERROR_SUCCESS) {
+            cachedLCUVer = buffer;
+        }
+        RegCloseKey(hKey);
+    }
+    
+    // If no cached version, treat as changed (first run)
+    if (cachedLCUVer.empty()) {
+        DEBUG(L"No cached LCUVersion found");
+        return true;
+    }
+    
+    bool changed = (cachedLCUVer != currentLCUVer);
+    if (changed) {
+        DEBUG(L"LCUVersion changed: cached=%s, current=%s", 
+              cachedLCUVer.c_str(), currentLCUVer.c_str());
+    }
+    
+    return changed;
 }
