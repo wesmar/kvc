@@ -1,6 +1,6 @@
 // DSEBypassNG.h
 // Next-Generation DSE Bypass using SeCiCallbacks manipulation
-// Memory-only symbol resolution with LCUVer tracking and state management
+// Always calculates fresh offsets on each run to handle KASLR properly
 // Author: Marek Wesolowski, 2025
 
 #pragma once
@@ -25,11 +25,11 @@ public:
     DSEBypassNG(std::unique_ptr<kvc>& driver);
     ~DSEBypassNG() = default;
 
-    // Main operations with LCUVer-aware caching
+    // Main operations (always calculates offsets dynamically)
     bool DisableDSE() noexcept;
     bool RestoreDSE() noexcept;
     
-    // Cache management
+    // State management
     bool ClearSymbolCache() noexcept;
     std::wstring GetCacheStatus() noexcept;
     
@@ -41,16 +41,11 @@ private:
     std::unique_ptr<kvc>& m_driver; // Reference to KVC driver wrapper
     SymbolEngine m_symbolEngine;
 
-    // Kernel information
+    // Kernel information (always dynamic, handles KASLR)
     std::optional<std::pair<DWORD64, std::wstring>> GetKernelInfo() noexcept;
     
-    // LCUVer tracking
+    // LCUVer tracking (for logging only)
     std::wstring GetCurrentLCUVersion() noexcept;
-    bool IsLCUVersionChanged(const std::wstring& currentLCUVer) noexcept;
-    
-    // Offset calculation with caching
-    std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> GetCachedOffsets() noexcept;
-    std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> CalculateNewOffsets() noexcept;
     
     // Patch operations
     bool ApplyPatch(DWORD64 targetAddress, DWORD64 safeFunction, DWORD64 originalCallback) noexcept;

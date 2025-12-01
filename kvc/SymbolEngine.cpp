@@ -1,43 +1,16 @@
 // SymbolEngine.cpp
-// Symbol resolution with automatic temp cleanup and registry caching
+// Symbol resolution with local PDB priority and automatic download fallback
 
 #include "SymbolEngine.h"
 #include <psapi.h>
 #include <shlwapi.h>
+#include <shlobj.h>
 
 #pragma comment(lib, "dbghelp.lib")
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "shlwapi.lib")
-
-// ============================================================================
-// RAII CLEANUP HELPER
-// ============================================================================
-
-class TempPdbCleanup {
-public:
-    TempPdbCleanup(const std::wstring& dir, const std::wstring& file) 
-        : m_dir(dir), m_file(file) {}
-    
-    ~TempPdbCleanup() {
-        // Delete PDB file
-        if (!m_file.empty()) {
-            DeleteFileW(m_file.c_str());
-            DEBUG(L"[Cleanup] Deleted temp PDB: %s", m_file.c_str());
-        }
-        
-        // Delete directory (only if empty)
-        if (!m_dir.empty()) {
-            if (RemoveDirectoryW(m_dir.c_str())) {
-                DEBUG(L"[Cleanup] Deleted temp directory: %s", m_dir.c_str());
-            }
-        }
-    }
-    
-private:
-    std::wstring m_dir;
-    std::wstring m_file;
-};
+#pragma comment(lib, "shell32.lib")
 
 // ============================================================================
 // CONSTRUCTION / DESTRUCTION
@@ -78,7 +51,7 @@ std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::GetKernelSymbolOffsets(
 std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::GetSymbolOffsets(const std::wstring& kernelPath) noexcept {
     DEBUG(L"[SymbolEngine] Processing kernel: %s", kernelPath.c_str());
     
-    // 1. Extract PDB information from kernel binary
+    // Extract PDB information from kernel binary
     auto pdbInfo = GetPdbInfoFromPe(kernelPath);
     if (!pdbInfo) {
         ERROR(L"[SymbolEngine] Failed to extract PDB info from kernel");
@@ -88,25 +61,51 @@ std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::GetSymbolOffsets(const 
     auto [pdbName, guid] = *pdbInfo;
     DEBUG(L"[SymbolEngine] PDB: %s, GUID: %s", pdbName.c_str(), guid.c_str());
     
-    // 2. Download PDB into memory
-    INFO(L"[SymbolEngine] Downloading symbols...");
-    auto pdbData = DownloadPdbToMemory(pdbName, guid);
-    if (!pdbData) {
+    // Build local PDB path
+    std::wstring localPdbPath = GetLocalPdbPath(pdbName, guid);
+    if (localPdbPath.empty()) {
+        ERROR(L"[SymbolEngine] Failed to build local PDB path");
+        return std::nullopt;
+    }
+    
+    // Check if PDB exists locally
+    if (PathFileExistsW(localPdbPath.c_str())) {
+        INFO(L"[SymbolEngine] Using local PDB: %s", localPdbPath.c_str());
+        return CalculateOffsetsFromDisk(localPdbPath, pdbName);
+    }
+    
+    // PDB not found locally - download directly to target location
+    INFO(L"[SymbolEngine] Local PDB not found, downloading from Microsoft symbol server...");
+    
+    if (!DownloadPdbToDisk(pdbName, guid, localPdbPath)) {
         ERROR(L"[SymbolEngine] Failed to download PDB");
         return std::nullopt;
     }
     
-    DEBUG(L"[SymbolEngine] PDB downloaded: %zu bytes", pdbData->size());
+    INFO(L"[SymbolEngine] PDB downloaded and saved: %s", localPdbPath.c_str());
     
-    // 3. Calculate offsets (with automatic cleanup)
-    auto offsets = CalculateOffsetsFromMemory(*pdbData, pdbName);
-    
-    // 4. Securely wipe PDB data from memory
-    if (!pdbData->empty()) {
-        SecureZeroMemory(pdbData->data(), pdbData->size());
+    // Calculate offsets from newly downloaded PDB
+    return CalculateOffsetsFromDisk(localPdbPath, pdbName);
+}
+
+// ============================================================================
+// LOCAL PDB RESOLUTION
+// ============================================================================
+
+std::wstring SymbolEngine::GetLocalPdbPath(const std::wstring& pdbName, const std::wstring& guid) noexcept {
+    // Get system drive dynamically (no hardcoded C:)
+    wchar_t systemDrive[MAX_PATH];
+    if (GetEnvironmentVariableW(L"SystemDrive", systemDrive, MAX_PATH) == 0) {
+        DEBUG(L"[SymbolEngine] Failed to get SystemDrive, using C: as fallback");
+        wcscpy_s(systemDrive, L"C:");
     }
     
-    return offsets;
+    // Build path: %SystemDrive%\ProgramData\dbg\sym\{pdbName}\{GUID}\{pdbName}
+    std::wstring basePath = std::wstring(systemDrive) + L"\\ProgramData\\dbg\\sym\\" + 
+                            pdbName + L"\\" + guid + L"\\" + pdbName;
+    
+    DEBUG(L"[SymbolEngine] PDB path: %s", basePath.c_str());
+    return basePath;
 }
 
 // ============================================================================
@@ -225,22 +224,23 @@ std::optional<std::pair<std::wstring, std::wstring>> SymbolEngine::GetPdbInfoFro
                             wchar_t guidBuf[64];
                             swprintf_s(guidBuf, L"%08X%04X%04X%02X%02X%02X%02X%02X%02X%02X%02X%X",
                                 pCv->Signature.Data1, pCv->Signature.Data2, pCv->Signature.Data3,
-                                pCv->Signature.Data4[0], pCv->Signature.Data4[1], 
+                                pCv->Signature.Data4[0], pCv->Signature.Data4[1],
                                 pCv->Signature.Data4[2], pCv->Signature.Data4[3],
-                                pCv->Signature.Data4[4], pCv->Signature.Data4[5], 
+                                pCv->Signature.Data4[4], pCv->Signature.Data4[5],
                                 pCv->Signature.Data4[6], pCv->Signature.Data4[7],
                                 pCv->Age);
                             guidStr = guidBuf;
                             
                             int len = MultiByteToWideChar(CP_UTF8, 0, pCv->PdbFileName, -1, nullptr, 0);
                             if (len > 0) {
-                                std::vector<wchar_t> wideBuf(len);
-                                MultiByteToWideChar(CP_UTF8, 0, pCv->PdbFileName, -1, wideBuf.data(), len);
+                                std::vector<wchar_t> wbuf(len);
+                                MultiByteToWideChar(CP_UTF8, 0, pCv->PdbFileName, -1, wbuf.data(), len);
                                 
-                                std::wstring fullPath = wideBuf.data();
-                                size_t lastSlash = fullPath.find_last_of(L"/\\");
-                                pdbName = (lastSlash != std::wstring::npos) ? 
-                                    fullPath.substr(lastSlash + 1) : fullPath;
+                                std::wstring fullPath = wbuf.data();
+                                size_t lastSlash = fullPath.find_last_of(L"\\/");
+                                pdbName = (lastSlash != std::wstring::npos) 
+                                    ? fullPath.substr(lastSlash + 1) 
+                                    : fullPath;
                             }
                             break;
                         }
@@ -255,7 +255,7 @@ std::optional<std::pair<std::wstring, std::wstring>> SymbolEngine::GetPdbInfoFro
     CloseHandle(hFile);
     
     if (pdbName.empty() || guidStr.empty()) {
-        ERROR(L"[SymbolEngine] Failed to extract PDB info from PE");
+        DEBUG(L"[SymbolEngine] Failed to extract PDB info");
         return std::nullopt;
     }
     
@@ -263,29 +263,85 @@ std::optional<std::pair<std::wstring, std::wstring>> SymbolEngine::GetPdbInfoFro
 }
 
 // ============================================================================
-// PDB DOWNLOAD
+// PDB DOWNLOAD - DIRECTLY TO TARGET LOCATION
 // ============================================================================
 
-std::optional<std::vector<BYTE>> SymbolEngine::DownloadPdbToMemory(const std::wstring& pdbName, const std::wstring& guid) noexcept {
+bool SymbolEngine::DownloadPdbToDisk(const std::wstring& pdbName, 
+                                      const std::wstring& guid,
+                                      const std::wstring& targetPath) noexcept {
+    // Create directory structure
+    std::wstring dirPath = targetPath.substr(0, targetPath.find_last_of(L"\\/"));
+    if (!CreateDirectoryTree(dirPath)) {
+        ERROR(L"[SymbolEngine] Failed to create directory: %s", dirPath.c_str());
+        return false;
+    }
+    
+    // Build download URL
     std::wstring url = m_symbolServer + L"/" + pdbName + L"/" + guid + L"/" + pdbName;
-    
     DEBUG(L"[SymbolEngine] Downloading from: %s", url.c_str());
+    DEBUG(L"[SymbolEngine] Target path: %s", targetPath.c_str());
     
-    std::vector<BYTE> pdbData;
-    if (!DownloadFileToMemory(url, pdbData)) {
-        ERROR(L"[SymbolEngine] Failed to download PDB");
-        return std::nullopt;
+    // Download directly to file
+    std::vector<BYTE> data;
+    if (!HttpDownload(url, data)) {
+        ERROR(L"[SymbolEngine] HTTP download failed");
+        return false;
     }
     
-    if (pdbData.empty()) {
-        ERROR(L"[SymbolEngine] Downloaded PDB is empty");
-        return std::nullopt;
+    DEBUG(L"[SymbolEngine] Downloaded %zu bytes", data.size());
+    
+    // Write to target file
+    HANDLE hFile = CreateFileW(targetPath.c_str(), GENERIC_WRITE, 0, nullptr,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    
+    if (hFile == INVALID_HANDLE_VALUE) {
+        ERROR(L"[SymbolEngine] Failed to create file: %s (error: %d)", 
+              targetPath.c_str(), GetLastError());
+        return false;
     }
     
-    return pdbData;
+    DWORD bytesWritten = 0;
+    BOOL writeSuccess = WriteFile(hFile, data.data(), static_cast<DWORD>(data.size()), 
+                                   &bytesWritten, nullptr);
+    CloseHandle(hFile);
+    
+    if (!writeSuccess || bytesWritten != data.size()) {
+        ERROR(L"[SymbolEngine] Failed to write PDB file");
+        DeleteFileW(targetPath.c_str());
+        return false;
+    }
+    
+    SUCCESS(L"[SymbolEngine] PDB saved: %s (%d bytes)", targetPath.c_str(), bytesWritten);
+    return true;
 }
 
-bool SymbolEngine::DownloadFileToMemory(const std::wstring& url, std::vector<BYTE>& output) noexcept {
+bool SymbolEngine::CreateDirectoryTree(const std::wstring& path) noexcept {
+    if (PathIsDirectoryW(path.c_str())) {
+        return true;
+    }
+    
+    // Find parent directory
+    size_t pos = path.find_last_of(L"\\/");
+    if (pos != std::wstring::npos) {
+        std::wstring parent = path.substr(0, pos);
+        if (!CreateDirectoryTree(parent)) {
+            return false;
+        }
+    }
+    
+    // Create this directory
+    if (!CreateDirectoryW(path.c_str(), nullptr)) {
+        DWORD err = GetLastError();
+        if (err != ERROR_ALREADY_EXISTS) {
+            DEBUG(L"[SymbolEngine] CreateDirectory failed: %s (error: %d)", path.c_str(), err);
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+bool SymbolEngine::HttpDownload(const std::wstring& url, std::vector<BYTE>& output) noexcept {
     URL_COMPONENTSW urlParts = { sizeof(urlParts) };
     wchar_t host[256] = { 0 };
     wchar_t path[1024] = { 0 };
@@ -384,64 +440,29 @@ bool SymbolEngine::DownloadFileToMemory(const std::wstring& url, std::vector<BYT
         return false;
     }
 
-    DEBUG(L"[SymbolEngine] Downloaded %zu bytes", output.size());
     return true;
 }
 
 // ============================================================================
-// OFFSET CALCULATION WITH AUTO-CLEANUP
+// OFFSET CALCULATION FROM LOCAL PDB
 // ============================================================================
 
-std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::CalculateOffsetsFromMemory(
-    const std::vector<BYTE>& pdbData,
+std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::CalculateOffsetsFromDisk(
+    const std::wstring& pdbPath,
     const std::wstring& pdbName) noexcept
 {
-    DEBUG(L"[SymbolEngine] Calculating offsets (%zu bytes)...", pdbData.size());
+    DEBUG(L"[SymbolEngine] Calculating offsets from PDB: %s", pdbPath.c_str());
 
-    // 1. Create unique temp directory
-    wchar_t tempDir[MAX_PATH];
-    GetTempPathW(MAX_PATH, tempDir);
+    // Extract directory from full path
+    std::wstring pdbDir = pdbPath.substr(0, pdbPath.find_last_of(L"\\/"));
     
-    std::wstring pdbCacheDir = std::wstring(tempDir) + L"kvc_sym_" + 
-                               std::to_wstring(GetCurrentProcessId());
-    
-    if (!CreateDirectoryW(pdbCacheDir.c_str(), nullptr) && 
-        GetLastError() != ERROR_ALREADY_EXISTS) {
-        ERROR(L"[SymbolEngine] Failed to create temp dir");
-        return std::nullopt;
-    }
-
-    std::wstring pdbPath = pdbCacheDir + L"\\" + pdbName;
-    DEBUG(L"[SymbolEngine] Temp PDB: %s", pdbPath.c_str());
-
-    // 2. RAII cleanup guard (guaranteed cleanup on scope exit)
-    TempPdbCleanup cleanup(pdbCacheDir, pdbPath);
-
-    // 3. Write PDB to disk
-    HANDLE hFile = CreateFileW(pdbPath.c_str(), GENERIC_WRITE, 0, nullptr,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-
-    if (hFile == INVALID_HANDLE_VALUE) {
-        ERROR(L"[SymbolEngine] Failed to create PDB file: %d", GetLastError());
-        return std::nullopt;
-    }
-
-    DWORD bytesWritten = 0;
-    if (!WriteFile(hFile, pdbData.data(), static_cast<DWORD>(pdbData.size()), 
-                   &bytesWritten, nullptr)) {
-        ERROR(L"[SymbolEngine] Failed to write PDB: %d", GetLastError());
-        CloseHandle(hFile);
-        return std::nullopt;
-    }
-    CloseHandle(hFile);
-
-    // 4. Re-initialize DbgHelp with temp cache
+    // Re-initialize DbgHelp with PDB directory
     if (m_initialized) {
         SymCleanup(GetCurrentProcess());
         m_initialized = false;
     }
 
-    std::wstring symbolPath = L"SRV*" + pdbCacheDir;
+    std::wstring symbolPath = L"SRV*" + pdbDir;
     
     DWORD options = SymGetOptions();
     SymSetOptions(options | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | 
@@ -453,7 +474,7 @@ std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::CalculateOffsetsFromMem
     }
     m_initialized = true;
 
-    // 5. Load module
+    // Load module
     DWORD64 baseAddr = 0x140000000;
     DWORD64 loadedModule = SymLoadModuleExW(GetCurrentProcess(), nullptr,
         pdbPath.c_str(), nullptr, baseAddr, 0, nullptr, 0);
@@ -467,7 +488,7 @@ std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::CalculateOffsetsFromMem
 
     DEBUG(L"[SymbolEngine] Module loaded at: 0x%llX", loadedModule);
 
-    // 6. Resolve symbols
+    // Resolve symbols
     std::vector<BYTE> symBuffer(sizeof(SYMBOL_INFOW) + (MAX_SYM_NAME * sizeof(wchar_t)));
     PSYMBOL_INFOW pSymbol = reinterpret_cast<PSYMBOL_INFOW>(symBuffer.data());
     pSymbol->SizeOfStruct = sizeof(SYMBOL_INFOW);
@@ -490,12 +511,12 @@ std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::CalculateOffsetsFromMem
         DEBUG(L"[SymbolEngine] ZwFlushInstructionCache not found: %d", GetLastError());
     }
 
-    // 7. Cleanup DbgHelp
+    // Cleanup DbgHelp
     SymUnloadModule64(GetCurrentProcess(), loadedModule);
     SymCleanup(GetCurrentProcess());
     m_initialized = false;
 
-    // 8. Validate (RAII will cleanup temp files automatically)
+    // Validate
     if (offSeCi == 0 || offZwFlush == 0) {
         ERROR(L"[SymbolEngine] Failed to resolve symbols: SeCi=0x%llX, ZwFlush=0x%llX", 
               offSeCi, offZwFlush);

