@@ -40,6 +40,7 @@ private:
     static void PrintBrowserCommands() noexcept;
     static void PrintDefenderCommands() noexcept;
     static void PrintSecurityEngineCommands() noexcept;
+    static void PrintDefenderUICommands() noexcept;
     static void PrintSessionManagement() noexcept;
     static void PrintDPAPICommands() noexcept;
     static void PrintWatermarkCommands() noexcept;

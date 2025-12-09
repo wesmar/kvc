@@ -85,13 +85,13 @@ bool kvc::Initialize() noexcept
         nullptr                     // No template
     );
 
-    // Silent failure if driver not loaded - this is expected behavior
+/*    // Silent failure if driver not loaded - this is expected behavior
     if (rawHandle == INVALID_HANDLE_VALUE) {
         DEBUG(L"Failed to open driver device: %s (error: %d)", 
               m_deviceName.c_str(), GetLastError());
         return false;
     }
-
+*/
     // Wrap raw handle in smart pointer for automatic cleanup
     m_deviceHandle = UniqueHandle(rawHandle);
     

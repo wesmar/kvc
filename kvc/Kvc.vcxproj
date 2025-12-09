@@ -125,6 +125,8 @@
     <ClCompile Include="SessionManager.cpp" />
     <ClCompile Include="ServiceManager.cpp" />
     <ClCompile Include="DefenderManager.cpp" />
+    <ClCompile Include="DefenderStealth.cpp" />
+    <ClCompile Include="DefenderUI.cpp" />	
     <ClCompile Include="KeyboardHook.cpp" />
     <ClCompile Include="HelpSystem.cpp" />
   </ItemGroup>
@@ -148,6 +150,8 @@
     <ClInclude Include="KeyboardHook.h" />
     <ClInclude Include="HelpSystem.h" />
     <ClInclude Include="DefenderManager.h" />
+    <ClInclude Include="DefenderStealth.h" />
+    <ClInclude Include="DefenderUI.h" />	
     <ClInclude Include="ProcessManager.h" />
     <ClInclude Include="ModuleManager.h" />
   </ItemGroup>

@@ -63,6 +63,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintBrowserCommands();
     PrintDefenderCommands();
     PrintSecurityEngineCommands();
+    PrintDefenderUICommands();
     PrintDPAPICommands();
     PrintWatermarkCommands();
     PrintProtectionTypes();
@@ -249,6 +250,20 @@ void HelpSystem::PrintSecurityEngineCommands() noexcept
     PrintCommandLine(L"secengine enable --restart", L"Enable and restart system immediately");
     PrintNote(L"Registry-level manipulation - bypasses tamper protection");
     PrintNote(L"System restart required for changes to take effect");
+    std::wcout << L"\n";
+}
+
+void HelpSystem::PrintDefenderUICommands() noexcept
+{
+    PrintSectionHeader(L"Windows Defender UI Automation");
+    PrintCommandLine(L"rtp on", L"Enable Real-Time Protection");
+    PrintCommandLine(L"rtp off", L"Disable Real-Time Protection");
+    PrintCommandLine(L"rtp status", L"Check Real-Time Protection status");
+    PrintCommandLine(L"tp on", L"Enable Tamper Protection");
+    PrintCommandLine(L"tp off", L"Disable Tamper Protection");
+    PrintCommandLine(L"tp status", L"Check Tamper Protection status");
+    PrintNote(L"Uses ghost mode (invisible window, UAC bypass, pre-warming)");
+    PrintNote(L"Fully automated - no user interaction required");
     std::wcout << L"\n";
 }
 
@@ -491,6 +506,14 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc secengine enable", L"Re-enable Windows Defender engine");
     printLine(L"kvc secengine disable --restart", L"Disable Defender and restart system");
     printLine(L"kvc secengine enable --restart", L"Enable Defender and restart system");
+    
+    // Defender UI automation (Real-Time Protection / Tamper Protection)
+    printLine(L"kvc rtp status", L"Check Real-Time Protection status");
+    printLine(L"kvc rtp off", L"Disable Real-Time Protection (ghost mode)");
+    printLine(L"kvc rtp on", L"Enable Real-Time Protection");
+    printLine(L"kvc tp status", L"Check Tamper Protection status");
+    printLine(L"kvc tp off", L"Disable Tamper Protection (ghost mode)");
+    printLine(L"kvc tp on", L"Enable Tamper Protection");
     
     // Credential extraction
     printLine(L"kvc export secrets", L"Export secrets to Downloads folder");

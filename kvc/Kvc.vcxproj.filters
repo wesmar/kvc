@@ -96,6 +96,12 @@
     <ClCompile Include="DefenderManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DefenderStealth.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DefenderUI.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>	
     <ClCompile Include="KeyboardHook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -164,6 +170,12 @@
     <ClInclude Include="DefenderManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="DefenderStealth.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DefenderUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>	
     <ClInclude Include="ProcessManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>

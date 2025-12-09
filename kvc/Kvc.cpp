@@ -5,6 +5,7 @@
 #include "DSEBypass.h"
 #include "HelpSystem.h"
 #include "DefenderManager.h"
+#include "DefenderUI.h"
 #include "ProcessManager.h"
 #include "ServiceManager.h"
 #include "HiveManager.h"
@@ -1075,6 +1076,90 @@ int wmain(int argc, wchar_t* argv[])
 				ERROR(L"Valid subcommands: disable, enable, status");
 				return 1;
 			}
+		}
+
+		// ============================================================================
+		// WINDOWS DEFENDER REAL-TIME PROTECTION CONTROL
+		// ============================================================================
+		
+		else if (command == L"rtp") {
+			if (argc < 3) {
+				INFO(L"Usage: kvc rtp <on|off|status>");
+				return 1;
+			}
+
+			WindowsDefenderAutomation wda;
+			if (!wda.openDefenderSettings()) {
+				ERROR(L"Failed to open Windows Security");
+				return 1;
+			}
+
+			std::wstring_view action = argv[2];
+			bool result = false;
+
+			if (action == L"on") {
+				result = wda.enableRealTimeProtection();
+				if (result) SUCCESS(L"Real-Time Protection enabled successfully");
+				else ERROR(L"Failed to enable Real-Time Protection");
+			}
+			else if (action == L"off") {
+				result = wda.disableRealTimeProtection();
+				if (result) SUCCESS(L"Real-Time Protection disabled successfully");
+				else ERROR(L"Failed to disable Real-Time Protection");
+			}
+			else if (action == L"status") {
+				wda.getRealTimeProtectionStatus();
+				result = true;
+			}
+			else {
+				ERROR(L"Unknown action: %s", action.data());
+				INFO(L"Usage: kvc rtp <on|off|status>");
+			}
+
+			wda.closeSecurityWindow();
+			return result ? 0 : 1;
+		}
+		
+		// ============================================================================
+		// WINDOWS DEFENDER TAMPER PROTECTION CONTROL
+		// ============================================================================
+		
+		else if (command == L"tp") {
+			if (argc < 3) {
+				INFO(L"Usage: kvc tp <on|off|status>");
+				return 1;
+			}
+
+			WindowsDefenderAutomation wda;
+			if (!wda.openDefenderSettings()) {
+				ERROR(L"Failed to open Windows Security");
+				return 1;
+			}
+
+			std::wstring_view action = argv[2];
+			bool result = false;
+
+			if (action == L"on") {
+				result = wda.enableTamperProtection();
+				if (result) SUCCESS(L"Tamper Protection enabled successfully");
+				else ERROR(L"Failed to enable Tamper Protection");
+			}
+			else if (action == L"off") {
+				result = wda.disableTamperProtection();
+				if (result) SUCCESS(L"Tamper Protection disabled successfully");
+				else ERROR(L"Failed to disable Tamper Protection");
+			}
+			else if (action == L"status") {
+				wda.getTamperProtectionStatus();
+				result = true;
+			}
+			else {
+				ERROR(L"Unknown action: %s", action.data());
+				INFO(L"Usage: kvc tp <on|off|status>");
+			}
+
+			wda.closeSecurityWindow();
+			return result ? 0 : 1;
 		}
 
 		else if (command == L"add-exclusion") {
