@@ -242,9 +242,12 @@ HWND DefenderStealth::FindSecurityWindowOnly(int maxRetries) {
 // Volatile registry marker for session persistence
 bool DefenderStealth::CheckVolatileWarmMarker() {
     HKEY hKey;
-    LONG result = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc", 0, KEY_READ, &hKey);
+    // Open the specific subkey "WinDefCtl" which is created as volatile.
+    // We cannot use the parent "Software\\kvc" directly as it might be persistent.
+    LONG result = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\WinDefCtl", 0, KEY_READ, &hKey);
     
     if (result != ERROR_SUCCESS) {
+        // Key does not exist, which means this is a cold boot (or first run after reboot)
         return false;
     }
 
@@ -261,9 +264,10 @@ bool DefenderStealth::SetVolatileWarmMarker() {
     DWORD disposition;
     
     // Create volatile key (disappears on logout/reboot)
+    // Targeting "Software\\kvc\\WinDefCtl" to ensure volatility works even if "kvc" exists permanently
     LONG result = RegCreateKeyExW(
         HKEY_CURRENT_USER,
-        L"Software\\kvc",
+        L"Software\\kvc\\WinDefCtl", 
         0,
         NULL,
         REG_OPTION_VOLATILE,

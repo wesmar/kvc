@@ -71,11 +71,17 @@ bool WindowsDefenderAutomation::preWarmDefender() {
             std::this_thread::sleep_for(100ms);
         }
         
-        if (!closed) {
-            DEBUG_LOG(L"Retry close with PostMessage");
-            PostMessage(hwnd, WM_CLOSE, 0, 0);
-            std::this_thread::sleep_for(1000ms);
-        }
+		if (!closed) {
+			DEBUG_LOG(L"Retry close with PostMessage");
+			PostMessage(hwnd, WM_CLOSE, 0, 0);
+
+			for (int i = 0; i < 10; i++) {
+				if (!IsWindow(hwnd) || !IsWindowVisible(hwnd)) {
+					break;
+				}
+				std::this_thread::sleep_for(100ms);
+			}
+		}
         
         // Mark as warmed for this session
         DefenderStealth::SetVolatileWarmMarker();
