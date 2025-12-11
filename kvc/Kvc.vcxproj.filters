@@ -63,9 +63,6 @@
     <ClCompile Include="DSEBypass.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DSEBypassNG.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="SymbolEngine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -141,9 +138,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DSEBypass.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="DSEBypassNG.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SymbolEngine.h">

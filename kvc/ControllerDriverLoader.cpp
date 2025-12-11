@@ -1,6 +1,5 @@
 // ControllerDriverLoader.cpp
-// External driver loading with DSE bypass (NG method) - automatic restore
-// Author: Marek Wesolowski, 2025
+// External driver loading with DSE bypass (Safe method) - automatic restore
 
 #include "Controller.h"
 #include "common.h"
@@ -18,37 +17,28 @@ bool Controller::CheckAndHandleHVCI(const std::wstring& operation, const std::ws
         EndDriverSession(true);
         return false;
     }
-    // Check g_CiOptions to determine if Memory Integrity is enabled
+    
     if (!m_dseBypass) {
         m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     }
-    auto ciBase = m_dseBypass->GetKernelModuleBase("ci.dll");
-    if (!ciBase) {
-        ERROR(L"Failed to locate ci.dll");
+    
+    // Get DSE status to check HVCI
+    DSEBypass::Status status;
+    if (!m_dseBypass->GetStatus(status)) {
+        ERROR(L"Failed to get DSE status");
         EndDriverSession(true);
         return false;
     }
-    ULONG_PTR ciOptionsAddr = m_dseBypass->FindCiOptions(ciBase.value());
-    if (!ciOptionsAddr) {
-        ERROR(L"Failed to locate g_CiOptions");
-        EndDriverSession(true);
-        return false;
-    }
-    auto current = m_rtc->Read32(ciOptionsAddr);
-    if (!current) {
-        ERROR(L"Failed to read g_CiOptions");
-        EndDriverSession(true);
-        return false;
-    }
-    DWORD currentValue = current.value();
-    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;
+    
     EndDriverSession(true);
-    if (!hvciEnabled) {
+    
+    if (!status.HVCIEnabled) {
         SUCCESS(L"Memory Integrity is disabled - safe to proceed");
         return true;
     }
+    
     // HVCI is enabled - same handling as DisableDSESafe()
-    INFO(L"Memory Integrity is enabled (g_CiOptions = 0x%08X)", currentValue);
+    INFO(L"Memory Integrity is enabled (g_CiOptions = 0x%08X)", status.CiOptionsValue);
     INFO(L"A reboot is required to disable Memory Integrity before driver %s", operation.c_str());
     std::wcout << L"\n";
     std::wcout << L"Disable Memory Integrity and reboot now? [Y/N]: ";
@@ -91,8 +81,6 @@ bool Controller::CheckAndHandleHVCI(const std::wstring& operation, const std::ws
     }
     return false; // Don't proceed - reboot required
 }
-
-// [CheckAndHandleHVCI remains unchanged]
 
 std::wstring Controller::NormalizeDriverPath(const std::wstring& input) noexcept {
     if (input.find(L'\\') != std::wstring::npos || input.find(L':') != std::wstring::npos) {
@@ -161,11 +149,11 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
             return false;
         }
         
-        if (!m_dseBypassNG) {
-            m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+        if (!m_dseBypass) {
+            m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
         }
         
-        if (!m_dseBypassNG->DisableDSE()) {
+        if (!m_dseBypass->Disable(DSEBypass::Method::Safe)) {
             ERROR(L"Failed to disable DSE");
             EndDriverSession(true);
             return false;
@@ -199,11 +187,11 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
                     return;
                 }
                 
-                if (!m_dseBypassNG) {
-                    m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+                if (!m_dseBypass) {
+                    m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
                 }
                 
-                if (m_dseBypassNG->RestoreDSE()) {
+                if (m_dseBypass->Restore(DSEBypass::Method::Safe)) {
                     SUCCESS(L"DSE protection restored successfully");
                 } else {
                     ERROR(L"Failed to restore DSE protection");
@@ -214,61 +202,97 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
             }
         };
         
-        // Try to initialize service APIs
-        apiInitialized = InitDynamicAPIs();
-        if (!apiInitialized) {
+        if (!InitDynamicAPIs()) {
             ERROR(L"Failed to initialize service APIs");
             dseRestoreGuard();
             return false;
         }
+        apiInitialized = true;
         
-        SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+        // Try to create and start the service
+        SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
         if (!hSCM) {
             ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
             dseRestoreGuard();
             return false;
         }
         
-        // Try to create service
-        SC_HANDLE hService = g_pCreateServiceW(
-            hSCM,
-            serviceName.c_str(),
-            serviceName.c_str(),
-            SERVICE_ALL_ACCESS,
-            SERVICE_KERNEL_DRIVER,
-            startType,
-            SERVICE_ERROR_NORMAL,
-            normalizedPath.c_str(),
-            nullptr, nullptr, nullptr, nullptr, nullptr
-        );
-        
-        // If service already exists, open it
-        if (!hService && GetLastError() == ERROR_SERVICE_EXISTS) {
-            hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
-        }
-        
+        // Check if service already exists
+        SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
         if (hService) {
-            // Start the service
-            if (g_pStartServiceW(hService, 0, nullptr) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
+            INFO(L"Service already exists - attempting to start...");
+            
+            // Query current status
+            SERVICE_STATUS status;
+            if (QueryServiceStatus(hService, &status)) {
+                if (status.dwCurrentState == SERVICE_RUNNING) {
+                    SUCCESS(L"Driver service is already running");
+                    CloseServiceHandle(hService);
+                    CloseServiceHandle(hSCM);
+                    driverLoaded = true;
+                    dseRestoreGuard();
+                    return true;
+                }
+            }
+            
+            // Try to start
+            if (g_pStartServiceW(hService, 0, nullptr)) {
                 SUCCESS(L"Driver service started successfully");
-                serviceSuccess = true;
                 driverLoaded = true;
             } else {
-                ERROR(L"Failed to start driver service: %d", GetLastError());
+                DWORD err = GetLastError();
+                if (err == ERROR_SERVICE_ALREADY_RUNNING) {
+                    SUCCESS(L"Driver service is already running");
+                    driverLoaded = true;
+                } else {
+                    ERROR(L"Failed to start existing service: %d", err);
+                }
             }
             CloseServiceHandle(hService);
         } else {
-            ERROR(L"Failed to create/open driver service: %d", GetLastError());
+            // Create new service
+            INFO(L"Creating new driver service...");
+            hService = g_pCreateServiceW(
+                hSCM,
+                serviceName.c_str(),
+                serviceName.c_str(),
+                SERVICE_ALL_ACCESS,
+                SERVICE_KERNEL_DRIVER,
+                startType,
+                SERVICE_ERROR_NORMAL,
+                normalizedPath.c_str(),
+                nullptr, nullptr, nullptr, nullptr, nullptr
+            );
+            
+            if (!hService) {
+                ERROR(L"Failed to create service: %d", GetLastError());
+                CloseServiceHandle(hSCM);
+                dseRestoreGuard();
+                return false;
+            }
+            
+            SUCCESS(L"Driver service created successfully");
+            
+            // Start the service
+            if (g_pStartServiceW(hService, 0, nullptr)) {
+                SUCCESS(L"Driver service started successfully");
+                driverLoaded = true;
+            } else {
+                DWORD err = GetLastError();
+                if (err == ERROR_SERVICE_ALREADY_RUNNING) {
+                    SUCCESS(L"Driver service is already running");
+                    driverLoaded = true;
+                } else {
+                    ERROR(L"Failed to start service: %d", err);
+                }
+            }
+            CloseServiceHandle(hService);
         }
         
         CloseServiceHandle(hSCM);
         
-        // STEP 3: AUTO-RESTORE DSE AFTER DRIVER LOAD (always called, even on failure)
+        // STEP 3: AUTO-RESTORE DSE AFTER LOAD (always called)
         dseRestoreGuard();
-        
-        if (driverLoaded) {
-            SUCCESS(L"External driver loaded successfully: %s", serviceName.c_str());
-        }
     }
     
     return driverLoaded;
@@ -279,8 +303,8 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
     std::wstring serviceName = ExtractServiceName(normalizedPath);
     INFO(L"Reloading driver: %s", serviceName.c_str());
     
-    // === CHECK AND HANDLE HVCI ===
-    if (!CheckAndHandleHVCI(L"reload", serviceName)) {
+    // CHECK AND HANDLE HVCI
+    if (!CheckAndHandleHVCI(L"reload", normalizedPath)) {
         return false;
     }
     
@@ -303,11 +327,11 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
             return false;
         }
         
-        if (!m_dseBypassNG) {
-            m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+        if (!m_dseBypass) {
+            m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
         }
         
-        if (!m_dseBypassNG->DisableDSE()) {
+        if (!m_dseBypass->Disable(DSEBypass::Method::Safe)) {
             ERROR(L"Failed to disable DSE");
             EndDriverSession(true);
             return false;
@@ -338,11 +362,11 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
                     return;
                 }
                 
-                if (!m_dseBypassNG) {
-                    m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+                if (!m_dseBypass) {
+                    m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
                 }
                 
-                if (m_dseBypassNG->RestoreDSE()) {
+                if (m_dseBypass->Restore(DSEBypass::Method::Safe)) {
                     SUCCESS(L"DSE protection restored successfully");
                 } else {
                     ERROR(L"Failed to restore DSE protection");
@@ -412,8 +436,6 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
     
     return driverReloaded;
 }
-
-// [StopExternalDriver and RemoveExternalDriver remain unchanged]
 
 bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexcept {
     std::wstring serviceName = ExtractServiceName(driverNameOrPath);

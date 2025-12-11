@@ -1,7 +1,39 @@
 // ControllerDSE.cpp
+// DSE bypass controller - user interaction layer
+// Delegates actual bypass operations to unified DSEBypass class
+
 #include "Controller.h"
 #include "SessionManager.h"
 #include "common.h"
+
+// ============================================================================
+// HELPER: SYSTEM REBOOT
+// ============================================================================
+
+static bool InitiateSystemReboot() noexcept {
+    HANDLE hToken;
+    TOKEN_PRIVILEGES tkp;
+    
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+        LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+        tkp.PrivilegeCount = 1;
+        tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
+        CloseHandle(hToken);
+    }
+    
+    if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, 
+                          SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
+        ERROR(L"Failed to initiate reboot: %d", GetLastError());
+        return false;
+    }
+    
+    return true;
+}
+
+// ============================================================================
+// STANDARD METHOD (kvc dse off)
+// ============================================================================
 
 bool Controller::DisableDSE() noexcept {
     PerformAtomicCleanup();
@@ -23,35 +55,19 @@ bool Controller::DisableDSE() noexcept {
         m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     }
     
-    auto ciBase = m_dseBypass->GetKernelModuleBase("ci.dll");
-    if (!ciBase) {
-        ERROR(L"Failed to locate ci.dll");
+    // Get current status to check for HVCI
+    DSEBypass::Status status;
+    if (!m_dseBypass->GetStatus(status)) {
+        ERROR(L"Failed to get DSE status");
         EndDriverSession(true);
         return false;
     }
     
-    ULONG_PTR ciOptionsAddr = m_dseBypass->FindCiOptions(ciBase.value());
-    if (!ciOptionsAddr) {
-        ERROR(L"Failed to locate g_CiOptions");
-        EndDriverSession(true);
-        return false;
-    }
+    DEBUG(L"Current g_CiOptions: 0x%08X", status.CiOptionsValue);
     
-    auto current = m_rtc->Read32(ciOptionsAddr);
-    if (!current) {
-        ERROR(L"Failed to read g_CiOptions");
-        EndDriverSession(true);
-        return false;
-    }
-    
-    DWORD currentValue = current.value();
-    DEBUG(L"Current g_CiOptions: 0x%08X", currentValue);
-    
-    // Check if HVCI (Memory Integrity) is enabled
-    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;
-    
-    if (hvciEnabled) {
-        INFO(L"HVCI detected (g_CiOptions = 0x%08X) - hypervisor bypass required", currentValue);
+    // Check if HVCI (Memory Integrity) is enabled - 0x0001C006 pattern
+    if (status.HVCIEnabled) {
+        INFO(L"HVCI detected (g_CiOptions = 0x%08X) - hypervisor bypass required", status.CiOptionsValue);
         INFO(L"Preparing secure kernel deactivation (fully reversible)...");
         
         SUCCESS(L"Secure Kernel module prepared for temporary deactivation");
@@ -69,7 +85,7 @@ bool Controller::DisableDSE() noexcept {
             INFO(L"HVCI bypass cancelled by user");
             m_rtc->Cleanup();
             EndDriverSession(true);
-            return true;
+            return true;  // User cancelled, no error
         }
         
         DEBUG(L"Closing driver handle before file operations");
@@ -79,6 +95,9 @@ bool Controller::DisableDSE() noexcept {
         EndDriverSession(true);
         
         DEBUG(L"Driver fully unloaded, proceeding with bypass preparation");
+        
+        // Recreate DSEBypass for file operations (no driver needed)
+        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
         
         if (!m_dseBypass->RenameSkciLibrary()) {
             ERROR(L"Failed to prepare hypervisor bypass");
@@ -95,29 +114,13 @@ bool Controller::DisableDSE() noexcept {
         INFO(L"Run 'kvc dse off' again to complete the bypass");
         
         INFO(L"Initiating system reboot...");
-        
-        // Enable shutdown privilege
-        HANDLE hToken;
-        TOKEN_PRIVILEGES tkp;
-        
-        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-            LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
-            tkp.PrivilegeCount = 1;
-            tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-            AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
-            CloseHandle(hToken);
-        }
-        
-        if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, 
-                              SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
-            ERROR(L"Failed to initiate reboot: %d", GetLastError());
-        }
+        InitiateSystemReboot();
         
         return true;
     }
     
     // HVCI is off, proceed with standard DSE patching
-    bool result = m_dseBypass->DisableDSE();
+    bool result = m_dseBypass->Disable(DSEBypass::Method::Standard);
     
     EndDriverSession(true);
     
@@ -138,14 +141,20 @@ bool Controller::RestoreDSE() noexcept {
         return false;
     }
     
-    m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
+    if (!m_dseBypass) {
+        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
+    }
     
-    bool result = m_dseBypass->RestoreDSE();
+    bool result = m_dseBypass->Restore(DSEBypass::Method::Standard);
     
     EndDriverSession(true);
     
     return result;
 }
+
+// ============================================================================
+// SAFE METHOD (kvc dse off --safe)
+// ============================================================================
 
 bool Controller::DisableDSESafe() noexcept {
     PerformAtomicCleanup();
@@ -161,41 +170,27 @@ bool Controller::DisableDSESafe() noexcept {
         return false;
     }
 
-    // Check g_CiOptions to determine if Memory Integrity is enabled
     if (!m_dseBypass) {
         m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     }
 
-    auto ciBase = m_dseBypass->GetKernelModuleBase("ci.dll");
-    if (!ciBase) {
-        ERROR(L"Failed to locate ci.dll");
+    // Get current status to check for HVCI
+    DSEBypass::Status status;
+    if (!m_dseBypass->GetStatus(status)) {
+        ERROR(L"Failed to get DSE status");
         EndDriverSession(true);
         return false;
     }
 
-    ULONG_PTR ciOptionsAddr = m_dseBypass->FindCiOptions(ciBase.value());
-    if (!ciOptionsAddr) {
-        ERROR(L"Failed to locate g_CiOptions");
-        EndDriverSession(true);
-        return false;
-    }
-
-    auto current = m_rtc->Read32(ciOptionsAddr);
-    if (!current) {
-        ERROR(L"Failed to read g_CiOptions");
-        EndDriverSession(true);
-        return false;
-    }
-
-    DWORD currentValue = current.value();
-    bool hvciEnabled = (currentValue & 0x0001C000) == 0x0001C000;
-
-    if (hvciEnabled) {
-        INFO(L"Memory Integrity is enabled (g_CiOptions = 0x%08X)", currentValue);
+    // Check if HVCI (Memory Integrity) is enabled - 0x0001C006 pattern
+    if (status.HVCIEnabled) {
+        INFO(L"Memory Integrity is enabled (g_CiOptions = 0x%08X)", status.CiOptionsValue);
         INFO(L"A reboot is required to disable Memory Integrity before DSE bypass");
         INFO(L"Safe method: preserves VBS functionality (recommended)");
+        
         std::wcout << L"\n";
         std::wcout << L"Disable Memory Integrity and reboot now? [Y/N]: ";
+        
         wchar_t choice;
         std::wcin >> choice;
 
@@ -203,7 +198,7 @@ bool Controller::DisableDSESafe() noexcept {
             INFO(L"Operation cancelled by user");
             m_rtc->Cleanup();
             EndDriverSession(true);
-            return true;
+            return true;  // User cancelled, no error
         }
 
         // Set HVCI registry to 0
@@ -230,32 +225,13 @@ bool Controller::DisableDSESafe() noexcept {
         INFO(L"Initiating system reboot...");
         INFO(L"After reboot, run 'kvc dse off --safe' again to complete DSE bypass");
 
-        // Enable shutdown privilege and reboot
-        HANDLE hToken;
-        TOKEN_PRIVILEGES tkp;
-
-        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-            LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
-            tkp.PrivilegeCount = 1;
-            tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-            AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
-            CloseHandle(hToken);
-        }
-
-        if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, 
-                              SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
-            ERROR(L"Failed to initiate reboot: %d", GetLastError());
-        }
+        InitiateSystemReboot();
 
         return true;
     }
 
     // Memory Integrity is OFF - proceed with SeCiCallbacks patch
-    if (!m_dseBypassNG) {
-        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
-    }
-
-    bool result = m_dseBypassNG->DisableDSE();
+    bool result = m_dseBypass->Disable(DSEBypass::Method::Safe);
     EndDriverSession(true);
     return result;
 }
@@ -274,8 +250,8 @@ bool Controller::RestoreDSESafe() noexcept {
         return false;
     }
 
-    if (!m_dseBypassNG) {
-        m_dseBypassNG = std::make_unique<DSEBypassNG>(m_rtc);
+    if (!m_dseBypass) {
+        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     }
 
     // Check if we have saved state before attempting restoration
@@ -283,17 +259,17 @@ bool Controller::RestoreDSESafe() noexcept {
     if (original == 0) {
         INFO(L"No saved DSE state found in registry");
         
-        // Check current DSE state using the new state checking function
-        auto state = m_dseBypassNG->CheckDSEState();
-        auto stateStr = m_dseBypassNG->GetDSEStateString(state);
+        // Check current DSE state
+        auto state = m_dseBypass->CheckSafeMethodState();
+        auto stateStr = DSEBypass::GetDSEStateString(state);
         
         INFO(L"Current DSE-NG state: %s", stateStr.c_str());
         
-        if (state == DSEBypassNG::DSEState::NORMAL) {
+        if (state == DSEBypass::DSEState::NORMAL) {
             SUCCESS(L"DSE is already enabled (normal state)");
             EndDriverSession(true);
             return true;
-        } else if (state == DSEBypassNG::DSEState::PATCHED) {
+        } else if (state == DSEBypass::DSEState::PATCHED) {
             ERROR(L"DSE is disabled but no saved state - cannot restore");
             ERROR(L"Run 'kvc dse on' (non-safe) or re-run 'kvc dse off --safe' first");
         }
@@ -302,10 +278,14 @@ bool Controller::RestoreDSESafe() noexcept {
         return false;
     }
 
-    bool result = m_dseBypassNG->RestoreDSE();
+    bool result = m_dseBypass->Restore(DSEBypass::Method::Safe);
     EndDriverSession(true);
     return result;
 }
+
+// ============================================================================
+// STATUS OPERATIONS
+// ============================================================================
 
 ULONG_PTR Controller::GetCiOptionsAddress() const noexcept {
     if (!m_dseBypass) {
@@ -333,29 +313,37 @@ bool Controller::GetDSEStatus(ULONG_PTR& outAddress, DWORD& outValue) noexcept {
         m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
     }
     
-    auto ciBase = m_dseBypass->GetKernelModuleBase("ci.dll");
-    if (!ciBase) {
-        ERROR(L"Failed to locate ci.dll");
+    DSEBypass::Status status;
+    if (!m_dseBypass->GetStatus(status)) {
         EndDriverSession(true);
         return false;
     }
     
-    outAddress = m_dseBypass->FindCiOptions(ciBase.value());
-    if (outAddress == 0) {
-        ERROR(L"Failed to locate g_CiOptions address");
-        EndDriverSession(true);
-        return false;
-    }
-    
-    auto currentValue = m_rtc->Read32(outAddress);
-    if (!currentValue) {
-        ERROR(L"Failed to read g_CiOptions value");
-        EndDriverSession(true);
-        return false;
-    }
-    
-    outValue = currentValue.value();
+    outAddress = status.CiOptionsAddress;
+    outValue = status.CiOptionsValue;
     
     EndDriverSession(true);
     return true;
+}
+
+// ============================================================================
+// DSE-NG STATE CHECKING (for kvc.cpp status display)
+// ============================================================================
+
+bool Controller::CheckDSENGState(DSEBypass::DSEState& outState) noexcept {
+    if (!m_dseBypass) {
+        return false;
+    }
+    
+    outState = m_dseBypass->CheckSafeMethodState();
+    return true;
+}
+
+std::wstring Controller::GetDSENGStatusInfo() noexcept {
+    if (!m_dseBypass) {
+        return L"DSEBypass not initialized";
+    }
+    
+    auto state = m_dseBypass->CheckSafeMethodState();
+    return DSEBypass::GetDSEStateString(state);
 }

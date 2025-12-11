@@ -6,7 +6,6 @@
 #include "SessionManager.h"
 #include "kvcDrv.h"
 #include "DSEBypass.h"
-#include "DSEBypassNG.h"
 #include "OffsetFinder.h"
 #include "TrustedInstallerIntegrator.h"
 #include "Utils.h"
@@ -90,13 +89,13 @@ public:
     Controller(Controller&&) noexcept = default;
     Controller& operator=(Controller&&) noexcept = default;
 
-	// DSE bypass operations
+	// DSE bypass operations (Standard method)
 	bool DisableDSE() noexcept;
 	bool RestoreDSE() noexcept;
 	ULONG_PTR GetCiOptionsAddress() const noexcept;
 	bool GetDSEStatus(ULONG_PTR& outAddress, DWORD& outValue) noexcept;
 	
-	// Next-Gen DSE operations (Safe/PDB based)
+	// DSE bypass operations (Safe/PDB-based method)
     bool DisableDSESafe() noexcept;
     bool RestoreDSESafe() noexcept;
 	
@@ -235,20 +234,18 @@ public:
     bool BeginDriverSession();
     void EndDriverSession(bool force = false);
     
-    // DSE-NG state checking
-    bool CheckDSENGState(DSEBypassNG::DSEState& outState) noexcept;
+    // DSE state checking (unified)
+    bool CheckDSENGState(DSEBypass::DSEState& outState) noexcept;
     std::wstring GetDSENGStatusInfo() noexcept;
     
-    // Direct access to DSE bypass objects (for status checking)
-    std::unique_ptr<DSEBypassNG>& GetDSEBypassNG() { return m_dseBypassNG; }
+    // Direct access to driver (for status checking)
     std::unique_ptr<kvc>& GetRTC() { return m_rtc; }
 
 private:
     TrustedInstallerIntegrator m_trustedInstaller;
 	std::unique_ptr<kvc> m_rtc;
     std::unique_ptr<OffsetFinder> m_of;
-	std::unique_ptr<DSEBypass> m_dseBypass;
-	std::unique_ptr<DSEBypassNG> m_dseBypassNG;
+	std::unique_ptr<DSEBypass> m_dseBypass;  // Unified DSE manager
     SQLiteAPI m_sqlite;
 
     // Privilege management
