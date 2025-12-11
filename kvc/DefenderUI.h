@@ -3,21 +3,19 @@
 
 #pragma once
 
-// CRITICAL: UI Automation headers must be included in correct order
 #include <windows.h>
 #include <ole2.h>
 #include <UIAutomation.h>
 #include <UIAutomationClient.h>
 #include <UIAutomationCore.h>
 #include <string>
-#include <vector>
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "UIAutomationCore.lib")
 
-// Automates Windows Security interface using UI Automation
-// Uses "Structural Density" strategy for robust change detection
+// Automates Windows Security interface with TOPMOST console window as visual shield
+// Uses structural density strategy for robust UI change detection
 class WindowsDefenderAutomation {
 private:
     IUIAutomation* pAutomation = nullptr;
@@ -27,16 +25,19 @@ private:
     bool waitForUILoaded(int maxRetries = 20);
     IUIAutomationElement* findFirstToggleSwitch();
     IUIAutomationElement* findLastToggleSwitch();
-
-    // Counts all descendant elements for structural change detection
+    
+    // Counts all descendant elements for structure change detection
     int countTotalElements();
-
-    // Waits for element count change relative to baseline
+    
+    // Waits for UI element count to change (dialogs appearing/disappearing)
     bool waitForStructureChange(int baselineCount, bool expectIncrease, int timeoutSeconds = 10);
-
-    // Cold boot detection and pre-warming
+    
+    // Cold boot handling - first run after login needs extra initialization
     bool isColdBoot();
     bool preWarmDefender();
+    
+    // Find the Windows Security window handle
+    HWND findSecurityWindow(int maxRetries = 10);
 
 public:
     WindowsDefenderAutomation();
@@ -44,13 +45,13 @@ public:
 
     bool openDefenderSettings();
 
-    // Real-Time Protection operations
+    // Real-Time Protection
     bool toggleRealTimeProtection();
     bool enableRealTimeProtection();
     bool disableRealTimeProtection();
     bool getRealTimeProtectionStatus();
 
-    // Tamper Protection operations
+    // Tamper Protection
     bool toggleTamperProtection();
     bool enableTamperProtection();
     bool disableTamperProtection();

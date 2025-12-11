@@ -65,11 +65,13 @@
       <StringPooling>true</StringPooling>
       <TreatWarningAsError>false</TreatWarningAsError>
       <DisableSpecificWarnings>4996;4117</DisableSpecificWarnings>
-      <Optimization>MinSpace</Optimization>
+      <Optimization>MaxSpeed</Optimization>
       <WholeProgramOptimization>true</WholeProgramOptimization>
-      <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
       <BrowseInformation>false</BrowseInformation>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -85,7 +87,8 @@
       <TargetMachine>MachineX64</TargetMachine>
       <SetChecksum>false</SetChecksum>
       <LargeAddressAware>true</LargeAddressAware>
-      <StripPrivateSymbols>true</StripPrivateSymbols>
+      <StripPrivateSymbols>
+      </StripPrivateSymbols>
       <AllowIsolation>true</AllowIsolation>
     </Link>
     <PostBuildEvent>
@@ -125,7 +128,7 @@
     <ClCompile Include="ServiceManager.cpp" />
     <ClCompile Include="DefenderManager.cpp" />
     <ClCompile Include="DefenderStealth.cpp" />
-    <ClCompile Include="DefenderUI.cpp" />	
+    <ClCompile Include="DefenderUI.cpp" />
     <ClCompile Include="KeyboardHook.cpp" />
     <ClCompile Include="HelpSystem.cpp" />
   </ItemGroup>
@@ -149,7 +152,7 @@
     <ClInclude Include="HelpSystem.h" />
     <ClInclude Include="DefenderManager.h" />
     <ClInclude Include="DefenderStealth.h" />
-    <ClInclude Include="DefenderUI.h" />	
+    <ClInclude Include="DefenderUI.h" />
     <ClInclude Include="ProcessManager.h" />
     <ClInclude Include="ModuleManager.h" />
   </ItemGroup>

