@@ -374,7 +374,6 @@ bool WindowsDefenderAutomation::enableRealTimeProtection() {
             }
         } else {
             INFO_LOG(L"RTP already enabled");
-            std::wcout << L"[+] Real-Time Protection enabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }
@@ -412,7 +411,6 @@ bool WindowsDefenderAutomation::disableRealTimeProtection() {
             }
         } else {
             INFO_LOG(L"RTP already disabled");
-            std::wcout << L"[+] Real-Time Protection disabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }
@@ -511,7 +509,6 @@ bool WindowsDefenderAutomation::enableTamperProtection() {
             }
         } else {
             INFO_LOG(L"Tamper Protection already enabled");
-            std::wcout << L"[+] Tamper Protection enabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }
@@ -549,7 +546,6 @@ bool WindowsDefenderAutomation::disableTamperProtection() {
             }
         } else {
             INFO_LOG(L"Tamper Protection already disabled");
-            std::wcout << L"[+] Tamper Protection disabled successfully\n";
             pToggle->Release();
             pButton->Release();
         }
