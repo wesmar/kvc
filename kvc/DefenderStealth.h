@@ -14,6 +14,10 @@ namespace DefenderStealth {
     bool SetConsoleTopmost();
     bool RestoreConsoleNormal();
     
+    // Taskbar management
+    bool HideTaskbar();
+    bool ShowTaskbar();
+    
     // UAC management
     bool BackupAndDisableUAC();
     bool RestoreUAC();

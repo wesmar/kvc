@@ -13,8 +13,36 @@
 #endif
 
 static HWND g_hConsole = NULL;
+static HWND g_hTaskbar = NULL;
 static WINDOWPLACEMENT g_originalPlacement = { sizeof(WINDOWPLACEMENT) };
 static bool g_isTopmost = false;
+static bool g_taskbarHidden = false;
+
+// ============================================================================
+// Taskbar Management
+// ============================================================================
+
+bool DefenderStealth::HideTaskbar() {
+    g_hTaskbar = FindWindowW(L"Shell_TrayWnd", nullptr);
+    if (!g_hTaskbar) return false;
+    
+    if (IsWindowVisible(g_hTaskbar)) {
+        ShowWindow(g_hTaskbar, SW_HIDE);
+        g_taskbarHidden = true;
+        DEBUG_LOG(L"Taskbar hidden");
+        return true;
+    }
+    return false;
+}
+
+bool DefenderStealth::ShowTaskbar() {
+    if (!g_hTaskbar || !g_taskbarHidden) return false;
+    
+    ShowWindow(g_hTaskbar, SW_SHOW);
+    g_taskbarHidden = false;
+    DEBUG_LOG(L"Taskbar restored");
+    return true;
+}
 
 // ============================================================================
 // Console Window Management - TOPMOST Approach

