@@ -602,27 +602,27 @@ int wmain(int argc, wchar_t* argv[])
         {L"enable-defender", [](int, wchar_t**) { return DefenderManager::EnableSecurityEngine() ? 0 : 2; }},
         
         // --- Defender UI Automation ---
-        {L"rtp", [](int argc, wchar_t** argv) {
+		{L"rtp", [](int argc, wchar_t** argv) {
             if (argc < 3) { INFO(L"Usage: kvc rtp <on|off|status>"); return 1; }
             WindowsDefenderAutomation wda;
             if (!wda.openDefenderSettings()) { ERROR(L"Failed to open Windows Security"); return 1; }
             std::wstring act = argv[2];
             bool res = false;
-            if (act == L"on") { res = wda.enableRealTimeProtection(); if(res) SUCCESS(L"Real-Time Protection enabled successfully"); else ERROR(L"Failed to enable Real-Time Protection"); }
-            else if (act == L"off") { res = wda.disableRealTimeProtection(); if(res) SUCCESS(L"Real-Time Protection disabled successfully"); else ERROR(L"Failed to disable Real-Time Protection"); }
+            if (act == L"on") { res = wda.enableRealTimeProtection(); if(!res) ERROR(L"Failed to enable Real-Time Protection"); }
+            else if (act == L"off") { res = wda.disableRealTimeProtection(); if(!res) ERROR(L"Failed to disable Real-Time Protection"); }
             else if (act == L"status") { wda.getRealTimeProtectionStatus(); res = true; }
             else { ERROR(L"Unknown action: %s", act.c_str()); INFO(L"Usage: kvc rtp <on|off|status>"); }
             wda.closeSecurityWindow();
             return res ? 0 : 1;
         }},
-        {L"tp", [](int argc, wchar_t** argv) {
+		{L"tp", [](int argc, wchar_t** argv) {
             if (argc < 3) { INFO(L"Usage: kvc tp <on|off|status>"); return 1; }
             WindowsDefenderAutomation wda;
             if (!wda.openDefenderSettings()) { ERROR(L"Failed to open Windows Security"); return 1; }
             std::wstring act = argv[2];
             bool res = false;
-            if (act == L"on") { res = wda.enableTamperProtection(); if(res) SUCCESS(L"Tamper Protection enabled successfully"); else ERROR(L"Failed to enable Tamper Protection"); }
-            else if (act == L"off") { res = wda.disableTamperProtection(); if(res) SUCCESS(L"Tamper Protection disabled successfully"); else ERROR(L"Failed to disable Tamper Protection"); }
+            if (act == L"on") { res = wda.enableTamperProtection(); if(!res) ERROR(L"Failed to enable Tamper Protection"); }
+            else if (act == L"off") { res = wda.disableTamperProtection(); if(!res) ERROR(L"Failed to disable Tamper Protection"); }
             else if (act == L"status") { wda.getTamperProtectionStatus(); res = true; }
             else { ERROR(L"Unknown action: %s", act.c_str()); INFO(L"Usage: kvc tp <on|off|status>"); }
             wda.closeSecurityWindow();
