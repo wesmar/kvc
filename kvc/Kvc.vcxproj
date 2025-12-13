@@ -56,7 +56,7 @@
       <LanguageStandardVersion>latest</LanguageStandardVersion>
       <EnableModules>false</EnableModules>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
-      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Os /Brepro %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Brepro %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <ExceptionHandling>Sync</ExceptionHandling>
       <BufferSecurityCheck>false</BufferSecurityCheck>

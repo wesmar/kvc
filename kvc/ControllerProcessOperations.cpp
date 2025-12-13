@@ -8,28 +8,31 @@
 
 extern volatile bool g_interrupted;
 
+#include <iomanip> // Wymagane dla std::setw
+
 // Table formatting constants and utilities for process list display
 namespace TableFormat {
     using namespace std::string_view_literals;
-    
-    // Column widths for process table
+
+    // COMPACT WIDTHS - Calculated exactly to fit standard console
     struct Columns {
-        static constexpr size_t PID = 7;
-        static constexpr size_t NAME = 30;
-        static constexpr size_t LEVEL = 9;
-        static constexpr size_t SIGNER = 17;
-        static constexpr size_t EXE_SIG = 23;
-        static constexpr size_t DLL_SIG = 23;
-        static constexpr size_t KERNEL_ADDR = 20;
+        static constexpr size_t PID = 5;
+        static constexpr size_t NAME = 26;
+        static constexpr size_t LEVEL = 7;
+        static constexpr size_t SIGNER = 15; 
+        static constexpr size_t EXE_SIG = 14;
+        static constexpr size_t DLL_SIG = 17;
+        static constexpr size_t KERNEL_ADDR = 13;
     };
-    
-    // Common string elements
-    inline constexpr std::wstring_view SEP = L"+";
+
+    // Separator elements
+    inline constexpr std::wstring_view SEP = L"-+-";
+    inline constexpr std::wstring_view VBAR = L" | "; // Must be 3 chars to match SEP length
     inline constexpr std::wstring_view NL = L"\n";
     inline constexpr wchar_t DASH = L'-';
     inline constexpr wchar_t SPACE = L' ';
-    
-    // Pre-computed table divider line with column separators
+
+    // Helper to generate divider line
     inline const std::wstring DIVIDER = []() {
         std::wostringstream ss;
         ss << SPACE;
@@ -42,31 +45,124 @@ namespace TableFormat {
         ss << std::wstring(Columns::KERNEL_ADDR, DASH) << NL;
         return ss.str();
     }();
-    
-    // Table header with column names
-    inline constexpr std::wstring_view HEADER = 
-        L"   PID  |         Process Name         |  Level  |"
-        L"     Signer      |     EXE sig. level    |"
-        L"     DLL sig. level    |    Kernel addr.    \n";
-    
+
     // Print colored divider line
     inline void PrintDivider(const wchar_t* color = Utils::ProcessColors::GREEN) {
         std::wcout << color << DIVIDER << Utils::ProcessColors::RESET;
     }
-    
-    // Print table header with appropriate color
+
+    // Print table header - MATHEMATICALLY ALIGNED
+    // Uses std::setw to ensure headers match column widths exactly
     inline void PrintHeader() {
-        std::wcout << Utils::ProcessColors::HEADER << HEADER << Utils::ProcessColors::RESET;
+		std::wcout << SPACE;
+        std::wcout << Utils::ProcessColors::HEADER;
+        
+        // PID (Center/Right logic for header text)
+        std::wcout << std::left << std::setw(Columns::PID) << L"  PID" << VBAR;
+        std::wcout << std::left << std::setw(Columns::NAME) << L"  Process Name" << VBAR;
+        std::wcout << std::left << std::setw(Columns::LEVEL) << L" Level" << VBAR;
+        std::wcout << std::left << std::setw(Columns::SIGNER) << L"    Signer" << VBAR;
+        std::wcout << std::left << std::setw(Columns::EXE_SIG) << L"EXE sig. level" << VBAR;
+        std::wcout << std::left << std::setw(Columns::DLL_SIG) << L" DLL sig. level" << VBAR;
+        std::wcout << std::left << std::setw(Columns::KERNEL_ADDR) << L" Kern. (ffff)"; // No VBAR at end
+        
+        std::wcout << NL << Utils::ProcessColors::RESET;
     }
-    
-    // Print complete table header (divider + header + divider)
+
+    // Print complete table header
     inline void PrintTableStart() {
         std::wcout << NL;
         PrintDivider();
         PrintHeader();
         std::wcout << Utils::ProcessColors::GREEN << DIVIDER;
     }
-    
+
+    // Helper to format "Name......(Num)" with number right-aligned
+    // Returns formatted string ensuring strict length
+    inline std::wstring FormatRightAligned(const std::wstring& name, const std::wstring& val, size_t totalWidth) {
+        size_t nameLen = name.length();
+        size_t valLen = val.length();
+        
+        // Determine padding
+        if (nameLen + valLen + 1 > totalWidth) {
+            // Truncate name if too long
+            size_t available = totalWidth - valLen - 1; 
+            if (available > 0) {
+                return name.substr(0, available) + L" " + val;
+            }
+            return name.substr(0, totalWidth); // Fallback
+        }
+
+        size_t padding = totalWidth - nameLen - valLen;
+        return name + std::wstring(padding, L' ') + val;
+    }
+
+    // Print single process row with color coding and formatting
+    inline void PrintProcessRow(const ProcessEntry& entry) {
+        const wchar_t* color = Utils::GetProcessDisplayColor(
+            entry.SignerType, entry.SignatureLevel, entry.SectionSignatureLevel);
+
+        // Prepare raw strings
+        std::wstring levelStr = Utils::GetProtectionLevelAsString(entry.ProtectionLevel);
+        std::wstring signerStr = Utils::GetSignerTypeAsString(entry.SignerType);
+        std::wstring exeStr = Utils::GetSignatureLevelAsString(entry.SignatureLevel);
+        std::wstring dllStr = Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel);
+        
+        // Prepare numbers in parens
+        wchar_t buf[32];
+        
+        swprintf_s(buf, L"(%d)", entry.ProtectionLevel);
+        std::wstring levelNum = buf;
+
+        swprintf_s(buf, L"(%d)", entry.SignerType);
+        std::wstring signerNum = buf;
+
+        swprintf_s(buf, L"(%02x)", entry.SignatureLevel); // Hex, no 0x
+        std::wstring exeNum = buf;
+
+        swprintf_s(buf, L"(%02x)", entry.SectionSignatureLevel); // Hex, no 0x
+        std::wstring dllNum = buf;
+
+        // Truncate process name if needed
+        std::wstring procName = entry.ProcessName;
+        if (procName.length() > Columns::NAME) {
+            procName = procName.substr(0, Columns::NAME - 3) + L"...";
+        }
+
+        // Output Row
+        std::wcout << color << SPACE;
+        
+        // PID: Right aligned in 7 chars
+        std::wcout << std::right << std::setw(Columns::PID) << entry.Pid;
+        std::wcout << Utils::ProcessColors::RESET << Utils::ProcessColors::GREEN << VBAR << color; // Divider reset
+
+        // Name: Left aligned
+        std::wcout << std::left << std::setw(Columns::NAME) << procName;
+        std::wcout << Utils::ProcessColors::RESET << Utils::ProcessColors::GREEN << VBAR << color;
+
+        // Level: Name Left, Num Right
+        std::wcout << FormatRightAligned(levelStr, levelNum, Columns::LEVEL);
+        std::wcout << Utils::ProcessColors::RESET << Utils::ProcessColors::GREEN << VBAR << color;
+
+        // Signer: Name Left, Num Right
+        std::wcout << FormatRightAligned(signerStr, signerNum, Columns::SIGNER);
+        std::wcout << Utils::ProcessColors::RESET << Utils::ProcessColors::GREEN << VBAR << color;
+
+        // EXE: Name Left, Num Right
+        std::wcout << FormatRightAligned(exeStr, exeNum, Columns::EXE_SIG);
+        std::wcout << Utils::ProcessColors::RESET << Utils::ProcessColors::GREEN << VBAR << color;
+
+        // DLL: Name Left, Num Right
+        std::wcout << FormatRightAligned(dllStr, dllNum, Columns::DLL_SIG);
+        std::wcout << Utils::ProcessColors::RESET << Utils::ProcessColors::GREEN << VBAR << color;
+
+        // Kernel: Hex Right aligned (no 0x)
+        std::wcout << std::right << std::setw(Columns::KERNEL_ADDR) 
+                   << std::setfill(L'0') << std::hex << (entry.KernelAddress & 0xFFFFFFFFFFFF) << std::setfill(L' ') << std::dec;
+        
+        std::wcout << NL << Utils::ProcessColors::RESET;
+    }
+
     // Print table footer divider
     inline void PrintTableEnd() {
         PrintDivider();
@@ -775,21 +871,9 @@ bool Controller::ListProtectedProcesses() noexcept
 
     DWORD count = 0;
     for (const auto& entry : processes) {
-        if (entry.ProtectionLevel > 0) {
+		if (entry.ProtectionLevel > 0) {
             count++;
-            const wchar_t* color = Utils::GetProcessDisplayColor(entry.SignerType, entry.SignatureLevel, entry.SectionSignatureLevel);
-            
-            wchar_t buffer[512];
-            swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
-                entry.Pid,
-                entry.ProcessName.length() > 28 ? 
-                    (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
-                Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
-                Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
-                Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
-                Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
-                entry.KernelAddress);
-            std::wcout << color << buffer << Utils::ProcessColors::RESET;
+            TableFormat::PrintProcessRow(entry);
         }
     }
     
@@ -800,6 +884,8 @@ bool Controller::ListProtectedProcesses() noexcept
         return false;
     }
     
+    // Table format: Kernel addresses without 'ffff' prefix (x64 canonical addresses always start with 0xFFFF)
+    // Total width with separators: PID(11) + NAME(20) + LEVEL(10) + SIGNER(18) + EXE(19) + DLL(22) + KERNEL(14) = 114 chars
     std::wcout << L"\nTotal protected processes: " << count << L"\n";
     return true;
 }
@@ -828,22 +914,10 @@ bool Controller::ListProcessesBySigner(const std::wstring& signerName) noexcept
     TableFormat::PrintTableStart();
 
     bool foundAny = false;
-    for (const auto& entry : processes) {
+	for (const auto& entry : processes) {
         if (entry.SignerType == signerType.value()) {
             foundAny = true;
-            const wchar_t* color = Utils::GetProcessDisplayColor(entry.SignerType, entry.SignatureLevel, entry.SectionSignatureLevel);
-
-            wchar_t buffer[512];
-            swprintf_s(buffer, L" %6d | %-28s | %-3s (%d) | %-11s (%d) | %-14s (0x%02x) | %-14s (0x%02x) | 0x%016llx\n",
-                entry.Pid,
-                entry.ProcessName.length() > 28 ?
-                    (entry.ProcessName.substr(0, 25) + L"...").c_str() : entry.ProcessName.c_str(),
-                Utils::GetProtectionLevelAsString(entry.ProtectionLevel), entry.ProtectionLevel,
-                Utils::GetSignerTypeAsString(entry.SignerType), entry.SignerType,
-                Utils::GetSignatureLevelAsString(entry.SignatureLevel), entry.SignatureLevel,
-                Utils::GetSignatureLevelAsString(entry.SectionSignatureLevel), entry.SectionSignatureLevel,
-                entry.KernelAddress);
-            std::wcout << color << buffer << Utils::ProcessColors::RESET;
+            TableFormat::PrintProcessRow(entry);
         }
     }
     
@@ -1352,7 +1426,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
 	WORD originalColor = csbi.wAttributes;
 
 	if (dumpability.CanDump) {
-		std::wcout << Utils::ProcessColors::GREEN << L"    ✓ DUMPABLE: " 
+		std::wcout << Utils::ProcessColors::GREEN << L"    âœ“ DUMPABLE: " 
 				   << dumpability.Reason;
 		SetConsoleTextAttribute(hConsole, originalColor);
 		std::wcout << L"\n";
@@ -1362,7 +1436,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
 			std::wcout << L"    Note: Process is protected but can be dumped with elevation\n";
 		}
 	} else {
-		std::wcout << Utils::ProcessColors::RED << L"    ✗ NOT DUMPABLE: " 
+		std::wcout << Utils::ProcessColors::RED << L"    âœ— NOT DUMPABLE: " 
 				   << dumpability.Reason;
 		SetConsoleTextAttribute(hConsole, originalColor);
 		std::wcout << L"\n";
