@@ -17,12 +17,12 @@ namespace TableFormat {
     // COMPACT WIDTHS - Calculated exactly to fit standard console
     struct Columns {
         static constexpr size_t PID = 5;
-        static constexpr size_t NAME = 26;
+        static constexpr size_t NAME = 25;
         static constexpr size_t LEVEL = 7;
         static constexpr size_t SIGNER = 15; 
         static constexpr size_t EXE_SIG = 14;
         static constexpr size_t DLL_SIG = 17;
-        static constexpr size_t KERNEL_ADDR = 13;
+        static constexpr size_t KERNEL_ADDR = 12;
     };
 
     // Separator elements
@@ -64,7 +64,7 @@ namespace TableFormat {
         std::wcout << std::left << std::setw(Columns::SIGNER) << L"    Signer" << VBAR;
         std::wcout << std::left << std::setw(Columns::EXE_SIG) << L"EXE sig. level" << VBAR;
         std::wcout << std::left << std::setw(Columns::DLL_SIG) << L" DLL sig. level" << VBAR;
-        std::wcout << std::left << std::setw(Columns::KERNEL_ADDR) << L" Kern. (ffff)"; // No VBAR at end
+        std::wcout << std::left << std::setw(Columns::KERNEL_ADDR) << L"Kern. (ffff)"; // No VBAR at end
         
         std::wcout << NL << Utils::ProcessColors::RESET;
     }
@@ -158,7 +158,7 @@ namespace TableFormat {
 
         // Kernel: Hex Right aligned (no 0x)
         std::wcout << std::right << std::setw(Columns::KERNEL_ADDR) 
-                   << std::setfill(L'0') << std::hex << (entry.KernelAddress & 0xFFFFFFFFFFFF) << std::setfill(L' ') << std::dec;
+                   << std::hex << (entry.KernelAddress & 0xFFFFFFFFFFFF) << std::dec;
         
         std::wcout << NL << Utils::ProcessColors::RESET;
     }
