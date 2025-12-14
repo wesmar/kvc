@@ -10,29 +10,34 @@
 
 ---
 ## 🆕 Latest Update: December 14, 2025
+
 Added graphical interface option for convenient viewing and manipulation of long process lists
-```
+
 Now with GUI support for process management:
 ```
 kvc list --gui   # Launch graphical interface for process list
 ```
+
 The GUI mode provides enhanced visibility and easier interaction when working with extensive process lists.
 
 ## 🆕 Update: December 12, 2025
 
 Now with Windows Defender & Tamper Protection CLI Manipulation
+
 Added command-line control for built-in Windows Defender with support for:
+
 Real-Time Protection (RTP/TP) toggling via:
 ```
 kvc rtp off      # Disable Real-Time Protection
 kvc rtp on       # Enable Real-Time Protection  
 kvc rtp status   # Check RTP status
-
 kvc tp off       # Disable Tamper Protection
 kvc tp on        # Enable Tamper Protection  
 kvc tp status    # Check Tamper Protection status
 ```
+
 Tamper Protection control via kvc tamper on/off/status
+
 ## 🆕 Update: November 28-30, 2025
 
 **Next-Generation DSE Bypass - Production-Safe Implementation**
