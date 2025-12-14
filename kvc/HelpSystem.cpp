@@ -156,6 +156,7 @@ void HelpSystem::PrintBasicCommands() noexcept
     
     PrintSectionHeader(L"Process Information Commands");
     PrintCommandLine(L"list", L"List all protected processes with color coding");
+	PrintCommandLine(L"list --gui", L"Launch interactive GUI mode for process management");
     PrintCommandLine(L"get <PID|process_name>", L"Get protection status of specific process");
     PrintCommandLine(L"info <PID|process_name>", L"Get detailed process info including dumpability");
     std::wcout << L"\n";
@@ -420,6 +421,7 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     
     // Process inspection and monitoring
     printLine(L"kvc list", L"Show all protected processes");
+	printLine(L"kvc list --gui", L"Launch interactive GUI for visual management");
     printLine(L"kvc info lsass", L"Detailed info with dumpability analysis");
     
     // Process protection management

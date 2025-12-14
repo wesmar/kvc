@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <fstream>
 #include <fdi.h>
+#include <io.h>
+#include <fcntl.h>
 #pragma comment(lib, "cabinet.lib")
 
 namespace fs = std::filesystem;
@@ -127,6 +129,119 @@ std::wstring GetProcessName(DWORD pid) noexcept
     }
     
     return L"[Unknown]";
+}
+
+// Retrieves process owner username in DOMAIN\User format using WinAPI
+// Returns "Access Denied" for protected processes that deny token access
+std::wstring GetProcessUser(DWORD pid) noexcept
+{
+    if (pid == 0) return L"System";
+    if (pid == 4) return L"NT AUTHORITY\\SYSTEM";
+    
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProcess) {
+        return L"Access Denied";
+    }
+    
+    HANDLE hToken = nullptr;
+    if (!OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
+        CloseHandle(hProcess);
+        return L"Access Denied";
+    }
+    
+    DWORD dwSize = 0;
+    GetTokenInformation(hToken, TokenUser, nullptr, 0, &dwSize);
+    
+    if (dwSize == 0) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        return L"Access Denied";
+    }
+    
+    std::vector<BYTE> tokenBuffer(dwSize);
+    PTOKEN_USER pTokenUser = reinterpret_cast<PTOKEN_USER>(tokenBuffer.data());
+    
+    if (!GetTokenInformation(hToken, TokenUser, pTokenUser, dwSize, &dwSize)) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        return L"Access Denied";
+    }
+    
+    wchar_t userName[256] = {0};
+    wchar_t domainName[256] = {0};
+    DWORD userSize = 256;
+    DWORD domainSize = 256;
+    SID_NAME_USE sidType;
+    
+    if (!LookupAccountSidW(nullptr, pTokenUser->User.Sid, userName, &userSize, 
+                           domainName, &domainSize, &sidType)) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        return L"Unknown";
+    }
+    
+    CloseHandle(hToken);
+    CloseHandle(hProcess);
+    
+    std::wstring result = domainName;
+    result += L"\\";
+    result += userName;
+    
+    return result;
+}
+
+// Retrieves process mandatory integrity level from token
+// Returns one of: System, High, Medium, Low, Untrusted, Unknown
+std::wstring GetProcessIntegrityLevel(DWORD pid) noexcept
+{
+    if (pid == 0 || pid == 4) return L"System";
+    
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProcess) {
+        return L"Unknown";
+    }
+    
+    HANDLE hToken = nullptr;
+    if (!OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
+        CloseHandle(hProcess);
+        return L"Unknown";
+    }
+    
+    DWORD dwSize = 0;
+    GetTokenInformation(hToken, TokenIntegrityLevel, nullptr, 0, &dwSize);
+    
+    if (dwSize == 0) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        return L"Unknown";
+    }
+    
+    std::vector<BYTE> labelBuffer(dwSize);
+    PTOKEN_MANDATORY_LABEL pLabel = reinterpret_cast<PTOKEN_MANDATORY_LABEL>(labelBuffer.data());
+    
+    if (!GetTokenInformation(hToken, TokenIntegrityLevel, pLabel, dwSize, &dwSize)) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        return L"Unknown";
+    }
+    
+    DWORD integrityLevel = *GetSidSubAuthority(pLabel->Label.Sid, 
+                                               *GetSidSubAuthorityCount(pLabel->Label.Sid) - 1);
+    
+    CloseHandle(hToken);
+    CloseHandle(hProcess);
+    
+    if (integrityLevel < SECURITY_MANDATORY_LOW_RID) {
+        return L"Untrusted";
+    } else if (integrityLevel < SECURITY_MANDATORY_MEDIUM_RID) {
+        return L"Low";
+    } else if (integrityLevel < SECURITY_MANDATORY_HIGH_RID) {
+        return L"Medium";
+    } else if (integrityLevel >= SECURITY_MANDATORY_SYSTEM_RID) {
+        return L"System";
+    } else {
+        return L"High";
+    }
 }
 
 // Generates descriptive identifier for processes that resist normal enumeration
@@ -798,6 +913,10 @@ bool IsValidHexString(const std::wstring& hexString) noexcept
 // Enables ANSI color codes in Windows console
 bool EnableConsoleVirtualTerminal() noexcept
 {
+    // Enable UTF-8 output for international characters (Polish, Chinese, etc.)
+    SetConsoleOutputCP(CP_UTF8);
+    _setmode(_fileno(stdout), _O_U16TEXT);
+    
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hConsole == INVALID_HANDLE_VALUE) {
         return false;
@@ -1050,7 +1169,7 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
     return true;
 }
 
-// Orchestrates full extraction: Resource → XOR decrypt → CAB decompress → Split PEs
+// Orchestrates full extraction: Resource â†’ XOR decrypt â†’ CAB decompress â†’ Split PEs
 bool ExtractResourceComponents(int resourceId, 
                                 std::vector<BYTE>& outKvcSys, 
                                 std::vector<BYTE>& outDll) noexcept

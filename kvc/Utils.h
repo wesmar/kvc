@@ -43,6 +43,10 @@ namespace Utils
     
     std::wstring GetProcessName(DWORD pid) noexcept;
     
+    std::wstring GetProcessUser(DWORD pid) noexcept;
+    
+    std::wstring GetProcessIntegrityLevel(DWORD pid) noexcept;
+    
     std::wstring ResolveUnknownProcessLocal(DWORD pid, ULONG_PTR kernelAddress, 
                                            UCHAR protectionLevel, UCHAR signerType) noexcept;
 

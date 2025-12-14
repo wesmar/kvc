@@ -115,6 +115,7 @@
     <ClCompile Include="ControllerEventLogOperations.cpp" />
     <ClCompile Include="ControllerModuleOperations.cpp" />
     <ClCompile Include="ProcessManager.cpp" />
+    <ClCompile Include="ProcessListGUI.cpp" />
     <ClCompile Include="ModuleManager.cpp" />
     <ClCompile Include="OffsetFinder.cpp" />
     <ClCompile Include="kvc.cpp" />
@@ -134,6 +135,7 @@
   </ItemGroup>
   <!-- Header Files -->
   <ItemGroup>
+    <ClInclude Include="ProcessListGUI_res.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="TrustedInstallerIntegrator.h" />
     <ClInclude Include="common.h" />
@@ -150,6 +152,7 @@
     <ClInclude Include="ServiceManager.h" />
     <ClInclude Include="KeyboardHook.h" />
     <ClInclude Include="HelpSystem.h" />
+    <ClInclude Include="ProcessListGUI.h" />
     <ClInclude Include="DefenderManager.h" />
     <ClInclude Include="DefenderStealth.h" />
     <ClInclude Include="DefenderUI.h" />
@@ -166,6 +169,7 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="kvc.rc" />
+    <ResourceCompile Include="ProcessListDialog.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

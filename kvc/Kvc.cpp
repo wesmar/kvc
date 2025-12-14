@@ -7,6 +7,7 @@
 #include "DefenderManager.h"
 #include "DefenderUI.h"
 #include "ProcessManager.h"
+#include "ProcessListGUI.h"
 #include "ServiceManager.h"
 #include "HiveManager.h"
 #include "ModuleManager.h"
@@ -515,8 +516,15 @@ int wmain(int argc, wchar_t* argv[])
         {L"driver", HandleDriverCommand},
 
         // --- Process Ops ---
-        {L"list", [](int, wchar_t**) {
+        {L"list", [](int argc, wchar_t** argv) {
             g_controller->m_sessionMgr.DetectAndHandleReboot();
+            
+            // Check for --gui flag
+            if (argc >= 3 && (wcscmp(argv[2], L"--gui") == 0 || wcscmp(argv[2], L"-g") == 0)) {
+                ShowProcessListGUI(g_controller.get());
+                return 0;
+            }
+            
             return g_controller->ListProtectedProcesses() ? 0 : 2;
         }},
         {L"info", [](int argc, wchar_t** argv) {

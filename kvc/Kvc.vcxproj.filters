@@ -78,6 +78,9 @@
     <ClCompile Include="ProcessManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessListGUI.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="WatermarkManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -98,7 +101,7 @@
     </ClCompile>
     <ClCompile Include="DefenderUI.cpp">
       <Filter>Source Files</Filter>
-    </ClCompile>	
+    </ClCompile>
     <ClCompile Include="KeyboardHook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -161,6 +164,9 @@
     <ClInclude Include="HelpSystem.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ProcessListGUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="DefenderManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -169,11 +175,14 @@
     </ClInclude>
     <ClInclude Include="DefenderUI.h">
       <Filter>Header Files</Filter>
-    </ClInclude>	
+    </ClInclude>
     <ClInclude Include="ProcessManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ModuleManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessListGUI_res.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -184,6 +193,9 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="kvc.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="ProcessListDialog.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>

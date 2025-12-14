@@ -29,6 +29,8 @@ struct ProcessEntry
     UCHAR SignatureLevel;
     UCHAR SectionSignatureLevel;
     std::wstring ProcessName;
+    std::wstring UserName;
+    std::wstring IntegrityLevel;
 };
 
 // Process search result
@@ -126,6 +128,7 @@ public:
 
     // Process information
     bool ListProtectedProcesses() noexcept;
+    std::vector<ProcessEntry> GetAllProcessList() noexcept;
     bool GetProcessProtection(DWORD pid) noexcept;
     bool GetProcessProtectionByName(const std::wstring& processName) noexcept;
 	bool PrintProcessInfo(DWORD pid) noexcept;

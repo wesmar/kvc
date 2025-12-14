@@ -886,7 +886,7 @@ bool Controller::ListProtectedProcesses() noexcept
     
     // Table format: Kernel addresses without 'ffff' prefix (x64 canonical addresses always start with 0xFFFF)
     // Total width with separators: PID(11) + NAME(20) + LEVEL(10) + SIGNER(18) + EXE(19) + DLL(22) + KERNEL(14) = 114 chars
-    std::wcout << L"\nTotal protected processes: " << count << L"\n";
+    std::wcout << L"\nTotal protected processes: " << count << L"    (Try 'kvc list --gui' for interactive GUI mode)\n";
     return true;
 }
 
@@ -1196,6 +1196,23 @@ std::vector<ProcessEntry> Controller::GetProcessList() noexcept
     return processes;
 }
 
+// Returns complete process list with User and Integrity Level information for GUI
+// This is a wrapper around GetProcessList() that adds user-mode data
+std::vector<ProcessEntry> Controller::GetAllProcessList() noexcept 
+{
+    std::vector<ProcessEntry> processes = GetProcessList();
+    
+    // Populate User and Integrity Level for each process
+    for (auto& entry : processes) {
+        if (g_interrupted) break;
+        
+        entry.UserName = Utils::GetProcessUser(entry.Pid);
+        entry.IntegrityLevel = Utils::GetProcessIntegrityLevel(entry.Pid);
+    }
+    
+    return processes;
+}
+
 // Returns kernel address of PsInitialSystemProcess
 std::optional<ULONG_PTR> Controller::GetInitialSystemProcessAddress() noexcept 
 {
@@ -1426,7 +1443,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
 	WORD originalColor = csbi.wAttributes;
 
 	if (dumpability.CanDump) {
-		std::wcout << Utils::ProcessColors::GREEN << L"    âœ“ DUMPABLE: " 
+		std::wcout << Utils::ProcessColors::GREEN << L"    [+]  DUMPABLE: " 
 				   << dumpability.Reason;
 		SetConsoleTextAttribute(hConsole, originalColor);
 		std::wcout << L"\n";
@@ -1436,7 +1453,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
 			std::wcout << L"    Note: Process is protected but can be dumped with elevation\n";
 		}
 	} else {
-		std::wcout << Utils::ProcessColors::RED << L"    âœ— NOT DUMPABLE: " 
+		std::wcout << Utils::ProcessColors::RED << L"    [-]  NOT DUMPABLE: " 
 				   << dumpability.Reason;
 		SetConsoleTextAttribute(hConsole, originalColor);
 		std::wcout << L"\n";

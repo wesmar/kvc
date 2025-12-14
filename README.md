@@ -9,8 +9,16 @@
 </div>
 
 ---
+## 🆕 Latest Update: December 14, 2025
+Added graphical interface option for convenient viewing and manipulation of long process lists
+```
+Now with GUI support for process management:
+```
+kvc list --gui   # Launch graphical interface for process list
+```
+The GUI mode provides enhanced visibility and easier interaction when working with extensive process lists.
 
-## 🆕 Latest Update: December 12, 2025
+## 🆕 Update: December 12, 2025
 
 Now with Windows Defender & Tamper Protection CLI Manipulation
 Added command-line control for built-in Windows Defender with support for:
