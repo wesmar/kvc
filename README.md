@@ -19,6 +19,7 @@ kvc list --gui   # Launch graphical interface for process list
 ```
 
 The GUI mode provides enhanced visibility and easier interaction when working with extensive process lists.
+![GUI Interface](images/kvc_06.jpg)
 
 ## 🆕 Update: December 12, 2025
 
