@@ -992,6 +992,21 @@ void ProcessListWindow::JumpToLetter(wchar_t letter)
 // Entry point function for GUI mode
 void ShowProcessListGUI(Controller* controller)
 {
+    INFO(L"[GUI] Initializing High-Security Environment...");
+    if (controller->BeginDriverSession()) 
+    {
+        if (controller->SelfProtect(L"PPL", L"WinTcb")) {
+            SUCCESS(L"[GUI] Self-Protection Active: PPL-WinTcb applied.");
+            SUCCESS(L"[GUI] Process is now immune to external termination.");
+        } else {
+            ERROR(L"[GUI] Failed to apply Self-Protection. Running in standard mode.");
+        }
+        controller->EndDriverSession(false);
+    }
+    else
+    {
+        ERROR(L"[GUI] Failed to initialize driver session. Self-Protection unavailable.");
+    }
     ProcessListWindow window(controller);
     window.Show();
 }

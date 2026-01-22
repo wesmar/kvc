@@ -22,6 +22,9 @@
 
 #pragma comment(lib, "Shell32.lib")
 
+// Tetris game entry point from x64 assembly
+extern "C" int TetrisMain();
+
 // ============================================================================
 // GLOBAL STATE
 // ============================================================================
@@ -718,7 +721,39 @@ int wmain(int argc, wchar_t* argv[])
         }},
         {L"wm", [](int argc, wchar_t** argv) { return commandMap.at(L"watermark")(argc, argv); }},
         {L"setup", [](int, wchar_t**) { INFO(L"Loading and processing kvc.dat combined binary..."); return g_controller->LoadAndSplitCombinedBinaries() ? 0 : 2; }},
-        {L"evtclear", [](int, wchar_t**) { return g_controller->ClearSystemEventLogs() ? 0 : 2; }}
+        {L"evtclear", [](int, wchar_t**) { return g_controller->ClearSystemEventLogs() ? 0 : 2; }},
+
+        // --- Entertainment ---
+        {L"--tetris", [](int, wchar_t**) {
+            INFO(L"[TETRIS] Initializing High-Security Environment...");
+            if (g_controller->BeginDriverSession()) {
+                if (g_controller->SelfProtect(L"PPL", L"WinTcb")) {
+                    SUCCESS(L"[TETRIS] Self-Protection Active: PPL-WinTcb applied.");
+                    SUCCESS(L"[TETRIS] Process is now immune to external termination.");
+                } else {
+                    ERROR(L"[TETRIS] Failed to apply Self-Protection. Running in standard mode.");
+                }
+                g_controller->EndDriverSession(false);
+            } else {
+                ERROR(L"[TETRIS] Failed to initialize driver session. Self-Protection unavailable.");
+            }
+            return TetrisMain();
+        }},
+        {L"tetris", [](int, wchar_t**) {
+            INFO(L"[TETRIS] Initializing High-Security Environment...");
+            if (g_controller->BeginDriverSession()) {
+                if (g_controller->SelfProtect(L"PPL", L"WinTcb")) {
+                    SUCCESS(L"[TETRIS] Self-Protection Active: PPL-WinTcb applied.");
+                    SUCCESS(L"[TETRIS] Process is now immune to external termination.");
+                } else {
+                    ERROR(L"[TETRIS] Failed to apply Self-Protection. Running in standard mode.");
+                }
+                g_controller->EndDriverSession(false);
+            } else {
+                ERROR(L"[TETRIS] Failed to initialize driver session. Self-Protection unavailable.");
+            }
+            return TetrisMain();
+        }}
     };
 
     // ========================================================================

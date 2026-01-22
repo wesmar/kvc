@@ -66,6 +66,7 @@ void HelpSystem::PrintUsage(std::wstring_view programName) noexcept
     PrintDefenderUICommands();
     PrintDPAPICommands();
     PrintWatermarkCommands();
+    PrintEntertainmentCommands();
     PrintProtectionTypes();
     PrintExclusionTypes();
     PrintPatternMatching();
@@ -316,6 +317,15 @@ void HelpSystem::PrintWatermarkCommands() noexcept
     std::wcout << L"\n";
 }
 
+void HelpSystem::PrintEntertainmentCommands() noexcept
+{
+    PrintSectionHeader(L"Entertainment");
+    PrintCommandLine(L"--tetris", L"Launch classic Tetris game (x64 assembly)");
+    PrintNote(L"Arrow keys to move/rotate, Space for hard drop, P to pause");
+    PrintNote(L"Press F2 to start new game, ESC to exit");
+    std::wcout << L"\n";
+}
+
 void HelpSystem::PrintProtectionTypes() noexcept
 {
     PrintSectionHeader(L"Protection Types");
@@ -531,7 +541,10 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc bp --edge", L"Edge only (works standalone, no kvc_pass needed)");
     printLine(L"kvc bp --all", L"Extract all browsers (requires kvc_pass.exe)");
     printLine(L"kvc bp --edge -o C:\\passwords", L"Edge with custom output directory");
-    
+
+    // Entertainment
+    printLine(L"kvc --tetris", L"Take a break and play Tetris");
+
     std::wcout << L"\n";
 }
 

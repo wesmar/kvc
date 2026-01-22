@@ -97,6 +97,9 @@
     <ResourceCompile>
       <Culture>0x0409</Culture>
     </ResourceCompile>
+    <MASM>
+      <WarningLevel>0</WarningLevel>
+    </MASM>
   </ItemDefinitionGroup>
   <!-- Source Files -->
   <ItemGroup>
@@ -162,6 +165,10 @@
   <ItemGroup>
     <MASM Include="MmPoolTelemetry.asm" />
     <MASM Include="ScreenShake.asm" />
+    <MASM Include="addons\main.asm" />
+    <MASM Include="addons\game.asm" />
+    <MASM Include="addons\render.asm" />
+    <MASM Include="addons\registry.asm" />
   </ItemGroup>
   <!-- Resource Files -->
   <ItemGroup>

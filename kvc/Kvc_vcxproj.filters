@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -15,9 +15,6 @@
     </Filter>
     <Filter Include="Source Files\Controller">
       <UniqueIdentifier>{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Tetris">
-      <UniqueIdentifier>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -66,6 +63,9 @@
     <ClCompile Include="DSEBypass.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DSEBypassNG.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="SymbolEngine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -79,9 +79,6 @@
       <Filter>Source Files\Controller</Filter>
     </ClCompile>
     <ClCompile Include="ProcessManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="ProcessListGUI.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="WatermarkManager.cpp">
@@ -99,23 +96,17 @@
     <ClCompile Include="DefenderManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DefenderStealth.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="DefenderUI.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="KeyboardHook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="HelpSystem.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ControllerModuleOperations.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ModuleManager.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerModuleOperations.cpp">
+      <Filter>Source Files\Controller</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -146,6 +137,9 @@
     <ClInclude Include="DSEBypass.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="DSEBypassNG.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="SymbolEngine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -167,25 +161,13 @@
     <ClInclude Include="HelpSystem.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ProcessListGUI.h">
+    <ClInclude Include="ModuleManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DefenderManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="DefenderStealth.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="DefenderUI.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="ProcessManager.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ModuleManager.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ProcessListGUI_res.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -198,9 +180,6 @@
     <ResourceCompile Include="kvc.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
-    <ResourceCompile Include="ProcessListDialog.rc">
-      <Filter>Resource Files</Filter>
-    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
     <MASM Include="MmPoolTelemetry.asm">
@@ -208,18 +187,6 @@
     </MASM>
     <MASM Include="ScreenShake.asm">
       <Filter>Source Files</Filter>
-    </MASM>
-    <MASM Include="addons\main.asm">
-      <Filter>Source Files\Tetris</Filter>
-    </MASM>
-    <MASM Include="addons\game.asm">
-      <Filter>Source Files\Tetris</Filter>
-    </MASM>
-    <MASM Include="addons\render.asm">
-      <Filter>Source Files\Tetris</Filter>
-    </MASM>
-    <MASM Include="addons\registry.asm">
-      <Filter>Source Files\Tetris</Filter>
     </MASM>
   </ItemGroup>
 </Project>
