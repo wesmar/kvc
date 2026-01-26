@@ -8,7 +8,7 @@
 
 extern volatile bool g_interrupted;
 
-#include <iomanip> // Wymagane dla std::setw
+#include <iomanip> // Required for std::setw
 
 // Table formatting constants and utilities for process list display
 namespace TableFormat {
@@ -1023,23 +1023,22 @@ bool Controller::KillProcessInternal(DWORD pid, bool batchOperation) noexcept
         }
     }
 
-    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-    if (!hProcess) {
-        hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
-        if (!hProcess) {
+    HandleGuard process(OpenProcess(PROCESS_TERMINATE, FALSE, pid));
+    if (!process) {
+        process.reset(OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid));
+        if (!process) {
             ERROR(L"Failed to open process for termination (PID: %d, Error: %d)", pid, GetLastError());
             return false;
         }
     }
 
-    BOOL terminated = TerminateProcess(hProcess, 1);
+    BOOL terminated = TerminateProcess(process.get(), 1);
     DWORD terminationError = GetLastError();
-    CloseHandle(hProcess);
 
     if (!terminated) {
         ERROR(L"Failed to terminate PID: %d (error: %d)", pid, terminationError);
     }
-    
+
     return terminated;
 }
 
@@ -1308,24 +1307,23 @@ std::optional<ProcessMatch> Controller::ResolveNameWithoutDriver(const std::wstr
 }
 
 // Finds processes by pattern using Toolhelp API without driver
-std::vector<ProcessMatch> Controller::FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept 
+std::vector<ProcessMatch> Controller::FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept
 {
     std::vector<ProcessMatch> matches;
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnapshot == INVALID_HANDLE_VALUE) return matches;
+    SnapshotGuard snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+    if (!snapshot) return matches;
 
     PROCESSENTRY32W pe;
     pe.dwSize = sizeof(PROCESSENTRY32W);
-    
-    if (Process32FirstW(hSnapshot, &pe)) {
+
+    if (Process32FirstW(snapshot.get(), &pe)) {
         do {
             if (IsPatternMatch(pe.szExeFile, pattern)) {
                 matches.push_back({pe.th32ProcessID, pe.szExeFile, 0});
             }
-        } while (Process32NextW(hSnapshot, &pe));
+        } while (Process32NextW(snapshot.get(), &pe));
     }
-    
-    CloseHandle(hSnapshot);
+
     return matches;
 }
 
@@ -1471,18 +1469,18 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
 	}
 	
     // Information about permissions
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
-    if (hProcess) {
-        HANDLE hToken;
-        if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
+    HandleGuard infoProcess(OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid));
+    if (infoProcess) {
+        TokenGuard token;
+        if (OpenProcessToken(infoProcess.get(), TOKEN_QUERY, token.addressof())) {
             DWORD elevationType;
             DWORD returnLength;
-            
-            if (GetTokenInformation(hToken, TokenElevationType, &elevationType, 
-                                  sizeof(elevationType), &returnLength)) {
+
+            if (GetTokenInformation(token.get(), TokenElevationType, &elevationType,
+                                    sizeof(elevationType), &returnLength)) {
                 std::wcout << L"\n[*] Process Context:\n";
                 std::wcout << L"    Elevation Type: ";
-                
+
                 switch (elevationType) {
                     case TokenElevationTypeDefault:
                         std::wcout << L"Default\n";
@@ -1497,9 +1495,7 @@ bool Controller::PrintProcessInfo(DWORD pid) noexcept
                         std::wcout << L"Unknown\n";
                 }
             }
-            CloseHandle(hToken);
         }
-        CloseHandle(hProcess);
     }
     
     SetConsoleTextAttribute(hConsole, originalColor);

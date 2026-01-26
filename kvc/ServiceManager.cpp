@@ -21,8 +21,8 @@ bool ServiceManager::InstallService(const std::wstring& exePath) noexcept
         return false;
     }
 
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
-    if (!hSCM) {
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE));
+    if (!scm) {
         ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
         return false;
     }
@@ -30,8 +30,8 @@ bool ServiceManager::InstallService(const std::wstring& exePath) noexcept
     // Build service command line with --service parameter
     std::wstring servicePath = L"\"" + exePath + L"\" --service";
 
-    SC_HANDLE hService = g_pCreateServiceW(
-        hSCM,
+    ServiceHandleGuard service(g_pCreateServiceW(
+        scm.get(),
         SERVICE_NAME,
         SERVICE_DISPLAY_NAME,
         SERVICE_ALL_ACCESS,
@@ -44,28 +44,25 @@ bool ServiceManager::InstallService(const std::wstring& exePath) noexcept
         nullptr,    // No dependencies
         nullptr,    // LocalSystem account
         nullptr     // No password
-    );
+    ));
 
-    if (!hService) {
+    if (!service) {
         DWORD error = GetLastError();
-        CloseServiceHandle(hSCM);
-        
+
         if (error == ERROR_SERVICE_EXISTS) {
             INFO(L"Service already exists, attempting to update configuration");
-            
-            hService = g_pOpenServiceW(hSCM, SERVICE_NAME, SERVICE_CHANGE_CONFIG);
-            if (hService) {
+
+            ServiceHandleGuard existingService(g_pOpenServiceW(scm.get(), SERVICE_NAME, SERVICE_CHANGE_CONFIG));
+            if (existingService) {
                 BOOL success = ChangeServiceConfigW(
-                    hService,
+                    existingService.get(),
                     SERVICE_WIN32_OWN_PROCESS,
                     SERVICE_AUTO_START,
                     SERVICE_ERROR_NORMAL,
                     servicePath.c_str(),
                     nullptr, nullptr, nullptr, nullptr, nullptr, SERVICE_DISPLAY_NAME
                 );
-                CloseServiceHandle(hService);
-                CloseServiceHandle(hSCM);
-                
+
                 if (success) {
                     SUCCESS(L"Service configuration updated successfully");
                     return true;
@@ -76,7 +73,7 @@ bool ServiceManager::InstallService(const std::wstring& exePath) noexcept
             }
             return false;
         }
-        
+
         ERROR(L"Failed to create service: %d", error);
         return false;
     }
@@ -84,13 +81,11 @@ bool ServiceManager::InstallService(const std::wstring& exePath) noexcept
     // Set service description
     SERVICE_DESCRIPTIONW serviceDesc = {};
     serviceDesc.lpDescription = const_cast<wchar_t*>(SERVICE_DESCRIPTION);
-    ChangeServiceConfig2W(hService, SERVICE_CONFIG_DESCRIPTION, &serviceDesc);
+    ChangeServiceConfig2W(service.get(), SERVICE_CONFIG_DESCRIPTION, &serviceDesc);
 
-    CloseServiceHandle(hService);
-    CloseServiceHandle(hSCM);
-
+    // Guards automatically close handles on scope exit
     SUCCESS(L"Service '%s' installed successfully", SERVICE_DISPLAY_NAME);
-    
+
     // Attempt to start the service
     if (StartServiceProcess()) {
         SUCCESS(L"Service started successfully");
@@ -111,31 +106,29 @@ bool ServiceManager::UninstallService() noexcept
     // First try to stop the service
     StopServiceProcess();
 
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!hSCM) {
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!scm) {
         ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
         return false;
     }
 
-    SC_HANDLE hService = g_pOpenServiceW(hSCM, SERVICE_NAME, DELETE);
-    if (!hService) {
+    ServiceHandleGuard service(g_pOpenServiceW(scm.get(), SERVICE_NAME, DELETE));
+    if (!service) {
         DWORD error = GetLastError();
-        CloseServiceHandle(hSCM);
-        
+
         if (error == ERROR_SERVICE_DOES_NOT_EXIST) {
             INFO(L"Service does not exist");
             return true;
         }
-        
+
         ERROR(L"Failed to open service for deletion: %d", error);
         return false;
     }
 
-    BOOL success = g_pDeleteService(hService);
+    BOOL success = g_pDeleteService(service.get());
     DWORD error = GetLastError();
 
-    CloseServiceHandle(hService);
-    CloseServiceHandle(hSCM);
+    // Guards automatically close handles on scope exit
 
     if (!success) {
         if (error == ERROR_SERVICE_MARKED_FOR_DELETE) {
@@ -154,19 +147,13 @@ bool ServiceManager::StartServiceProcess() noexcept
 {
     if (!InitDynamicAPIs()) return false;
 
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!hSCM) return false;
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!scm) return false;
 
-    SC_HANDLE hService = g_pOpenServiceW(hSCM, SERVICE_NAME, SERVICE_START);
-    if (!hService) {
-        CloseServiceHandle(hSCM);
-        return false;
-    }
+    ServiceHandleGuard service(g_pOpenServiceW(scm.get(), SERVICE_NAME, SERVICE_START));
+    if (!service) return false;
 
-    BOOL success = g_pStartServiceW(hService, 0, nullptr);
-    CloseServiceHandle(hService);
-    CloseServiceHandle(hSCM);
-
+    BOOL success = g_pStartServiceW(service.get(), 0, nullptr);
     return success || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING;
 }
 
@@ -174,21 +161,14 @@ bool ServiceManager::StopServiceProcess() noexcept
 {
     if (!InitDynamicAPIs()) return false;
 
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!hSCM) return false;
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!scm) return false;
 
-    SC_HANDLE hService = g_pOpenServiceW(hSCM, SERVICE_NAME, SERVICE_STOP);
-    if (!hService) {
-        CloseServiceHandle(hSCM);
-        return false;
-    }
+    ServiceHandleGuard service(g_pOpenServiceW(scm.get(), SERVICE_NAME, SERVICE_STOP));
+    if (!service) return false;
 
     SERVICE_STATUS status;
-    BOOL success = g_pControlService(hService, SERVICE_CONTROL_STOP, &status);
-    
-    CloseServiceHandle(hService);
-    CloseServiceHandle(hSCM);
-
+    BOOL success = g_pControlService(service.get(), SERVICE_CONTROL_STOP, &status);
     return success || GetLastError() == ERROR_SERVICE_NOT_ACTIVE;
 }
 

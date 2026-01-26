@@ -369,16 +369,16 @@ bool DSEBypass::RestoreSkciLibrary() noexcept {
 
 bool DSEBypass::CreatePendingFileRename() noexcept {
     DEBUG(L"Creating PendingFileRenameOperations for skci.dll restore");
-    
+
     wchar_t sysDir[MAX_PATH];
     if (GetSystemDirectoryW(sysDir, MAX_PATH) == 0) {
         ERROR(L"Failed to get System32 directory");
         return false;
     }
-    
+
     std::wstring srcPath = std::wstring(L"\\??\\") + sysDir + L"\\skci\u200B.dll";
     std::wstring dstPath = std::wstring(L"\\??\\") + sysDir + L"\\skci.dll";
-    
+
     // Prepare Multi-String array (source, destination, empty terminator)
     std::vector<wchar_t> multiString;
     multiString.insert(multiString.end(), srcPath.begin(), srcPath.end());
@@ -386,38 +386,35 @@ bool DSEBypass::CreatePendingFileRename() noexcept {
     multiString.insert(multiString.end(), dstPath.begin(), dstPath.end());
     multiString.push_back(L'\0');
     multiString.push_back(L'\0'); // REG_MULTI_SZ terminator
-    
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+
+    RegKeyGuard key;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
                       L"SYSTEM\\CurrentControlSet\\Control\\Session Manager",
-                      0, KEY_WRITE, &hKey) != ERROR_SUCCESS) {
+                      0, KEY_WRITE, key.addressof()) != ERROR_SUCCESS) {
         ERROR(L"Failed to open Session Manager key");
         return false;
     }
-    
+
     // Set PendingFileRenameOperations
-    LONG result = RegSetValueExW(hKey, L"PendingFileRenameOperations", 0, REG_MULTI_SZ,
+    LONG result = RegSetValueExW(key.get(), L"PendingFileRenameOperations", 0, REG_MULTI_SZ,
                                  reinterpret_cast<const BYTE*>(multiString.data()),
                                  static_cast<DWORD>(multiString.size() * sizeof(wchar_t)));
-    
+
     if (result != ERROR_SUCCESS) {
         ERROR(L"Failed to set PendingFileRenameOperations (error: %d)", result);
-        RegCloseKey(hKey);
         return false;
     }
-    
+
     // Set AllowProtectedRenames flag
     DWORD allowFlag = 1;
-    result = RegSetValueExW(hKey, L"AllowProtectedRenames", 0, REG_DWORD,
-                           reinterpret_cast<const BYTE*>(&allowFlag), sizeof(DWORD));
-    
-    RegCloseKey(hKey);
-    
+    result = RegSetValueExW(key.get(), L"AllowProtectedRenames", 0, REG_DWORD,
+                            reinterpret_cast<const BYTE*>(&allowFlag), sizeof(DWORD));
+
     if (result != ERROR_SUCCESS) {
         ERROR(L"Failed to set AllowProtectedRenames (error: %d)", result);
         return false;
     }
-    
+
     DEBUG(L"PendingFileRenameOperations configured: %s -> %s", srcPath.c_str(), dstPath.c_str());
     SUCCESS(L"File restore will be performed automatically by Windows on next boot");
     return true;
@@ -736,26 +733,25 @@ std::optional<std::pair<DWORD64, std::wstring>> DSEBypass::GetKernelInfo() noexc
 }
 
 std::wstring DSEBypass::GetCurrentLCUVersion() noexcept {
-    HKEY hKey;
     std::wstring lcuVer;
-    
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+
+    RegKeyGuard key;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
                       L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-                      0, KEY_READ | KEY_WOW64_64KEY, &hKey) == ERROR_SUCCESS) {
+                      0, KEY_READ | KEY_WOW64_64KEY, key.addressof()) == ERROR_SUCCESS) {
         wchar_t buffer[256] = {0};
         DWORD size = sizeof(buffer);
         DWORD type = 0;
-        
-        if (RegQueryValueExW(hKey, L"LCUVer", nullptr, &type,
-            reinterpret_cast<BYTE*>(buffer), &size) == ERROR_SUCCESS && 
+
+        if (RegQueryValueExW(key.get(), L"LCUVer", nullptr, &type,
+            reinterpret_cast<BYTE*>(buffer), &size) == ERROR_SUCCESS &&
             type == REG_SZ) {
             lcuVer = buffer;
         } else {
             DEBUG(L"LCUVer not found in registry");
         }
-        RegCloseKey(hKey);
     }
-    
+
     return lcuVer;
 }
 

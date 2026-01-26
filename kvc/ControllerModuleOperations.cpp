@@ -22,7 +22,7 @@ bool Controller::EnumerateProcessModules(DWORD pid) noexcept
     
     INFO(L"Enumerating modules for %s (PID: %lu)", processName.c_str(), pid);
     
-    // INIT DRIVER SESSION FIRST - na początku!
+    // Initialize driver session first
     if (!BeginDriverSession()) {
         ERROR(L"Failed to initialize driver for module operations");
         return false;
@@ -36,7 +36,7 @@ bool Controller::EnumerateProcessModules(DWORD pid) noexcept
     if (modules.empty()) {
         DEBUG(L"Standard access denied, attempting with protection elevation...");
         
-        // Get target process protection level (TERAZ mamy driver!)
+        // Get target process protection level using driver
         auto kernelAddr = GetCachedKernelAddress(pid);
         if (kernelAddr) {
             auto targetProtection = GetProcessProtection(kernelAddr.value());

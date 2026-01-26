@@ -129,7 +129,7 @@ int HandleDriverCommand(int argc, wchar_t* argv[]) {
     
     if (argc < 4) {
         ERROR(L"Missing driver name/path");
-        // Uproszczony help dla reszty
+        // Show simplified usage info
         ERROR(L"Usage: kvc driver <load|reload|stop|remove> <path|name>");
         return 1;
     }

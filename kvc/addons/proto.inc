@@ -32,6 +32,7 @@ EXTERN BitBlt:PROC
 EXTERN CreateSolidBrush:PROC
 EXTERN FillRect:PROC
 EXTERN SetBkMode:PROC
+EXTERN SendMessageA:PROC
 EXTERN SetTextColor:PROC
 EXTERN SetBkColor:PROC
 EXTERN TextOutA:PROC
@@ -53,6 +54,11 @@ EXTERN RegDeleteKeyW:PROC
 EXTERN SetTimer:PROC
 EXTERN KillTimer:PROC
 EXTERN SetFocus:PROC
+EXTERN DwmSetWindowAttribute:PROC
+EXTERN GradientFill:PROC
+
+INCLUDELIB dwmapi.lib
+INCLUDELIB msimg32.lib
 
 InitGame PROTO pGame:QWORD, boardWidth:DWORD, boardHeight:DWORD
 StartGame PROTO pGame:QWORD
@@ -61,6 +67,7 @@ SpawnNewPiece PROTO pGame:QWORD
 CheckCollision PROTO pGame:QWORD, pPiece:QWORD
 LockPiece PROTO pGame:QWORD
 ClearFullLines PROTO pGame:QWORD
+ApplyClearLines PROTO pGame:QWORD
 UpdateGame PROTO pGame:QWORD, deltaTimeMs:DWORD
 MoveLeft PROTO pGame:QWORD
 MoveRight PROTO pGame:QWORD

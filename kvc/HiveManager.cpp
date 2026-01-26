@@ -37,27 +37,26 @@ HiveManager::~HiveManager()
 
 std::wstring HiveManager::GetCurrentUserSid()
 {
-    HANDLE hToken;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
+    TokenGuard token;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, token.addressof())) {
         return L"";
     }
-    
+
     DWORD dwSize = 0;
-    GetTokenInformation(hToken, TokenUser, nullptr, 0, &dwSize);
-    
+    GetTokenInformation(token.get(), TokenUser, nullptr, 0, &dwSize);
+
     std::vector<BYTE> buffer(dwSize);
     TOKEN_USER* pTokenUser = reinterpret_cast<TOKEN_USER*>(buffer.data());
-    
+
     std::wstring sidString;
-    if (GetTokenInformation(hToken, TokenUser, pTokenUser, dwSize, &dwSize)) {
+    if (GetTokenInformation(token.get(), TokenUser, pTokenUser, dwSize, &dwSize)) {
         LPWSTR stringSid;
         if (ConvertSidToStringSidW(pTokenUser->User.Sid, &stringSid)) {
             sidString = stringSid;
             LocalFree(stringSid);
         }
     }
-    
-    CloseHandle(hToken);
+
     return sidString;
 }
 
@@ -251,7 +250,7 @@ bool HiveManager::SaveRegistryHive(const std::wstring& registryPath, const fs::p
     // Parse registry path to get root key
     HKEY hRootKey = nullptr;
     std::wstring subKey;
-    
+
     if (registryPath.starts_with(L"HKLM\\") || registryPath.starts_with(L"HKEY_LOCAL_MACHINE\\")) {
         hRootKey = HKEY_LOCAL_MACHINE;
         size_t pos = registryPath.find(L'\\');
@@ -273,27 +272,25 @@ bool HiveManager::SaveRegistryHive(const std::wstring& registryPath, const fs::p
         ERROR(L"Invalid registry path format: %s", registryPath.c_str());
         return false;
     }
-    
+
     // Open registry key with backup privilege
-    HKEY hKey;
-    LONG result = RegOpenKeyExW(hRootKey, subKey.empty() ? nullptr : subKey.c_str(), 
-                                 0, KEY_READ, &hKey);
-    
+    RegKeyGuard key;
+    LONG result = RegOpenKeyExW(hRootKey, subKey.empty() ? nullptr : subKey.c_str(),
+                                0, KEY_READ, key.addressof());
+
     if (result != ERROR_SUCCESS) {
         ERROR(L"Failed to open registry key %s: %d", registryPath.c_str(), result);
         return false;
     }
-    
+
     // Save the hive using latest format (compresses and defragments)
-    result = RegSaveKeyExW(hKey, destFile.c_str(), nullptr, REG_LATEST_FORMAT);
-    
-    RegCloseKey(hKey);
-    
+    result = RegSaveKeyExW(key.get(), destFile.c_str(), nullptr, REG_LATEST_FORMAT);
+
     if (result != ERROR_SUCCESS) {
         ERROR(L"RegSaveKeyEx failed for %s: %d", registryPath.c_str(), result);
         return false;
     }
-    
+
     return true;
 }
 
@@ -411,54 +408,54 @@ bool HiveManager::RestoreRegistryHives(const fs::path& sourceDir)
 bool HiveManager::ApplyRestoreAndReboot(const fs::path& sourceDir)
 {
     // Enable restore privileges BEFORE attempting any restore operations
-    HANDLE token;
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-        TOKEN_PRIVILEGES tp;
-        LUID luid;
-        
-        // SE_RESTORE_NAME - critical for RegRestoreKeyW
-        if (LookupPrivilegeValueW(nullptr, SE_RESTORE_NAME, &luid)) {
-            tp.PrivilegeCount = 1;
-            tp.Privileges[0].Luid = luid;
-            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-            AdjustTokenPrivileges(token, FALSE, &tp, 0, nullptr, nullptr);
+    {
+        TokenGuard token;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, token.addressof())) {
+            TOKEN_PRIVILEGES tp;
+            LUID luid;
+
+            // SE_RESTORE_NAME - critical for RegRestoreKeyW
+            if (LookupPrivilegeValueW(nullptr, SE_RESTORE_NAME, &luid)) {
+                tp.PrivilegeCount = 1;
+                tp.Privileges[0].Luid = luid;
+                tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                AdjustTokenPrivileges(token.get(), FALSE, &tp, 0, nullptr, nullptr);
+            }
+
+            // SE_BACKUP_NAME - for good measure
+            if (LookupPrivilegeValueW(nullptr, SE_BACKUP_NAME, &luid)) {
+                tp.PrivilegeCount = 1;
+                tp.Privileges[0].Luid = luid;
+                tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                AdjustTokenPrivileges(token.get(), FALSE, &tp, 0, nullptr, nullptr);
+            }
         }
-        
-        // SE_BACKUP_NAME - for good measure
-        if (LookupPrivilegeValueW(nullptr, SE_BACKUP_NAME, &luid)) {
-            tp.PrivilegeCount = 1;
-            tp.Privileges[0].Luid = luid;
-            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-            AdjustTokenPrivileges(token, FALSE, &tp, 0, nullptr, nullptr);
-        }
-        
-        CloseHandle(token);
     }
-    
+
     INFO(L"Applying registry restore using RegRestoreKeyW...");
-    
+
     size_t restoredLive = 0;
     size_t restoredPending = 0;
-    
+
     for (const auto& hive : m_registryHives) {
         // Skip non-restorable hives
         if (!hive.canRestore) {
             INFO(L"  Skipping %s (cannot restore)", hive.name.c_str());
             continue;
         }
-        
+
         fs::path sourceFile = sourceDir / hive.name;
-        
+
         std::error_code ec;
         if (!fs::exists(sourceFile, ec)) {
             ERROR(L"  Missing backup file: %s", hive.name.c_str());
             continue;
         }
-        
+
         // Parse registry path to get root key and subkey
         HKEY hRootKey = nullptr;
         std::wstring subKey;
-        
+
         if (hive.registryPath.starts_with(L"HKLM\\")) {
             hRootKey = HKEY_LOCAL_MACHINE;
             size_t pos = hive.registryPath.find(L'\\');
@@ -473,23 +470,24 @@ bool HiveManager::ApplyRestoreAndReboot(const fs::path& sourceDir)
             ERROR(L"  Invalid path format for %s", hive.name.c_str());
             continue;
         }
-        
+
         // Open the target key
-        HKEY hKey;
-        LONG result = RegOpenKeyExW(hRootKey, subKey.c_str(), 0, KEY_WRITE, &hKey);
-        
+        RegKeyGuard key;
+        LONG result = RegOpenKeyExW(hRootKey, subKey.c_str(), 0, KEY_WRITE, key.addressof());
+
         if (result != ERROR_SUCCESS) {
             ERROR(L"  Failed to open key %s: %d", hive.name.c_str(), result);
             continue;
         }
-        
+
         INFO(L"  Restoring %s...", hive.name.c_str());
-        
+
         // Try live restore using REG_FORCE_RESTORE
-        result = RegRestoreKeyW(hKey, sourceFile.c_str(), REG_FORCE_RESTORE);
-        
-        RegCloseKey(hKey);
-        
+        result = RegRestoreKeyW(key.get(), sourceFile.c_str(), REG_FORCE_RESTORE);
+
+        // Close key before checking result
+        key.reset();
+
         if (result == ERROR_SUCCESS) {
             SUCCESS(L"  Restored %s (live)", hive.name.c_str());
             restoredLive++;
@@ -497,16 +495,16 @@ bool HiveManager::ApplyRestoreAndReboot(const fs::path& sourceDir)
         else if (result == ERROR_ACCESS_DENIED) {
             // Live restore failed - schedule for next boot
             INFO(L"  Live restore failed (error 5) - scheduling for next boot...");
-            
+
             fs::path physicalPath = GetHivePhysicalPath(hive.name);
             if (physicalPath.empty()) {
                 ERROR(L"  Cannot determine physical path for %s", hive.name.c_str());
                 continue;
             }
-            
+
             // Schedule file replacement on next boot
-            if (MoveFileExW(sourceFile.c_str(), physicalPath.c_str(), 
-                           MOVEFILE_DELAY_UNTIL_REBOOT | MOVEFILE_REPLACE_EXISTING)) {
+            if (MoveFileExW(sourceFile.c_str(), physicalPath.c_str(),
+                            MOVEFILE_DELAY_UNTIL_REBOOT | MOVEFILE_REPLACE_EXISTING)) {
                 SUCCESS(L"  Scheduled %s for next boot", hive.name.c_str());
                 restoredPending++;
             }
@@ -518,34 +516,36 @@ bool HiveManager::ApplyRestoreAndReboot(const fs::path& sourceDir)
             ERROR(L"  Failed to restore %s: %d", hive.name.c_str(), result);
         }
     }
-    
+
     if (restoredLive == 0 && restoredPending == 0) {
         ERROR(L"No hives were restored successfully");
         return false;
     }
-    
-    SUCCESS(L"Successfully restored %zu hives (live: %zu, pending: %zu)", 
+
+    SUCCESS(L"Successfully restored %zu hives (live: %zu, pending: %zu)",
             restoredLive + restoredPending, restoredLive, restoredPending);
-    
+
     if (restoredPending > 0) {
         INFO(L"Note: %zu hives scheduled for next boot (will replace on-disk files)", restoredPending);
     }
-    
+
     INFO(L"System restart required for changes to take effect");
     INFO(L"Initiating system reboot in 10 seconds...");
-    
+
     // Enable shutdown privilege
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-        TOKEN_PRIVILEGES tp;
-        LUID luid;
-        
-        if (LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &luid)) {
-            tp.PrivilegeCount = 1;
-            tp.Privileges[0].Luid = luid;
-            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-            AdjustTokenPrivileges(token, FALSE, &tp, 0, nullptr, nullptr);
+    {
+        TokenGuard token;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, token.addressof())) {
+            TOKEN_PRIVILEGES tp;
+            LUID luid;
+
+            if (LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &luid)) {
+                tp.PrivilegeCount = 1;
+                tp.Privileges[0].Luid = luid;
+                tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                AdjustTokenPrivileges(token.get(), FALSE, &tp, 0, nullptr, nullptr);
+            }
         }
-        CloseHandle(token);
     }
     
     // Initiate system shutdown

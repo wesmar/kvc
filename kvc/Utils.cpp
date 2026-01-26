@@ -70,50 +70,46 @@ std::wstring GetProcessName(DWORD pid) noexcept
 {
     if (pid == 0) return L"System Idle Process";
     if (pid == 4) return L"System";
-    
+
     // Simple cache to avoid repeated lookups, expires after 30 seconds
     static std::unordered_map<DWORD, std::wstring> processCache;
     static DWORD lastCacheUpdate = 0;
-    
+
     const DWORD currentTick = static_cast<DWORD>(GetTickCount64());
     if (currentTick - lastCacheUpdate > 30000) {
         processCache.clear();
         lastCacheUpdate = currentTick;
     }
-    
+
     auto cacheIt = processCache.find(pid);
     if (cacheIt != processCache.end()) {
         return cacheIt->second;
     }
-    
+
     // Primary method: enumerate all processes via snapshot
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnapshot != INVALID_HANDLE_VALUE) {
+    SnapshotGuard snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+    if (snapshot) {
         PROCESSENTRY32W pe;
         pe.dwSize = sizeof(PROCESSENTRY32W);
 
-        if (Process32FirstW(hSnapshot, &pe)) {
+        if (Process32FirstW(snapshot.get(), &pe)) {
             do {
                 if (pe.th32ProcessID == pid) {
-                    CloseHandle(hSnapshot);
                     std::wstring name(pe.szExeFile);
                     processCache[pid] = name;
                     return name;
                 }
-            } while (Process32NextW(hSnapshot, &pe));
+            } while (Process32NextW(snapshot.get(), &pe));
         }
-        CloseHandle(hSnapshot);
     }
-    
+
     // Fallback: try opening process directly for protected processes
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (hProcess) {
+    HandleGuard process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+    if (process) {
         wchar_t processName[MAX_PATH_LENGTH] = {0};
         DWORD size = MAX_PATH_LENGTH;
 
-        if (GetProcessImageFileNameW(hProcess, processName, size) > 0) {
-            CloseHandle(hProcess);
-            
+        if (GetProcessImageFileNameW(process.get(), processName, size) > 0) {
             // Extract just the filename from the full NT path
             std::wstring fullPath(processName);
             size_t lastSlash = fullPath.find_last_of(L'\\');
@@ -125,9 +121,8 @@ std::wstring GetProcessName(DWORD pid) noexcept
             processCache[pid] = fullPath;
             return fullPath;
         }
-        CloseHandle(hProcess);
     }
-    
+
     return L"[Unknown]";
 }
 
@@ -137,56 +132,46 @@ std::wstring GetProcessUser(DWORD pid) noexcept
 {
     if (pid == 0) return L"System";
     if (pid == 4) return L"NT AUTHORITY\\SYSTEM";
-    
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!hProcess) {
+
+    HandleGuard process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+    if (!process) {
         return L"Access Denied";
     }
-    
-    HANDLE hToken = nullptr;
-    if (!OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
-        CloseHandle(hProcess);
+
+    TokenGuard token;
+    if (!OpenProcessToken(process.get(), TOKEN_QUERY, token.addressof())) {
         return L"Access Denied";
     }
-    
+
     DWORD dwSize = 0;
-    GetTokenInformation(hToken, TokenUser, nullptr, 0, &dwSize);
-    
+    GetTokenInformation(token.get(), TokenUser, nullptr, 0, &dwSize);
+
     if (dwSize == 0) {
-        CloseHandle(hToken);
-        CloseHandle(hProcess);
         return L"Access Denied";
     }
-    
+
     std::vector<BYTE> tokenBuffer(dwSize);
     PTOKEN_USER pTokenUser = reinterpret_cast<PTOKEN_USER>(tokenBuffer.data());
-    
-    if (!GetTokenInformation(hToken, TokenUser, pTokenUser, dwSize, &dwSize)) {
-        CloseHandle(hToken);
-        CloseHandle(hProcess);
+
+    if (!GetTokenInformation(token.get(), TokenUser, pTokenUser, dwSize, &dwSize)) {
         return L"Access Denied";
     }
-    
+
     wchar_t userName[256] = {0};
     wchar_t domainName[256] = {0};
     DWORD userSize = 256;
     DWORD domainSize = 256;
     SID_NAME_USE sidType;
-    
-    if (!LookupAccountSidW(nullptr, pTokenUser->User.Sid, userName, &userSize, 
+
+    if (!LookupAccountSidW(nullptr, pTokenUser->User.Sid, userName, &userSize,
                            domainName, &domainSize, &sidType)) {
-        CloseHandle(hToken);
-        CloseHandle(hProcess);
         return L"Unknown";
     }
-    
-    CloseHandle(hToken);
-    CloseHandle(hProcess);
-    
+
     std::wstring result = domainName;
     result += L"\\";
     result += userName;
-    
+
     return result;
 }
 
@@ -195,42 +180,34 @@ std::wstring GetProcessUser(DWORD pid) noexcept
 std::wstring GetProcessIntegrityLevel(DWORD pid) noexcept
 {
     if (pid == 0 || pid == 4) return L"System";
-    
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!hProcess) {
+
+    HandleGuard process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+    if (!process) {
         return L"Unknown";
     }
-    
-    HANDLE hToken = nullptr;
-    if (!OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
-        CloseHandle(hProcess);
+
+    TokenGuard token;
+    if (!OpenProcessToken(process.get(), TOKEN_QUERY, token.addressof())) {
         return L"Unknown";
     }
-    
+
     DWORD dwSize = 0;
-    GetTokenInformation(hToken, TokenIntegrityLevel, nullptr, 0, &dwSize);
-    
+    GetTokenInformation(token.get(), TokenIntegrityLevel, nullptr, 0, &dwSize);
+
     if (dwSize == 0) {
-        CloseHandle(hToken);
-        CloseHandle(hProcess);
         return L"Unknown";
     }
-    
+
     std::vector<BYTE> labelBuffer(dwSize);
     PTOKEN_MANDATORY_LABEL pLabel = reinterpret_cast<PTOKEN_MANDATORY_LABEL>(labelBuffer.data());
-    
-    if (!GetTokenInformation(hToken, TokenIntegrityLevel, pLabel, dwSize, &dwSize)) {
-        CloseHandle(hToken);
-        CloseHandle(hProcess);
+
+    if (!GetTokenInformation(token.get(), TokenIntegrityLevel, pLabel, dwSize, &dwSize)) {
         return L"Unknown";
     }
-    
-    DWORD integrityLevel = *GetSidSubAuthority(pLabel->Label.Sid, 
+
+    DWORD integrityLevel = *GetSidSubAuthority(pLabel->Label.Sid,
                                                *GetSidSubAuthorityCount(pLabel->Label.Sid) - 1);
-    
-    CloseHandle(hToken);
-    CloseHandle(hProcess);
-    
+
     if (integrityLevel < SECURITY_MANDATORY_LOW_RID) {
         return L"Untrusted";
     } else if (integrityLevel < SECURITY_MANDATORY_MEDIUM_RID) {
@@ -536,7 +513,7 @@ std::optional<ULONG_PTR> GetKernelBaseAddress() noexcept
 // Reads entire file into memory with 256MB size limit for safety
 std::vector<BYTE> ReadFile(const std::wstring& filePath) noexcept
 {
-    HANDLE hFile = CreateFileW(
+    FileGuard file(CreateFileW(
         filePath.c_str(),
         GENERIC_READ,
         FILE_SHARE_READ,
@@ -544,38 +521,34 @@ std::vector<BYTE> ReadFile(const std::wstring& filePath) noexcept
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL,
         nullptr
-    );
+    ));
 
-    if (hFile == INVALID_HANDLE_VALUE) {
+    if (!file) {
         DEBUG(L"CreateFileW failed for %s: %d", filePath.c_str(), GetLastError());
         return {};
     }
 
     LARGE_INTEGER fileSize;
-    if (!GetFileSizeEx(hFile, &fileSize)) {
+    if (!GetFileSizeEx(file.get(), &fileSize)) {
         DEBUG(L"GetFileSizeEx failed: %d", GetLastError());
-        CloseHandle(hFile);
         return {};
     }
 
     if (fileSize.QuadPart == 0 || fileSize.QuadPart > 0x10000000) {
         DEBUG(L"Invalid file size: %lld", fileSize.QuadPart);
-        CloseHandle(hFile);
         return {};
     }
 
     std::vector<BYTE> buffer(static_cast<size_t>(fileSize.QuadPart));
     DWORD bytesRead = 0;
 
-    if (!::ReadFile(hFile, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) || 
+    if (!::ReadFile(file.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) ||
         bytesRead != buffer.size()) {
-        DEBUG(L"ReadFile failed: %d, read %d/%zu bytes", 
+        DEBUG(L"ReadFile failed: %d, read %d/%zu bytes",
               GetLastError(), bytesRead, buffer.size());
-        CloseHandle(hFile);
         return {};
     }
 
-    CloseHandle(hFile);
     return buffer;
 }
 
@@ -650,70 +623,65 @@ bool WriteFile(const std::wstring& filePath, const std::vector<BYTE>& data) noex
         DEBUG(L"Attempted to write empty data");
         return false;
     }
-    
+
     // Create parent directories if needed
     const fs::path path = filePath;
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
-    
+
     // Try to delete existing file first
     if (fs::exists(path)) {
         if (!ForceDeleteFile(filePath)) {
             // Attempt overwrite with backup semantics if delete fails
-            HANDLE hFile = CreateFileW(filePath.c_str(), 
-                                    GENERIC_WRITE, 
-                                    0,
-                                    nullptr, 
-                                    OPEN_EXISTING, 
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
-                                    nullptr);
-            if (hFile != INVALID_HANDLE_VALUE) {
-                CloseHandle(hFile);
-            } else {
+            FileGuard testFile(CreateFileW(filePath.c_str(),
+                                           GENERIC_WRITE,
+                                           0,
+                                           nullptr,
+                                           OPEN_EXISTING,
+                                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
+                                           nullptr));
+            if (!testFile) {
                 DEBUG(L"Failed to delete or overwrite existing file: %s", filePath.c_str());
                 return false;
             }
         }
     }
 
-    HANDLE hFile = CreateFileW(filePath.c_str(), 
-                               GENERIC_WRITE, 
+    FileGuard file(CreateFileW(filePath.c_str(),
+                               GENERIC_WRITE,
                                0,
-                               nullptr, 
-                               CREATE_ALWAYS, 
+                               nullptr,
+                               CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-                               nullptr);
-    
-    if (hFile == INVALID_HANDLE_VALUE) {
+                               nullptr));
+
+    if (!file) {
         DEBUG(L"CreateFileW failed for %s: %d", filePath.c_str(), GetLastError());
         return false;
     }
-    
+
     // Write in chunks to handle memory pressure on large files
     constexpr DWORD CHUNK_SIZE = 64 * 1024;
     DWORD totalWritten = 0;
     const DWORD totalSize = static_cast<DWORD>(data.size());
-    
+
     while (totalWritten < totalSize) {
         const DWORD bytesToWrite = std::min(CHUNK_SIZE, totalSize - totalWritten);
         DWORD bytesWritten;
-        
-        if (!::WriteFile(hFile, data.data() + totalWritten, bytesToWrite, &bytesWritten, nullptr)) {
+
+        if (!::WriteFile(file.get(), data.data() + totalWritten, bytesToWrite, &bytesWritten, nullptr)) {
             DEBUG(L"WriteFile failed: %d", GetLastError());
-            CloseHandle(hFile);
             return false;
         }
-        
+
         if (bytesWritten != bytesToWrite) {
             DEBUG(L"Incomplete write: %d/%d bytes", bytesWritten, bytesToWrite);
-            CloseHandle(hFile);
             return false;
         }
-        
+
         totalWritten += bytesWritten;
     }
 
-    CloseHandle(hFile);
     DEBUG(L"Successfully wrote %d bytes to %s", totalSize, filePath.c_str());
     return true;
 }

@@ -71,6 +71,321 @@ struct SystemModuleDeleter {
 using ModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, ModuleDeleter>;
 using SystemModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, SystemModuleDeleter>;
 
+// ============================================================================
+// RAII GUARDS FOR WINDOWS RESOURCES
+// ============================================================================
+
+// Generic HANDLE guard (CloseHandle)
+class HandleGuard {
+public:
+    explicit HandleGuard(HANDLE h = nullptr) noexcept : m_handle(h) {}
+    ~HandleGuard() noexcept { reset(); }
+
+    HandleGuard(const HandleGuard&) = delete;
+    HandleGuard& operator=(const HandleGuard&) = delete;
+
+    HandleGuard(HandleGuard&& other) noexcept : m_handle(other.release()) {}
+    HandleGuard& operator=(HandleGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
+        return *this;
+    }
+
+    void reset(HANDLE h = nullptr) noexcept {
+        if (m_handle && m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+        }
+        m_handle = h;
+    }
+
+    HANDLE release() noexcept {
+        HANDLE h = m_handle;
+        m_handle = nullptr;
+        return h;
+    }
+
+    HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle && m_handle != INVALID_HANDLE_VALUE; }
+    HANDLE* addressof() noexcept { return &m_handle; }
+
+private:
+    HANDLE m_handle;
+};
+
+// Token HANDLE guard (specialized for process tokens)
+using TokenGuard = HandleGuard;
+
+// Service Control Manager guard
+class SCManagerGuard {
+public:
+    explicit SCManagerGuard(SC_HANDLE h = nullptr) noexcept : m_handle(h) {}
+    ~SCManagerGuard() noexcept { reset(); }
+
+    SCManagerGuard(const SCManagerGuard&) = delete;
+    SCManagerGuard& operator=(const SCManagerGuard&) = delete;
+
+    SCManagerGuard(SCManagerGuard&& other) noexcept : m_handle(other.release()) {}
+    SCManagerGuard& operator=(SCManagerGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
+        return *this;
+    }
+
+    void reset(SC_HANDLE h = nullptr) noexcept {
+        if (m_handle) {
+            CloseServiceHandle(m_handle);
+        }
+        m_handle = h;
+    }
+
+    SC_HANDLE release() noexcept {
+        SC_HANDLE h = m_handle;
+        m_handle = nullptr;
+        return h;
+    }
+
+    SC_HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle != nullptr; }
+
+private:
+    SC_HANDLE m_handle;
+};
+
+// Service handle guard (same behavior as SCManagerGuard)
+using ServiceHandleGuard = SCManagerGuard;
+
+// Registry key guard
+class RegKeyGuard {
+public:
+    explicit RegKeyGuard(HKEY h = nullptr) noexcept : m_key(h) {}
+    ~RegKeyGuard() noexcept { reset(); }
+
+    RegKeyGuard(const RegKeyGuard&) = delete;
+    RegKeyGuard& operator=(const RegKeyGuard&) = delete;
+
+    RegKeyGuard(RegKeyGuard&& other) noexcept : m_key(other.release()) {}
+    RegKeyGuard& operator=(RegKeyGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_key = other.release();
+        }
+        return *this;
+    }
+
+    void reset(HKEY h = nullptr) noexcept {
+        if (m_key) {
+            RegCloseKey(m_key);
+        }
+        m_key = h;
+    }
+
+    HKEY release() noexcept {
+        HKEY h = m_key;
+        m_key = nullptr;
+        return h;
+    }
+
+    HKEY get() const noexcept { return m_key; }
+    explicit operator bool() const noexcept { return m_key != nullptr; }
+    HKEY* addressof() noexcept { return &m_key; }
+
+private:
+    HKEY m_key;
+};
+
+// File handle guard (specialized for CreateFile handles)
+class FileGuard {
+public:
+    explicit FileGuard(HANDLE h = INVALID_HANDLE_VALUE) noexcept : m_handle(h) {}
+    ~FileGuard() noexcept { reset(); }
+
+    FileGuard(const FileGuard&) = delete;
+    FileGuard& operator=(const FileGuard&) = delete;
+
+    FileGuard(FileGuard&& other) noexcept : m_handle(other.release()) {}
+    FileGuard& operator=(FileGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
+        return *this;
+    }
+
+    void reset(HANDLE h = INVALID_HANDLE_VALUE) noexcept {
+        if (m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+        }
+        m_handle = h;
+    }
+
+    HANDLE release() noexcept {
+        HANDLE h = m_handle;
+        m_handle = INVALID_HANDLE_VALUE;
+        return h;
+    }
+
+    HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle != INVALID_HANDLE_VALUE; }
+
+private:
+    HANDLE m_handle;
+};
+
+// Snapshot guard (CreateToolhelp32Snapshot)
+class SnapshotGuard {
+public:
+    explicit SnapshotGuard(HANDLE h = INVALID_HANDLE_VALUE) noexcept : m_handle(h) {}
+    ~SnapshotGuard() noexcept { reset(); }
+
+    SnapshotGuard(const SnapshotGuard&) = delete;
+    SnapshotGuard& operator=(const SnapshotGuard&) = delete;
+
+    SnapshotGuard(SnapshotGuard&& other) noexcept : m_handle(other.release()) {}
+    SnapshotGuard& operator=(SnapshotGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
+        return *this;
+    }
+
+    void reset(HANDLE h = INVALID_HANDLE_VALUE) noexcept {
+        if (m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+        }
+        m_handle = h;
+    }
+
+    HANDLE release() noexcept {
+        HANDLE h = m_handle;
+        m_handle = INVALID_HANDLE_VALUE;
+        return h;
+    }
+
+    HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle != INVALID_HANDLE_VALUE; }
+
+private:
+    HANDLE m_handle;
+};
+
+// Privilege enabler guard (restores privilege state on destruction)
+class PrivilegeGuard {
+public:
+    PrivilegeGuard(HANDLE token, LPCWSTR privilege) noexcept
+        : m_token(token), m_enabled(false), m_hadPrivilege(false) {
+        if (!token || !privilege) return;
+
+        LUID luid;
+        if (!LookupPrivilegeValueW(nullptr, privilege, &luid)) return;
+
+        // Check current state
+        PRIVILEGE_SET ps = {};
+        ps.PrivilegeCount = 1;
+        ps.Privilege[0].Luid = luid;
+        ps.Privilege[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+        BOOL hasPriv = FALSE;
+        if (PrivilegeCheck(token, &ps, &hasPriv) && hasPriv) {
+            m_hadPrivilege = true;
+            m_enabled = true;
+            return;
+        }
+
+        // Enable privilege
+        TOKEN_PRIVILEGES tp = {};
+        tp.PrivilegeCount = 1;
+        tp.Privileges[0].Luid = luid;
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+        m_luid = luid;
+        if (AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp), nullptr, nullptr) &&
+            GetLastError() == ERROR_SUCCESS) {
+            m_enabled = true;
+        }
+    }
+
+    ~PrivilegeGuard() noexcept {
+        if (m_enabled && !m_hadPrivilege && m_token) {
+            TOKEN_PRIVILEGES tp = {};
+            tp.PrivilegeCount = 1;
+            tp.Privileges[0].Luid = m_luid;
+            tp.Privileges[0].Attributes = 0; // Disable
+            AdjustTokenPrivileges(m_token, FALSE, &tp, sizeof(tp), nullptr, nullptr);
+        }
+    }
+
+    PrivilegeGuard(const PrivilegeGuard&) = delete;
+    PrivilegeGuard& operator=(const PrivilegeGuard&) = delete;
+
+    bool enabled() const noexcept { return m_enabled; }
+
+private:
+    HANDLE m_token;
+    LUID m_luid = {};
+    bool m_enabled;
+    bool m_hadPrivilege;
+};
+
+// Impersonation guard (reverts on destruction)
+class ImpersonationGuard {
+public:
+    // Default constructor - no impersonation active
+    ImpersonationGuard() noexcept : m_impersonating(false) {}
+
+    // Construct with token - performs ImpersonateLoggedOnUser
+    explicit ImpersonationGuard(HANDLE token) noexcept : m_impersonating(false) {
+        if (token && ImpersonateLoggedOnUser(token)) {
+            m_impersonating = true;
+        }
+    }
+
+    ~ImpersonationGuard() noexcept {
+        revert();
+    }
+
+    ImpersonationGuard(const ImpersonationGuard&) = delete;
+    ImpersonationGuard& operator=(const ImpersonationGuard&) = delete;
+
+    ImpersonationGuard(ImpersonationGuard&& other) noexcept
+        : m_impersonating(other.m_impersonating) {
+        other.m_impersonating = false;
+    }
+
+    ImpersonationGuard& operator=(ImpersonationGuard&& other) noexcept {
+        if (this != &other) {
+            revert();
+            m_impersonating = other.m_impersonating;
+            other.m_impersonating = false;
+        }
+        return *this;
+    }
+
+    // Adopt an already-active impersonation (after manual ImpersonateLoggedOnUser)
+    void adopt() noexcept {
+        m_impersonating = true;
+    }
+
+    void revert() noexcept {
+        if (m_impersonating) {
+            RevertToSelf();
+            m_impersonating = false;
+        }
+    }
+
+    bool impersonating() const noexcept { return m_impersonating; }
+
+    // Release ownership without reverting
+    void release() noexcept { m_impersonating = false; }
+
+private:
+    bool m_impersonating;
+};
+
 // Fixed logging system with proper buffer size and variadic handling
 
 // Print formatted message with prefix

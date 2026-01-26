@@ -67,32 +67,32 @@ bool WatermarkManager::RestoreWatermark() noexcept
 {
     INFO(L"[WATERMARK] Starting watermark restoration process");
     
-    // 1. Najpierw przywróć rejestr
+    // Step 1: Restore registry to original value
     if (!m_trustedInstaller.WriteRegistryValueAsTrustedInstaller(
         HKEY_CLASSES_ROOT, CLSID_KEY, L"", ORIGINAL_DLL)) {
         ERROR(L"[WATERMARK] Failed to restore registry entry");
         return false;
     }
-    
+
     INFO(L"[WATERMARK] Registry restored to original value");
-    
-    // 2. Zrestartuj Explorera (to zwolni uchwyt do DLL)
+
+    // Step 2: Restart Explorer to release handle to DLL
     if (!RestartExplorer()) {
         ERROR(L"[WATERMARK] Failed to restart Explorer");
         return false;
     }
-    
-    // 3. Teraz usuń DLL (uchwyt został zwolniony)
+
+    // Step 3: Delete the DLL now that the handle is released
     std::wstring system32Path = GetSystem32Path();
     if (!system32Path.empty()) {
         std::wstring dllPath = system32Path + L"\\ExplorerFrame\u200B.dll";
-        
-        // Dodaj krótkie opóźnienie dla pewności
+
+        // Brief delay to ensure Explorer has fully released the DLL
         Sleep(1000);
-        
+
         if (!m_trustedInstaller.DeleteFileAsTrustedInstaller(dllPath)) {
-            // Nie traktuj jako błędu krytycznego - DLL może być w użyciu
-            INFO(L"[WATERMARK] DLL might still be in use, will be removed on next restart: %s", 
+            // Not a critical error - DLL may still be in use by another process
+            INFO(L"[WATERMARK] DLL might still be in use, will be removed on next restart: %s",
                  dllPath.c_str());
         } else {
             INFO(L"[WATERMARK] Hijacked DLL deleted successfully");

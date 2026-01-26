@@ -13,7 +13,7 @@ GAME_AREA_HEIGHT equ 520             ; Separation line between game and controls
 .DATA
 ALIGN 16
 ; String constants for UI rendering
-szArial db "Arial", 0
+szSegoeUI db "Segoe UI", 0
 szScore db "Score: %d", 0
 szLines db "Lines: %d", 0
 szLevel db "Level: %d", 0
@@ -86,8 +86,8 @@ InitRenderer PROC pRenderer:QWORD, hwnd:QWORD
     mov DWORD PTR [rsp+50h], 0       ; fdwClipPrecision
     mov DWORD PTR [rsp+58h], 0       ; fdwQuality
     mov DWORD PTR [rsp+60h], 0       ; fdwPitchAndFamily
-    lea rax, szArial
-    mov QWORD PTR [rsp+68h], rax     ; lpszFace = "Arial"
+    lea rax, szSegoeUI
+    mov QWORD PTR [rsp+68h], rax     ; lpszFace = "SegoeUI"
     call CreateFontA
     mov [rsi].RENDERER_STATE.hFontNormal, rax
     
@@ -104,7 +104,7 @@ InitRenderer PROC pRenderer:QWORD, hwnd:QWORD
     mov DWORD PTR [rsp+50h], 0
     mov DWORD PTR [rsp+58h], 0
     mov DWORD PTR [rsp+60h], 0
-    lea rax, szArial
+    lea rax, szSegoeUI
     mov QWORD PTR [rsp+68h], rax
     call CreateFontA
     mov [rsi].RENDERER_STATE.hFontSmall, rax
@@ -122,7 +122,7 @@ InitRenderer PROC pRenderer:QWORD, hwnd:QWORD
     mov DWORD PTR [rsp+50h], 0
     mov DWORD PTR [rsp+58h], 0
     mov DWORD PTR [rsp+60h], 0
-    lea rax, szArial
+    lea rax, szSegoeUI
     mov QWORD PTR [rsp+68h], rax
     call CreateFontA
     mov [rsi].RENDERER_STATE.hFontPause, rax
@@ -140,7 +140,7 @@ InitRenderer PROC pRenderer:QWORD, hwnd:QWORD
     mov DWORD PTR [rsp+50h], 0
     mov DWORD PTR [rsp+58h], 0
     mov DWORD PTR [rsp+60h], 0
-    lea rax, szArial
+    lea rax, szSegoeUI
     mov QWORD PTR [rsp+68h], rax
     call CreateFontA
     mov [rsi].RENDERER_STATE.hFontGameOver, rax
@@ -176,15 +176,18 @@ InitRenderer PROC pRenderer:QWORD, hwnd:QWORD
     ret
 InitRenderer ENDP
 
+; Release all GDI resources (fonts, brushes, DC, bitmap)
+; Must be called before application exit to prevent resource leaks
+; RCX = pRenderer
 CleanupRenderer PROC pRenderer:QWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
     sub rsp, 40h
-    
+
     mov [rsp+30h], rsi
     mov rsi, rcx
-    
+
     cmp QWORD PTR [rsi].RENDERER_STATE.hFontNormal, 0
     je @@skip_font1
     mov rcx, [rsi].RENDERER_STATE.hFontNormal
@@ -249,15 +252,18 @@ CleanupRenderer PROC pRenderer:QWORD
     ret
 CleanupRenderer ENDP
 
+; Create or recreate offscreen bitmap for double buffering
+; Releases old bitmap if exists, creates new one matching window size
+; RCX = pRenderer
 CreateBackBuffer PROC pRenderer:QWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
     sub rsp, 40h
-    
+
     mov [rsp+30h], rsi
     mov rsi, rcx
-    
+
     cmp QWORD PTR [rsi].RENDERER_STATE.hdcMem, 0
     je @@create_new
     
@@ -307,12 +313,15 @@ CreateBackBuffer PROC pRenderer:QWORD
     ret
 CreateBackBuffer ENDP
 
+; Update renderer dimensions and recreate backbuffer
+; Called on window resize or initial setup
+; RCX = pRenderer, EDX = width, R8D = height
 ResizeRenderer PROC pRenderer:QWORD, wWidth:DWORD, wHeight:DWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
     sub rsp, 40h
-    
+
     mov [rsp+30h], rsi
     mov rsi, rcx
     mov [rsi].RENDERER_STATE.wWidth, edx
@@ -327,21 +336,24 @@ ResizeRenderer PROC pRenderer:QWORD, wWidth:DWORD, wHeight:DWORD
     ret
 ResizeRenderer ENDP
 
+; Main render function - draws entire game frame to backbuffer then blits to screen
+; Clears background, draws board/pieces/UI, then copies to window DC
+; RCX = pRenderer, RDX = pGame, R8 = hdc (window device context)
 RenderGame PROC pRenderer:QWORD, pGame:QWORD, hdc:QWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
-    sub rsp, 80h 
-    
+    sub rsp, 80h
+
     mov [rsp+50h], rsi
     mov [rsp+58h], rdi
     mov [rsp+60h], rbx
     mov [rsp+68h], r12
-    
+
     mov rsi, rcx
     mov rdi, rdx
-    mov r12, r8 
-    
+    mov r12, r8
+
     cmp QWORD PTR [rsi].RENDERER_STATE.hdcMem, 0
     je @@exit
     
@@ -425,19 +437,22 @@ RenderGame PROC pRenderer:QWORD, pGame:QWORD, hdc:QWORD
     ret
 RenderGame ENDP
 
+; Draw board grid lines and filled cells with line clear animation overlay
+; Iterates through board array and draws colored rectangles for occupied cells
+; RCX = pRenderer, RDX = pGame
 DrawBoard PROC pRenderer:QWORD, pGame:QWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
-    sub rsp, 80h 
-    
+    sub rsp, 80h
+
     mov [rsp+60h], rsi
     mov [rsp+68h], rdi
     mov [rsp+70h], rbx
-    
+
     mov rsi, rcx
     mov rdi, rdx
-    
+
     mov ecx, 0
     mov edx, 1
     mov r8d, 00323232h
@@ -603,10 +618,95 @@ DrawBoard PROC pRenderer:QWORD, pGame:QWORD
     jmp @@outer_loop
     
 @@outer_done:
+    ; Draw smooth fade-out overlay for clearing lines
+    cmp BYTE PTR [rdi].GAME_STATE.clearActive, 0
+    je @@no_overlay
+
+    ; Calculate fade color: gold (255,215,0) -> black (0,0,0)
+    ; intensity = (300 - timer) / 300  (sync with CLEAR_ANIM_MS in game.asm)
+    ; R = 255 * intensity, G = 215 * intensity, B = 0
+    mov eax, [rdi].GAME_STATE.clearTimer
+    mov ecx, 300                     ; Must match CLEAR_ANIM_MS in game.asm
+    sub ecx, eax                     ; ECX = 300 - timer (remaining intensity)
+    jle @@no_overlay                 ; Safety: skip if timer >= 300
+
+    ; Calculate R component: 255 * (300-timer) / 300
+    mov eax, 255
+    imul eax, ecx                    ; EAX = 255 * (300-timer)
+    xor edx, edx
+    mov r8d, 300                     ; Must match CLEAR_ANIM_MS in game.asm
+    div r8d                          ; EAX = R component
+    mov r9d, eax                     ; R9D = R (save)
+
+    ; Calculate G component: 215 * (300-timer) / 300
+    mov eax, 215
+    imul eax, ecx                    ; EAX = 215 * (300-timer)
+    xor edx, edx
+    div r8d                          ; EAX = G component
+
+    ; Compose BGR color: (0 << 16) | (G << 8) | R
+    shl eax, 8                       ; G << 8
+    or eax, r9d                      ; | R
+    mov ecx, eax                     ; ECX = final BGR color
+
+    call CreateSolidBrush
+
+@@brush_created:
+    mov [rsp+78h], rax               ; Save brush handle
+
+    ; Iterate through rows and draw overlay for rows in clearMask
+    xor ebx, ebx                     ; Row counter
+
+@@overlay_loop:
+    cmp ebx, [rdi].GAME_STATE.boardHeight
+    jge @@overlay_done
+
+    ; Check if this row is in clearMask
+    mov eax, 1
+    mov ecx, ebx
+    shl eax, cl                      ; EAX = 1 << row
+    test eax, [rdi].GAME_STATE.clearMask
+    jz @@next_overlay_row
+
+    ; Calculate row rectangle
+    mov DWORD PTR [rsp+20h], BOARD_X + 1              ; Left
+    mov eax, ebx
+    imul eax, BLOCK_SIZE
+    add eax, BOARD_Y + 1
+    mov DWORD PTR [rsp+24h], eax                      ; Top
+
+    mov eax, [rdi].GAME_STATE.boardWidth
+    imul eax, BLOCK_SIZE
+    add eax, BOARD_X - 1
+    mov DWORD PTR [rsp+28h], eax                      ; Right
+
+    mov eax, ebx
+    imul eax, BLOCK_SIZE
+    add eax, BOARD_Y + BLOCK_SIZE - 1
+    mov DWORD PTR [rsp+2Ch], eax                      ; Bottom
+
+    ; Draw overlay rectangle
+    mov rcx, [rsi].RENDERER_STATE.hdcMem
+    lea rdx, [rsp+20h]
+    mov r8, [rsp+78h]
+    mov [rsp+30h], rbx               ; Save row counter
+    call FillRect
+    mov rbx, [rsp+30h]               ; Restore row counter
+
+@@next_overlay_row:
+    inc ebx
+    jmp @@overlay_loop
+
+@@overlay_done:
+    ; Delete the brush
+    mov rcx, [rsp+78h]
+    call DeleteObject
+
+@@no_overlay:
     mov rsi, [rsp+60h]
     mov rdi, [rsp+68h]
     mov rbx, [rsp+70h]
-    
+
     mov rsp, rbp
     pop rbp
     ret
@@ -765,19 +865,22 @@ DrawGhostPiece PROC pRenderer:QWORD, pGame:QWORD
     ret
 DrawGhostPiece ENDP
 
+; Draw a tetromino piece at its current board position
+; Used for rendering the active falling piece
+; RCX = pRenderer, RDX = pPiece
 DrawPiece PROC pRenderer:QWORD, pPiece:QWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
     sub rsp, 60h
-    
+
     mov [rsp+40h], rsi
     mov [rsp+48h], rdi
     mov [rsp+50h], rbx
-    
+
     mov rsi, rcx
     mov rdi, rdx
-    
+
     movzx eax, byte ptr [rdi+1] ; color
     and eax, 7
     mov rbx, QWORD PTR [rsi + RENDERER_STATE.colorBrushes + rax*8]
@@ -818,6 +921,9 @@ DrawPiece PROC pRenderer:QWORD, pPiece:QWORD
     add eax, BLOCK_SIZE - 2
     mov DWORD PTR [rsp+2Ch], eax
     
+    movzx r8d, byte ptr [rdi+1] ; color
+    and r8d, 7
+
     mov rcx, [rsi].RENDERER_STATE.hdcMem
     lea rdx, [rsp+20h]
     mov r8, rbx
@@ -840,19 +946,21 @@ DrawPiece PROC pRenderer:QWORD, pPiece:QWORD
     ret
 DrawPiece ENDP
 
+; Draw "Next:" label and preview of upcoming piece in info panel
+; RCX = pRenderer, RDX = pPiece (nextPiece)
 DrawNextPiece PROC pRenderer:QWORD, pPiece:QWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
     sub rsp, 60h
-    
+
     mov [rsp+40h], rsi
     mov [rsp+48h], rdi
     mov [rsp+50h], rbx
-    
+
     mov rsi, rcx
     mov rdi, rdx
-    
+
     mov rcx, [rsi].RENDERER_STATE.hdcMem
     mov edx, 1
     call SetBkMode
@@ -914,6 +1022,9 @@ DrawNextPiece PROC pRenderer:QWORD, pPiece:QWORD
     add eax, BLOCK_SIZE - 2
     mov DWORD PTR [rsp+2Ch], eax
     
+    movzx r8d, byte ptr [rdi+1]
+    and r8d, 7
+
     mov rcx, [rsi].RENDERER_STATE.hdcMem
     lea rdx, [rsp+20h]
     mov r8, rbx
@@ -935,12 +1046,15 @@ DrawNextPiece PROC pRenderer:QWORD, pPiece:QWORD
     ret
 DrawNextPiece ENDP
 
+; Draw info panel: score, lines, level, high score, controls, author info
+; Also renders PAUSED/GAME OVER overlays when appropriate
+; RCX = pRenderer, RDX = pGame
 DrawInfo PROC pRenderer:QWORD, pGame:QWORD
     push rbp
     mov rbp, rsp
     and rsp, -16
     sub rsp, 220h
-    
+
     mov [rsp+210h], rsi
     mov [rsp+218h], rdi
     mov [rsp+200h], rbx
@@ -1293,10 +1407,8 @@ DrawInfo PROC pRenderer:QWORD, pGame:QWORD
     mov eax, 128
     sub eax, ebx
     add eax, 127
-
-    shl eax, 8
+    
     mov ebx, eax
-    shr eax, 8
     shl ebx, 8
     or eax, ebx
 

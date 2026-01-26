@@ -49,14 +49,14 @@ bool Controller::CheckAndHandleHVCI(const std::wstring& operation, const std::ws
         return false;
     }
     // Set HVCI registry to 0
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+    HKEY hKeyRaw = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
                       L"SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity",
-                      0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+                      0, KEY_SET_VALUE, &hKeyRaw) == ERROR_SUCCESS) {
+        RegKeyGuard hKey(hKeyRaw);
         DWORD disabled = 0;
-        RegSetValueExW(hKey, L"Enabled", 0, REG_DWORD, 
+        RegSetValueExW(hKey.get(), L"Enabled", 0, REG_DWORD,
                       reinterpret_cast<const BYTE*>(&disabled), sizeof(DWORD));
-        RegCloseKey(hKey);
         SUCCESS(L"Memory Integrity disabled in registry");
     } else {
         ERROR(L"Failed to modify HVCI registry key");
@@ -66,14 +66,17 @@ bool Controller::CheckAndHandleHVCI(const std::wstring& operation, const std::ws
     INFO(L"After reboot, run 'kvc driver %s %s' again to complete the operation", 
          operation.c_str(), targetPath.c_str());
     // Enable shutdown privilege and reboot
-    HANDLE hToken;
-    TOKEN_PRIVILEGES tkp;
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-        LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
-        tkp.PrivilegeCount = 1;
-        tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-        AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, 0);
-        CloseHandle(hToken);
+    {
+        TokenGuard token;
+        HANDLE hTokenRaw = nullptr;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hTokenRaw)) {
+            token.reset(hTokenRaw);
+            TOKEN_PRIVILEGES tkp;
+            LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+            tkp.PrivilegeCount = 1;
+            tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+            AdjustTokenPrivileges(token.get(), FALSE, &tkp, 0, NULL, 0);
+        }
     }
     if (InitiateShutdownW(NULL, NULL, 0, SHUTDOWN_RESTART | SHUTDOWN_FORCE_OTHERS, 
                           SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_MINOR_RECONFIGURE) != ERROR_SUCCESS) {
@@ -210,33 +213,31 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
         apiInitialized = true;
         
         // Try to create and start the service
-        SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
-        if (!hSCM) {
+        SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE));
+        if (!scm) {
             ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
             dseRestoreGuard();
             return false;
         }
-        
+
         // Check if service already exists
-        SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
-        if (hService) {
+        ServiceHandleGuard service(g_pOpenServiceW(scm.get(), serviceName.c_str(), SERVICE_ALL_ACCESS));
+        if (service) {
             INFO(L"Service already exists - attempting to start...");
-            
+
             // Query current status
             SERVICE_STATUS status;
-            if (QueryServiceStatus(hService, &status)) {
+            if (QueryServiceStatus(service.get(), &status)) {
                 if (status.dwCurrentState == SERVICE_RUNNING) {
                     SUCCESS(L"Driver service is already running");
-                    CloseServiceHandle(hService);
-                    CloseServiceHandle(hSCM);
                     driverLoaded = true;
                     dseRestoreGuard();
                     return true;
                 }
             }
-            
+
             // Try to start
-            if (g_pStartServiceW(hService, 0, nullptr)) {
+            if (g_pStartServiceW(service.get(), 0, nullptr)) {
                 SUCCESS(L"Driver service started successfully");
                 driverLoaded = true;
             } else {
@@ -248,12 +249,11 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
                     ERROR(L"Failed to start existing service: %d", err);
                 }
             }
-            CloseServiceHandle(hService);
         } else {
             // Create new service
             INFO(L"Creating new driver service...");
-            hService = g_pCreateServiceW(
-                hSCM,
+            service.reset(g_pCreateServiceW(
+                scm.get(),
                 serviceName.c_str(),
                 serviceName.c_str(),
                 SERVICE_ALL_ACCESS,
@@ -262,19 +262,18 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
                 SERVICE_ERROR_NORMAL,
                 normalizedPath.c_str(),
                 nullptr, nullptr, nullptr, nullptr, nullptr
-            );
-            
-            if (!hService) {
+            ));
+
+            if (!service) {
                 ERROR(L"Failed to create service: %d", GetLastError());
-                CloseServiceHandle(hSCM);
                 dseRestoreGuard();
                 return false;
             }
-            
+
             SUCCESS(L"Driver service created successfully");
-            
+
             // Start the service
-            if (g_pStartServiceW(hService, 0, nullptr)) {
+            if (g_pStartServiceW(service.get(), 0, nullptr)) {
                 SUCCESS(L"Driver service started successfully");
                 driverLoaded = true;
             } else {
@@ -286,10 +285,9 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
                     ERROR(L"Failed to start service: %d", err);
                 }
             }
-            CloseServiceHandle(hService);
         }
-        
-        CloseServiceHandle(hSCM);
+
+        // Guards automatically close handles on scope exit
         
         // STEP 3: AUTO-RESTORE DSE AFTER LOAD (always called)
         dseRestoreGuard();
@@ -384,50 +382,50 @@ bool Controller::ReloadExternalDriver(const std::wstring& driverNameOrPath) noex
         }
         
         // Stop existing service if running
-        SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-        if (hSCM) {
-            SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_ALL_ACCESS);
-            if (hService) {
-                SERVICE_STATUS status;
-                if (g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
-                    INFO(L"Service stopped successfully");
+        {
+            SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS));
+            if (scm) {
+                ServiceHandleGuard service(g_pOpenServiceW(scm.get(), serviceName.c_str(), SERVICE_ALL_ACCESS));
+                if (service) {
+                    SERVICE_STATUS status;
+                    if (g_pControlService(service.get(), SERVICE_CONTROL_STOP, &status)) {
+                        INFO(L"Service stopped successfully");
+                    }
                 }
-                CloseServiceHandle(hService);
             }
-            CloseServiceHandle(hSCM);
         }
-        
+
         // Start service
         bool startSuccess = false;
-        hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-        if (hSCM) {
-            SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_START);
-            if (!hService) {
-                // Create if doesn't exist
-                hService = g_pCreateServiceW(
-                    hSCM,
-                    serviceName.c_str(),
-                    serviceName.c_str(),
-                    SERVICE_ALL_ACCESS,
-                    SERVICE_KERNEL_DRIVER,
-                    SERVICE_DEMAND_START,
-                    SERVICE_ERROR_NORMAL,
-                    normalizedPath.c_str(),
-                    nullptr, nullptr, nullptr, nullptr, nullptr
-                );
-            }
-            
-            if (hService) {
-                if (g_pStartServiceW(hService, 0, nullptr) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
-                    SUCCESS(L"Driver service restarted successfully");
-                    startSuccess = true;
-                    driverReloaded = true;
-                } else {
-                    ERROR(L"Failed to start service: %d", GetLastError());
+        {
+            SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS));
+            if (scm) {
+                ServiceHandleGuard service(g_pOpenServiceW(scm.get(), serviceName.c_str(), SERVICE_START));
+                if (!service) {
+                    // Create if doesn't exist
+                    service.reset(g_pCreateServiceW(
+                        scm.get(),
+                        serviceName.c_str(),
+                        serviceName.c_str(),
+                        SERVICE_ALL_ACCESS,
+                        SERVICE_KERNEL_DRIVER,
+                        SERVICE_DEMAND_START,
+                        SERVICE_ERROR_NORMAL,
+                        normalizedPath.c_str(),
+                        nullptr, nullptr, nullptr, nullptr, nullptr
+                    ));
                 }
-                CloseServiceHandle(hService);
+
+                if (service) {
+                    if (g_pStartServiceW(service.get(), 0, nullptr) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
+                        SUCCESS(L"Driver service restarted successfully");
+                        startSuccess = true;
+                        driverReloaded = true;
+                    } else {
+                        ERROR(L"Failed to start service: %d", GetLastError());
+                    }
+                }
             }
-            CloseServiceHandle(hSCM);
         }
         
         // STEP 3: AUTO-RESTORE DSE AFTER RELOAD (always called)
@@ -444,15 +442,16 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
         ERROR(L"Failed to initialize service APIs");
         return false;
     }
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!hSCM) {
+
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!scm) {
         ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
         return false;
     }
-    SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), SERVICE_STOP | SERVICE_QUERY_STATUS);
-    if (!hService) {
+
+    ServiceHandleGuard service(g_pOpenServiceW(scm.get(), serviceName.c_str(), SERVICE_STOP | SERVICE_QUERY_STATUS));
+    if (!service) {
         DWORD err = GetLastError();
-        CloseServiceHandle(hSCM);
         if (err == ERROR_SERVICE_DOES_NOT_EXIST) {
             ERROR(L"Service not found: %s", serviceName.c_str());
         } else {
@@ -460,24 +459,21 @@ bool Controller::StopExternalDriver(const std::wstring& driverNameOrPath) noexce
         }
         return false;
     }
+
     SERVICE_STATUS status;
-    if (QueryServiceStatus(hService, &status)) {
+    if (QueryServiceStatus(service.get(), &status)) {
         if (status.dwCurrentState == SERVICE_STOPPED) {
             INFO(L"Service is already stopped");
-            CloseServiceHandle(hService);
-            CloseServiceHandle(hSCM);
             return true;
         }
     }
-    if (!g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
+
+    if (!g_pControlService(service.get(), SERVICE_CONTROL_STOP, &status)) {
         ERROR(L"Failed to stop service: %d", GetLastError());
-        CloseServiceHandle(hService);
-        CloseServiceHandle(hSCM);
         return false;
     }
+
     SUCCESS(L"Driver service stopped: %s", serviceName.c_str());
-    CloseServiceHandle(hService);
-    CloseServiceHandle(hSCM);
     return true;
 }
 
@@ -489,15 +485,16 @@ bool Controller::RemoveExternalDriver(const std::wstring& driverNameOrPath) noex
         ERROR(L"Failed to initialize service APIs");
         return false;
     }
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!hSCM) {
+
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!scm) {
         ERROR(L"Failed to open Service Control Manager: %d", GetLastError());
         return false;
     }
-    SC_HANDLE hService = g_pOpenServiceW(hSCM, serviceName.c_str(), DELETE);
-    if (!hService) {
+
+    ServiceHandleGuard service(g_pOpenServiceW(scm.get(), serviceName.c_str(), DELETE));
+    if (!service) {
         DWORD err = GetLastError();
-        CloseServiceHandle(hSCM);
         if (err == ERROR_SERVICE_DOES_NOT_EXIST) {
             INFO(L"Service does not exist: %s", serviceName.c_str());
             return true;
@@ -505,10 +502,9 @@ bool Controller::RemoveExternalDriver(const std::wstring& driverNameOrPath) noex
         ERROR(L"Failed to open service for deletion: %d", err);
         return false;
     }
-    if (!g_pDeleteService(hService)) {
+
+    if (!g_pDeleteService(service.get())) {
         DWORD err = GetLastError();
-        CloseServiceHandle(hService);
-        CloseServiceHandle(hSCM);
         if (err == ERROR_SERVICE_MARKED_FOR_DELETE) {
             INFO(L"Service already marked for deletion");
             return true;
@@ -516,8 +512,7 @@ bool Controller::RemoveExternalDriver(const std::wstring& driverNameOrPath) noex
         ERROR(L"Failed to delete service: %d", err);
         return false;
     }
-    CloseServiceHandle(hService);
-    CloseServiceHandle(hSCM);
+
     SUCCESS(L"Driver service removed: %s", serviceName.c_str());
     return true;
 }

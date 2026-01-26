@@ -180,10 +180,10 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
     }
 
     // Open target process with appropriate privileges - CRITICAL operation
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-    if (!hProcess) {
-        hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if (!hProcess) {
+    HandleGuard process(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid));
+    if (!process) {
+        process.reset(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+        if (!process) {
             ERROR(L"Critical: Failed to open process (error: %d)", GetLastError());
             m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
             PerformAtomicCleanup();
@@ -198,10 +198,9 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
     fullPath += processName + L"_" + std::to_wstring(pid) + L".dmp";
 
     // Create dump file - CRITICAL operation
-    HANDLE hFile = CreateFileW(fullPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
+    FileGuard file(CreateFileW(fullPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL));
+    if (!file) {
         ERROR(L"Critical: Failed to create dump file (error: %d)", GetLastError());
-        CloseHandle(hProcess);
         m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
         PerformAtomicCleanup();
         return false;
@@ -219,8 +218,7 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
 
     if (g_interrupted) {
         INFO(L"Operation cancelled by user before dump creation");
-        CloseHandle(hFile);
-        CloseHandle(hProcess);
+        file.reset();
         DeleteFileW(fullPath.c_str());
         SelfProtect(L"none", L"none");
         m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
@@ -229,23 +227,22 @@ bool Controller::CreateMiniDump(DWORD pid, const std::wstring& outputPath) noexc
     }
 
     INFO(L"Creating memory dump - this may take a while. Press Ctrl+C to cancel safely.");
-    
+
     // Execute the actual memory dump - CRITICAL operation
-    BOOL result = MiniDumpWriteDump(hProcess, pid, hFile, dumpType, NULL, NULL, NULL);
-    
+    BOOL result = MiniDumpWriteDump(process.get(), pid, file.get(), dumpType, NULL, NULL, NULL);
+
     if (g_interrupted) {
         INFO(L"Operation was cancelled during dump creation");
-        CloseHandle(hFile);
-        CloseHandle(hProcess);
+        file.reset();
         DeleteFileW(fullPath.c_str());
         SelfProtect(L"none", L"none");
         m_trustedInstaller.RemoveProcessFromDefenderExclusions(processName);
         PerformAtomicCleanup();
         return false;
     }
-    
-    CloseHandle(hFile);
-    CloseHandle(hProcess);
+
+    file.reset();
+    process.reset();
 
     if (!result) {
         DWORD error = GetLastError();

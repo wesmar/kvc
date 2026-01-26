@@ -203,35 +203,35 @@ bool ProcessListWindow::CreateControls()
 {
     HINSTANCE hInst = GetModuleHandle(nullptr);
     
-    // Filter checkbox
+    // Filter checkbox - jeszcze bardziej zwiększona szerokość
     m_hFilterCheck = CreateWindowExW(
         0, L"BUTTON", L"Show only protected",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-        10, 10, 150, 25,
+        10, 10, 200, 25,  // Zwiększone z 170 na 200
         m_hWnd, (HMENU)IDC_FILTER_PROTECTED, hInst, nullptr
     );
     
-    // Search label
+    // Search label - jeszcze bardziej przesunięta w prawo
     CreateWindowExW(
         0, L"STATIC", L"Search:",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
-        170, 13, 50, 20,
+        220, 13, 55, 20,  // Przesunięte z 190 na 220
         m_hWnd, nullptr, hInst, nullptr
     );
     
-    // Search edit box
+    // Search edit box - jeszcze bardziej przesunięta w prawo
     m_hSearchEdit = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
-        225, 10, 200, 25,
+        280, 10, 200, 25,  // Przesunięte z 250 na 280
         m_hWnd, (HMENU)IDC_SEARCH_EDIT, hInst, nullptr
     );
     
-    // Refresh button
+    // Refresh button - jeszcze bardziej przesunięty w prawo
     m_hRefreshButton = CreateWindowExW(
         0, L"BUTTON", L"Refresh",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        435, 10, 80, 25,
+        490, 10, 80, 25,  // Przesunięte z 460 na 490
         m_hWnd, (HMENU)IDC_REFRESH_BUTTON, hInst, nullptr
     );
     

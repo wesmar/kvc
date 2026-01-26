@@ -46,6 +46,8 @@ VK_F2               EQU 71h         ; F2 key - new game
 ; Game timing
 GAME_TIMER_ID       EQU 1           ; Timer identifier
 GAME_TICK_MS        EQU 16          ; ~60 FPS (1000ms / 60)
+EDIT_TIMER_ID       EQU 2           ; Edit name auto-save timer
+EDIT_SAVE_DELAY_MS  EQU 1000        ; 1 second delay before auto-save
 
 ; Child window styles
 WS_CHILD            EQU 40000000h   ; Child window
@@ -64,11 +66,18 @@ IDC_BUTTON_GHOST    EQU 1004        ; Toggle ghost piece button
 
 ; Edit control notifications
 EN_CHANGE           EQU 0300h       ; Text content changed
+WM_CTLCOLOREDIT     EQU 0133h       ; Edit control color notification
+
+; DWM constants
+DWMWA_USE_IMMERSIVE_DARK_MODE EQU 20
+DWMWA_SYSTEMBACKDROP_TYPE      EQU 38
+DWMSBT_MAINWINDOW              EQU 2
 
 .DATA
 ; String constants for UI
 szClassName     DB "TetrisWindowClass", 0
 szWindowTitle   DB "Tetris x64", 0
+szSegoeUI       DB "Segoe UI", 0
 szShell32       DB "shell32.dll", 0
 szStaticClass   DB "STATIC", 0
 szEditClass     DB "EDIT", 0
@@ -87,6 +96,7 @@ g_hButtonStart  DQ 0                ; Pause/Resume button handle
 g_hButtonClear  DQ 0                ; Clear Record button handle
 g_hButtonGhost  DQ 0                ; Ghost toggle button handle
 g_hEditName     DQ 0                ; Player name edit control handle
+g_hBrushGreen   DQ 0                ; Light green brush for edit control
 
 .DATA?
 ; Uninitialized data - must be 16-byte aligned for SIMD operations
@@ -108,7 +118,7 @@ WindowProc PROC
     push rbp
     mov rbp, rsp
     and rsp, -16                    ; TRAP: Ensure 16-byte stack alignment
-    sub rsp, 300h                   ; Allocate shadow space + locals
+    sub rsp, 400h                   ; Allocate shadow space + locals (increased for buffers)
 
     ; Save parameters (x64 fastcall: RCX=hWnd, RDX=uMsg, R8=wParam, R9=lParam)
     mov [rbp+10h], rcx              ; Store hWnd
@@ -129,6 +139,8 @@ WindowProc PROC
     je HandleTimer
     cmp edx, WM_KEYDOWN
     je HandleKeyDown
+    cmp edx, WM_CTLCOLOREDIT
+    je HandleCtlColorEdit
 
     ; No specific handler - pass to default Windows procedure
     mov rcx, [rbp+10h]
@@ -164,6 +176,11 @@ HandleCreate:
     ; Start initial game
     lea rcx, g_game
     call StartGame
+
+    ; Create light green brush for edit control background
+    mov ecx, 00E0FFE0h              ; Light green (BGR format)
+    call CreateSolidBrush
+    mov g_hBrushGreen, rax
 
     ; Create "Player:" static label
     ; TRAP: CreateWindowExA takes 12 params - first 4 in regs, rest on stack
@@ -206,6 +223,12 @@ HandleCreate:
     mov rcx, g_hEditName
     lea rdx, g_game.playerName      ; Unicode string from registry
     call SetWindowTextW
+
+    ; Force edit control to redraw with correct background color
+    mov rcx, g_hEditName
+    xor edx, edx
+    xor r8d, r8d
+    call InvalidateRect
 
     ; Create Pause/Resume game button
     xor ecx, ecx
@@ -260,6 +283,43 @@ HandleCreate:
     mov QWORD PTR [rsp+58h], 0
     call CreateWindowExA
     mov g_hButtonGhost, rax
+	
+	; Create smaller font for buttons (default size minus 2)
+    mov ecx, -14
+    xor edx, edx
+    xor r8d, r8d
+    xor r9d, r9d
+    mov DWORD PTR [rsp+20h], 400
+    mov DWORD PTR [rsp+28h], 0
+    mov DWORD PTR [rsp+30h], 0
+    mov DWORD PTR [rsp+38h], 0
+    mov DWORD PTR [rsp+40h], 0
+    mov DWORD PTR [rsp+48h], 0
+    mov DWORD PTR [rsp+50h], 0
+    mov DWORD PTR [rsp+58h], 0
+    mov DWORD PTR [rsp+60h], 0
+    lea rax, szSegoeUI
+    mov QWORD PTR [rsp+68h], rax
+    call CreateFontA
+    mov rbx, rax
+    
+    mov rcx, g_hButtonStart
+    mov edx, 30h
+    mov r8, rbx
+    mov r9d, 1
+    call SendMessageA
+    
+    mov rcx, g_hButtonClear
+    mov edx, 30h
+    mov r8, rbx
+    mov r9d, 1
+    call SendMessageA
+    
+    mov rcx, g_hButtonGhost
+    mov edx, 30h
+    mov r8, rbx
+    mov r9d, 1
+    call SendMessageA
 
     ; Create game timer for 60 FPS updates
     mov rcx, [rbp+10h]              ; hWnd
@@ -309,18 +369,35 @@ CmdEditName:
     cmp r10w, EN_CHANGE
     jne CmdDone
 
+    ; Update in-memory player name immediately
     mov rcx, g_hEditName
     lea rdx, [rsp+100h]
     mov r8d, 128
     call GetWindowTextW
-    
+
     lea rcx, g_game
     lea rdx, [rsp+100h]
     call SetPlayerName
-    
-    lea rcx, [rsp+100h]
-    call SavePlayerName
-    
+
+    ; Restart auto-save timer (1 second delay)
+    ; Kill old timer if exists
+    mov rcx, [rbp+10h]              ; hwnd
+    mov edx, EDIT_TIMER_ID
+    call KillTimer
+
+    ; Set new timer for 1 second
+    mov rcx, [rbp+10h]              ; hwnd
+    mov edx, EDIT_TIMER_ID
+    mov r8d, EDIT_SAVE_DELAY_MS
+    xor r9d, r9d                    ; lpTimerProc = NULL
+    call SetTimer
+
+    ; Force edit control to redraw with new background color
+    mov rcx, g_hEditName
+    xor edx, edx
+    xor r8d, r8d
+    call InvalidateRect
+
     jmp CmdDone
 
 CmdPauseResume:
@@ -352,9 +429,22 @@ CmdClearRecord:
     mov DWORD PTR [g_game].GAME_STATE.highScore, 0
     lea rax, [g_game].GAME_STATE.highScoreName
     mov WORD PTR [rax], 0
-    
+
     call ClearRegistry
 
+    ; Restore PlayerName to registry after clearing
+    mov rcx, g_hEditName
+    lea rdx, [rsp+100h]
+    mov r8d, 128
+    call GetWindowTextW
+
+    test eax, eax
+    jz @@skip_save
+
+    lea rcx, [rsp+100h]
+    call SavePlayerName
+
+@@skip_save:
     mov rcx, [rbp+10h]
     call SetFocus
 
@@ -394,15 +484,50 @@ CmdDone:
     jmp ExitProc
 
 HandleTimer:
+    mov rax, [rbp+20h]              ; wParam = timer ID
+    cmp rax, GAME_TIMER_ID
+    je @@game_timer
+    cmp rax, EDIT_TIMER_ID
+    je @@edit_timer
+    jmp @@timer_done
+
+@@game_timer:
     lea rcx, g_game
     mov edx, GAME_TICK_MS
     call UpdateGame
-    
+
     mov rcx, [rbp+10h]
     xor edx, edx
     xor r8d, r8d
     call InvalidateRect
-    
+    jmp @@timer_done
+
+@@edit_timer:
+    ; Save player name and remove focus from edit control
+    mov rcx, g_hEditName
+    lea rdx, [rsp+100h]
+    mov r8d, 128
+    call GetWindowTextW
+    mov [rsp+0F8h], eax             ; Save text length
+
+    ; Save to registry if not empty
+    test eax, eax
+    jz @@skip_save_timer
+
+    lea rcx, [rsp+100h]
+    call SavePlayerName
+
+@@skip_save_timer:
+    ; Remove focus from edit - set focus to main window
+    mov rcx, [rbp+10h]              ; Main window handle
+    call SetFocus
+
+    ; Kill the timer
+    mov rcx, [rbp+10h]              ; hwnd
+    mov edx, EDIT_TIMER_ID
+    call KillTimer
+
+@@timer_done:
     xor eax, eax
     jmp ExitProc
 
@@ -474,7 +599,51 @@ KeyDone:
     xor eax, eax
     jmp ExitProc
 
+HandleCtlColorEdit:
+    ; WM_CTLCOLOREDIT: Set edit control background color
+    ; wParam (R8/[rbp+20h]) = HDC, lParam (R9/[rbp+28h]) = HWND of edit control
+    mov rax, [rbp+28h]              ; Get HWND from lParam
+    cmp rax, g_hEditName
+    jne @@default_color
+
+    ; Check if edit control has text
+    mov rcx, g_hEditName
+    lea rdx, [rsp+200h]             ; Use different buffer to avoid conflicts
+    mov r8d, 128
+    call GetWindowTextW
+
+    test eax, eax                   ; Returns length of text
+    jz @@default_color              ; No text - use default color
+
+    ; Set light green background for text input
+    mov rcx, [rbp+20h]              ; HDC from wParam
+    mov edx, 00E0FFE0h              ; Light green (BGR format)
+    call SetBkColor
+
+    mov rcx, [rbp+20h]
+    mov edx, 1                      ; TRANSPARENT mode
+    call SetBkMode
+
+    ; Return global light green brush handle
+    mov rax, g_hBrushGreen
+    jmp ExitProc
+
+@@default_color:
+    ; Return default system color brush
+    mov rcx, [rbp+10h]
+    mov rdx, [rbp+18h]
+    mov r8,  [rbp+20h]
+    mov r9,  [rbp+28h]
+    call DefWindowProcA
+    jmp ExitProc
+
 HandleDestroy:
+    ; Clean up brush resource
+    mov rcx, g_hBrushGreen
+    test rcx, rcx
+    jz @@skip_brush
+    call DeleteObject
+@@skip_brush:
     xor ecx, ecx
     call PostQuitMessage
     xor eax, eax
@@ -486,11 +655,13 @@ ExitProc:
     ret
 WindowProc ENDP
 
+; Application entry point - registers window class, creates main window, runs message loop
+; Sets up dark mode title bar and Mica backdrop on Windows 11
 WinMain PROC
     push r14
     push r15
     sub rsp, 0B8h
-    
+
     mov DWORD PTR [rsp+60h], 80
     mov DWORD PTR [rsp+64h], CS_HREDRAW OR CS_VREDRAW
     lea rax, WindowProc
@@ -570,6 +741,22 @@ WinMain PROC
     
     test rax, rax
     jz @fail
+
+    ; Enable Dark Mode for title bar
+    mov rcx, g_hWnd
+    mov edx, DWMWA_USE_IMMERSIVE_DARK_MODE
+    lea r8, [rsp+58h]               ; Use stack for attribute value
+    mov DWORD PTR [r8], 1           ; TRUE
+    mov r9d, 4                      ; sizeof(DWORD)
+    call DwmSetWindowAttribute
+
+    ; Enable Mica backdrop effect (Windows 11)
+    mov rcx, g_hWnd
+    mov edx, DWMWA_SYSTEMBACKDROP_TYPE
+    lea r8, [rsp+58h]
+    mov DWORD PTR [r8], DWMSBT_MAINWINDOW
+    mov r9d, 4
+    call DwmSetWindowAttribute
     
     mov rcx, g_hWnd
     mov edx, SW_SHOWDEFAULT

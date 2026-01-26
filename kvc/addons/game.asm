@@ -26,6 +26,9 @@ ALIGN 16
 BOARD_MAX_CELLS equ 400              ; Maximum total cells (prevents buffer overflow)
 BOARD_MIN_DIM equ 4                  ; Minimum width/height for playable game
 
+; Line clear animation timing
+CLEAR_ANIM_MS equ 300               ; Duration of line clear fade-out animation (ms)
+
 ; Initialize game state with board dimensions
 ; TRAP x64: Args are RCX=pGame, EDX=boardWidth, R8D=boardHeight (not stack!)
 ; Non-volatile registers (RSI, RDI) must be preserved
@@ -62,6 +65,12 @@ InitGame PROC pGame:QWORD, boardWidth:DWORD, boardHeight:DWORD
     mov BYTE PTR [rsi].GAME_STATE.gameOver, 0
     mov BYTE PTR [rsi].GAME_STATE.paused, 0
     mov BYTE PTR [rsi].GAME_STATE.showGhost, 0
+
+    ; Initialize line clear animation state
+    mov BYTE PTR [rsi].GAME_STATE.clearActive, 0
+    mov BYTE PTR [rsi].GAME_STATE.clearCount, 0
+    mov DWORD PTR [rsi].GAME_STATE.clearMask, 0
+    mov DWORD PTR [rsi].GAME_STATE.clearTimer, 0
 
     ; Clear entire board memory to empty (0)
     lea rax, [rsi].GAME_STATE.board
@@ -127,6 +136,12 @@ StartGame PROC pGame:QWORD
     mov DWORD PTR [rsi].GAME_STATE.level, 1
     mov BYTE PTR [rsi].GAME_STATE.gameOver, 0
     mov BYTE PTR [rsi].GAME_STATE.paused, 0
+
+    ; Reset line clear animation state
+    mov BYTE PTR [rsi].GAME_STATE.clearActive, 0
+    mov BYTE PTR [rsi].GAME_STATE.clearCount, 0
+    mov DWORD PTR [rsi].GAME_STATE.clearMask, 0
+    mov DWORD PTR [rsi].GAME_STATE.clearTimer, 0
 
     ; Reset 7-bag randomizer for new game
     mov DWORD PTR bagIndex, 7
@@ -237,11 +252,14 @@ GenerateRandomPiece PROC pGame:QWORD, pPiece:QWORD
     ret
 GenerateRandomPiece ENDP
 
+; Move nextPiece to currentPiece and generate a new nextPiece
+; Sets gameOver flag if new piece spawns into existing blocks
+; RCX = pGame
 SpawnNewPiece PROC pGame:QWORD
     push rsi
     push rdi
     sub rsp, 20h
-    
+
     mov rsi, rcx
     lea rdi, [rsi].GAME_STATE.currentPiece
     lea rax, [rsi].GAME_STATE.nextPiece
@@ -274,13 +292,16 @@ SpawnNewPiece PROC pGame:QWORD
     ret
 SpawnNewPiece ENDP
 
+; Check if piece collides with board boundaries or existing blocks
+; Returns: EAX = 1 if collision detected, 0 otherwise
+; RCX = pGame, RDX = pPiece to test
 CheckCollision PROC pGame:QWORD, pPiece:QWORD
     push rsi
     push rdi
-    
+
     mov rsi, rcx
     mov rdi, rdx
-    
+
     xor ecx, ecx
 @@block_loop:
     movsxd rax, [rdi].PIECE.blocks[rcx*8].x
@@ -320,12 +341,15 @@ CheckCollision PROC pGame:QWORD, pPiece:QWORD
     ret
 CheckCollision ENDP
 
+; Lock current piece into the board and trigger line clear check
+; Writes piece blocks to board array, then calls ClearFullLines and SpawnNewPiece
+; RCX = pGame
 LockPiece PROC pGame:QWORD
     push rsi
     push rdi
     push rbx
     sub rsp, 28h
-    
+
     mov rsi, rcx
     lea rdi, [rsi].GAME_STATE.currentPiece
     movzx ebx, [rdi].PIECE.color
@@ -353,33 +377,9 @@ LockPiece PROC pGame:QWORD
 @@place_done:
     mov rcx, rsi
     call ClearFullLines
-    
-    test eax, eax
-    jz @@no_lines
-    
-    add [rsi].GAME_STATE.lines, eax
-    
-    mov ecx, eax
-    imul ecx, ecx
-    imul ecx, 100
-    imul ecx, [rsi].GAME_STATE.level
-    add [rsi].GAME_STATE.score, ecx
-    
-    mov eax, [rsi].GAME_STATE.lines
-    xor edx, edx
-    mov ecx, 10
-    div ecx
-    inc eax
-    mov [rsi].GAME_STATE.level, eax
-    
-    mov eax, [rsi].GAME_STATE.score
-    cmp eax, [rsi].GAME_STATE.highScore
-    jle @@no_lines
-    
-    mov rcx, rsi
-    call SaveHighScore
-    
-@@no_lines:
+
+    ; Always spawn new piece immediately (non-blocking animation)
+    ; ApplyClearLines will handle scoring and board compression later
     mov rcx, rsi
     call SpawnNewPiece
 
@@ -390,86 +390,65 @@ LockPiece PROC pGame:QWORD
     ret
 LockPiece ENDP
 
+; Detect full lines and start clear animation (does not shift rows)
+; Returns: EAX = number of full lines detected (0..4)
 ClearFullLines PROC pGame:QWORD
     push rsi
     push rdi
     push rbx
     sub rsp, 28h
-    
+
     mov rsi, rcx
-    xor ebx, ebx
+
+    ; Reset animation state
+    mov BYTE PTR [rsi].GAME_STATE.clearCount, 0
+    mov DWORD PTR [rsi].GAME_STATE.clearMask, 0
+
+    xor ebx, ebx                     ; EBX = line count
     mov ecx, [rsi].GAME_STATE.boardHeight
-    dec ecx
-    
-@@outer_loop:
+    dec ecx                          ; Start from bottom row
+
+@@scan_loop:
     cmp ecx, 0
-    jl @@done
-    
+    jl @@scan_done
+
+    ; Calculate row address: board + y * width
     mov edi, ecx
     imul edi, [rsi].GAME_STATE.boardWidth
     lea rax, [rsi].GAME_STATE.board
     add rdi, rax
-    
-    mov edx, 1
-    xor r8d, r8d
+
+    ; Check if row is full
+    xor r8d, r8d                     ; Column index
 @@check_row:
     cmp byte ptr [rdi + r8], 0
-    je @@not_full
+    je @@not_full                    ; Empty cell found, row not full
     inc r8d
     cmp r8d, [rsi].GAME_STATE.boardWidth
     jl @@check_row
-    jmp @@is_full
-    
-@@not_full:
-    xor edx, edx
-    
-@@is_full:
-    test edx, edx
-    jz @@next_row
-    
-    inc ebx
+
+    ; Row is full - set bit in clearMask and increment count
+    mov eax, 1
     mov r9d, ecx
-    
-@@shift_down:
-    cmp r9d, 0
-    jle @@clear_top
-    
-    mov r10d, r9d
-    imul r10d, [rsi].GAME_STATE.boardWidth
-    dec r9d
-    mov r11d, r9d
-    imul r11d, [rsi].GAME_STATE.boardWidth
-    
-    lea rax, [rsi].GAME_STATE.board
-    add r10, rax
-    add r11, rax
-    
-    xor r8d, r8d
-@@copy_row:
-    mov dl, byte ptr [r11 + r8]
-    mov byte ptr [r10 + r8], dl
-    inc r8d
-    cmp r8d, [rsi].GAME_STATE.boardWidth
-    jl @@copy_row
-    
-    jmp @@shift_down
-    
-@@clear_top:
-    lea rdi, [rsi].GAME_STATE.board
-    xor r8d, r8d
-@@clear_loop:
-    mov byte ptr [rdi + r8], 0
-    inc r8d
-    cmp r8d, [rsi].GAME_STATE.boardWidth
-    jl @@clear_loop
-    jmp @@outer_loop
-    
-@@next_row:
+    shl eax, cl                      ; EAX = 1 << row_index
+    or [rsi].GAME_STATE.clearMask, eax
+    inc ebx                          ; Increment line count
+
+@@not_full:
     dec ecx
-    jmp @@outer_loop
-    
-@@done:
-    mov eax, ebx
+    jmp @@scan_loop
+
+@@scan_done:
+    ; If lines found, start animation
+    test ebx, ebx
+    jz @@no_lines
+
+    mov [rsi].GAME_STATE.clearCount, bl
+    mov BYTE PTR [rsi].GAME_STATE.clearActive, 1
+    mov DWORD PTR [rsi].GAME_STATE.clearTimer, 0
+
+@@no_lines:
+    mov eax, ebx                     ; Return line count
     add rsp, 28h
     pop rbx
     pop rdi
@@ -477,22 +456,176 @@ ClearFullLines PROC pGame:QWORD
     ret
 ClearFullLines ENDP
 
+; Apply line clear after animation: shift rows down, update score, spawn new piece
+; Called when clearTimer >= CLEAR_ANIM_MS
+ApplyClearLines PROC pGame:QWORD
+    push rsi
+    push rdi
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    sub rsp, 30h
+
+    mov rsi, rcx
+
+    ; Compress board: copy non-cleared rows from bottom to top
+    ; dstY starts at bottom, iterate srcY from bottom to top
+    mov r12d, [rsi].GAME_STATE.boardHeight
+    dec r12d                         ; R12D = dstY (starts at bottom)
+    mov r13d, r12d                   ; R13D = srcY (starts at bottom)
+
+@@compress_loop:
+    cmp r13d, 0
+    jl @@fill_top
+
+    ; Check if srcY is in clearMask (bit srcY == 1 means skip this row)
+    mov eax, 1
+    mov ecx, r13d
+    shl eax, cl                      ; EAX = 1 << srcY
+    test eax, [rsi].GAME_STATE.clearMask
+    jnz @@skip_row                   ; Row is being cleared, skip it
+
+    ; Copy row srcY to dstY if they differ
+    cmp r13d, r12d
+    je @@no_copy                     ; Same row, no copy needed
+
+    ; Calculate source and destination addresses
+    mov eax, r13d
+    imul eax, [rsi].GAME_STATE.boardWidth
+    lea rdi, [rsi].GAME_STATE.board
+    add rdi, rax                     ; RDI = &board[srcY * width]
+
+    mov eax, r12d
+    imul eax, [rsi].GAME_STATE.boardWidth
+    lea rbx, [rsi].GAME_STATE.board
+    add rbx, rax                     ; RBX = &board[dstY * width]
+
+    ; Copy row
+    xor r8d, r8d
+@@copy_row:
+    mov al, byte ptr [rdi + r8]
+    mov byte ptr [rbx + r8], al
+    inc r8d
+    cmp r8d, [rsi].GAME_STATE.boardWidth
+    jl @@copy_row
+
+@@no_copy:
+    dec r12d                         ; dstY--
+
+@@skip_row:
+    dec r13d                         ; srcY--
+    jmp @@compress_loop
+
+@@fill_top:
+    ; Clear remaining rows at top (0 to dstY inclusive)
+    cmp r12d, 0
+    jl @@update_score
+
+@@clear_top_loop:
+    mov eax, r12d
+    imul eax, [rsi].GAME_STATE.boardWidth
+    lea rdi, [rsi].GAME_STATE.board
+    add rdi, rax
+
+    xor r8d, r8d
+@@clear_row:
+    mov byte ptr [rdi + r8], 0
+    inc r8d
+    cmp r8d, [rsi].GAME_STATE.boardWidth
+    jl @@clear_row
+
+    dec r12d
+    cmp r12d, 0
+    jge @@clear_top_loop
+
+@@update_score:
+    ; Update lines count
+    movzx eax, BYTE PTR [rsi].GAME_STATE.clearCount
+    add [rsi].GAME_STATE.lines, eax
+
+    ; Calculate score: clearCount^2 * 100 * level
+    movzx ecx, BYTE PTR [rsi].GAME_STATE.clearCount
+    imul ecx, ecx                    ; clearCount^2
+    imul ecx, 100
+    imul ecx, [rsi].GAME_STATE.level
+    add [rsi].GAME_STATE.score, ecx
+
+    ; Update level: (lines / 10) + 1
+    mov eax, [rsi].GAME_STATE.lines
+    xor edx, edx
+    mov ecx, 10
+    div ecx
+    inc eax
+    mov [rsi].GAME_STATE.level, eax
+
+    ; Check and save high score
+    mov eax, [rsi].GAME_STATE.score
+    cmp eax, [rsi].GAME_STATE.highScore
+    jle @@clear_anim_state
+
+    mov rcx, rsi
+    call SaveHighScore
+
+@@clear_anim_state:
+    ; Reset animation state
+    mov BYTE PTR [rsi].GAME_STATE.clearActive, 0
+    mov BYTE PTR [rsi].GAME_STATE.clearCount, 0
+    mov DWORD PTR [rsi].GAME_STATE.clearMask, 0
+    mov DWORD PTR [rsi].GAME_STATE.clearTimer, 0
+
+    ; Note: new piece already spawned in LockPiece (non-blocking animation)
+
+    add rsp, 30h
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    pop rdi
+    pop rsi
+    ret
+ApplyClearLines ENDP
+
+; Main game loop tick - handles gravity, animation, and piece locking
+; Accumulates fractional Y movement; locks piece when it hits bottom
+; RCX = pGame, EDX = deltaTimeMs (typically 16ms for 60 FPS)
 UpdateGame PROC pGame:QWORD, deltaTimeMs:DWORD
     push rsi
+    push rbx
     sub rsp, 28h
-    
+
     mov rsi, rcx
-    
+    mov ebx, edx                     ; Save deltaTimeMs in EBX (non-volatile)
+
     cmp BYTE PTR [rsi].GAME_STATE.gameOver, 0
     jne @@exit_update
     cmp BYTE PTR [rsi].GAME_STATE.paused, 0
     jne @@exit_update
-    
+
+    ; Handle line clear animation in background (non-blocking)
+    cmp BYTE PTR [rsi].GAME_STATE.clearActive, 0
+    je @@anim_done
+
+    ; Animation active - increment timer
+    add [rsi].GAME_STATE.clearTimer, ebx
+
+    ; Check if animation complete
+    cmp DWORD PTR [rsi].GAME_STATE.clearTimer, CLEAR_ANIM_MS
+    jl @@anim_done
+
+    ; Animation finished - apply line clear (compress board, update score)
+    mov rcx, rsi
+    call ApplyClearLines
+
+@@anim_done:
+    ; Continue normal gameplay (non-blocking animation)
     mov eax, [rsi].GAME_STATE.level
     dec eax
     imul eax, 50
     add eax, 300
-    imul eax, edx
+    imul eax, ebx
     shr eax, 3
     add [rsi].GAME_STATE.yFloat, eax
     
@@ -520,16 +653,19 @@ UpdateGame PROC pGame:QWORD, deltaTimeMs:DWORD
     
 @@exit_update:
     add rsp, 28h
+    pop rbx
     pop rsi
     ret
 UpdateGame ENDP
 
+; Move current piece one cell to the left if no collision
+; RCX = pGame
 MoveLeft PROC pGame:QWORD
     push rsi
     sub rsp, 28h
-    
+
     mov rsi, rcx
-    
+
     cmp BYTE PTR [rsi].GAME_STATE.gameOver, 0
     jne @@exit
     
@@ -549,12 +685,14 @@ MoveLeft PROC pGame:QWORD
     ret
 MoveLeft ENDP
 
+; Move current piece one cell to the right if no collision
+; RCX = pGame
 MoveRight PROC pGame:QWORD
     push rsi
     sub rsp, 28h
-    
+
     mov rsi, rcx
-    
+
     cmp BYTE PTR [rsi].GAME_STATE.gameOver, 0
     jne @@exit
     
@@ -574,14 +712,17 @@ MoveRight PROC pGame:QWORD
     ret
 MoveRight ENDP
 
+; Move current piece down by dy cells; locks piece on collision
+; Returns: EAX = 1 if moved successfully, 0 if blocked (piece locked)
+; RCX = pGame, EDX = dy (cells to move down)
 MoveDown PROC pGame:QWORD, dy:DWORD
     push rsi
     push rbx
     sub rsp, 28h
-    
+
     mov rsi, rcx
     mov ebx, edx
-    
+
     cmp BYTE PTR [rsi].GAME_STATE.gameOver, 0
     jne @@failed
     cmp BYTE PTR [rsi].GAME_STATE.paused, 0
@@ -615,15 +756,19 @@ MoveDown PROC pGame:QWORD, dy:DWORD
     ret
 MoveDown ENDP
 
+; Rotate current piece 90 degrees clockwise with wall kick support
+; O-piece (type 1) does not rotate; I-piece has extended kick offsets
+; Restores original position if rotation fails after all kick attempts
+; RCX = pGame
 RotatePiece PROC pGame:QWORD
     LOCAL backupBlocks[8]:DWORD
     push rsi
     push rdi
     push rbx
     sub rsp, 40h
-    
+
     mov rsi, rcx
-    
+
     cmp BYTE PTR [rsi].GAME_STATE.gameOver, 0
     jne @@exit
     
@@ -754,12 +899,14 @@ RotatePiece PROC pGame:QWORD
     ret
 RotatePiece ENDP
 
+; Hard drop: instantly move piece to lowest valid position and lock
+; RCX = pGame
 DropPiece PROC pGame:QWORD
     push rsi
     sub rsp, 28h
-    
+
     mov rsi, rcx
-    
+
     cmp BYTE PTR [rsi].GAME_STATE.gameOver, 0
     jne @@exit
     cmp BYTE PTR [rsi].GAME_STATE.paused, 0
@@ -786,28 +933,36 @@ DropPiece PROC pGame:QWORD
     ret
 DropPiece ENDP
 
+; Set game to paused state
+; RCX = pGame
 PauseGame PROC pGame:QWORD
     mov rax, rcx
     mov BYTE PTR [rax].GAME_STATE.paused, 1
     ret
 PauseGame ENDP
 
+; Resume game from paused state
+; RCX = pGame
 ResumeGame PROC pGame:QWORD
     mov rax, rcx
     mov BYTE PTR [rax].GAME_STATE.paused, 0
     ret
 ResumeGame ENDP
 
+; Toggle between paused and running states
+; RCX = pGame
 TogglePause PROC pGame:QWORD
     mov rax, rcx
     xor BYTE PTR [rax].GAME_STATE.paused, 1
     ret
 TogglePause ENDP
 
+; Copy Unicode player name to game state (max 127 chars + null)
+; RCX = pGame, RDX = pName (pointer to wide string)
 SetPlayerName PROC pGame:QWORD, pName:QWORD
     push rsi
     push rdi
-    
+
     mov rsi, rdx
     mov rdi, rcx
     lea rdi, [rdi].GAME_STATE.playerName
