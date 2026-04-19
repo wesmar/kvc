@@ -83,7 +83,7 @@ bool Controller::PerformAtomicCleanup() noexcept {
     }
     
     m_rtc = std::make_unique<kvc>();
-    
+
     DEBUG(L"Atomic cleanup completed successfully");
     return true;
 }
@@ -110,10 +110,14 @@ bool Controller::EnsureDriverAvailable() noexcept {
         DEBUG(L"Service zombie detected - cannot reload driver safely");
         return false; // AVOID BSOD - do not reload the driver
     }
+
+    // Terminate any non-compliant host that keeps a conflicting driver loaded.
+    // Driver unloads automatically on host exit; host is not restarted by us.
+    CheckAndTerminateNonCompliantHost();
+
 	// Phase 1: Check if the driver is already available (without testing)
 	ForceRemoveService();
-	// Only for USB Debug Sleep(100);
-    if (IsDriverCurrentlyLoaded()) {
+	if (IsDriverCurrentlyLoaded()) {
         return true;
     }
 
@@ -135,8 +139,6 @@ bool Controller::EnsureDriverAvailable() noexcept {
         CloseServiceHandle(hSCM);
         
         // Give it time to start
-        // Only for USB Debug Sleep(100);
-        
         // Check if it's running now (without a test read)
         if (m_rtc->Initialize() && m_rtc->IsConnected()) {
             return true;

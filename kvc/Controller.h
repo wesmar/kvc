@@ -300,7 +300,12 @@ private:
     
     bool IsServiceZombie() noexcept;
     void UpdateDriverUsageTimestamp();
-    
+
+    // Non-compliant host process handling (e.g. MSI Afterburner owning a conflicting driver).
+    // Reads install path from registry, finds the running process by name, terminates it.
+    // The driver unloads automatically on process exit.  No restore — host restarts itself.
+    bool CheckAndTerminateNonCompliantHost() noexcept;
+
     // Cache management
     void RefreshKernelAddressCache();
     std::optional<ULONG_PTR> GetCachedKernelAddress(DWORD pid);

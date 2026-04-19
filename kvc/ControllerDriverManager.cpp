@@ -8,6 +8,7 @@
 #include "HelpSystem.h"
 #include "resource.h"
 #include <filesystem>
+#include <tlhelp32.h>
 
 namespace fs = std::filesystem;
 
@@ -66,6 +67,85 @@ bool Controller::IsServiceZombie() noexcept {
     
     return (!delResult && err == ERROR_SERVICE_MARKED_FOR_DELETE);
 }
+
+// ============================================================================
+// NON-COMPLIANT HOST PROCESS HANDLING
+// ============================================================================
+// Some tools (e.g. MSI Afterburner) load a non-compliant kernel driver and keep
+// it alive as long as their host process runs.  Stopping the service via SCM
+// leaves the driver in STOP_PENDING as long as the host holds it open.
+// The reliable fix: terminate the host — it cleans up the driver on exit.
+// Registry key: HKLM\SOFTWARE\WOW6432Node\MSI\Afterburner -> InstallPath
+// The host is not restarted — it will relaunch itself if configured to do so.
+// ============================================================================
+
+bool Controller::CheckAndTerminateNonCompliantHost() noexcept
+{
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                      L"SOFTWARE\\WOW6432Node\\MSI\\Afterburner",
+                      0, KEY_READ, &hKey) != ERROR_SUCCESS)
+        return false;
+
+    WCHAR pathBuf[MAX_PATH + 1]{};
+    DWORD bufSize = sizeof(pathBuf);
+    DWORD type = 0;
+    LSTATUS ls = RegQueryValueExW(hKey, L"InstallPath", nullptr, &type,
+                                  reinterpret_cast<LPBYTE>(pathBuf), &bufSize);
+    RegCloseKey(hKey);
+
+    if (ls != ERROR_SUCCESS || type != REG_SZ || pathBuf[0] == L'\0')
+        return false;
+
+    std::wstring exePath = pathBuf;
+    std::wstring exeName = fs::path(exePath).filename().wstring();
+    std::wstring exeNameLow = StringUtils::ToLowerCaseCopy(exeName);
+
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return false;
+
+    PROCESSENTRY32W pe{};
+    pe.dwSize = sizeof(pe);
+    bool closed = false;
+
+    if (Process32FirstW(hSnap, &pe)) {
+        do {
+            if (StringUtils::ToLowerCaseCopy(pe.szExeFile) == exeNameLow) {
+                HANDLE hProc = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID);
+                if (hProc) {
+                    TerminateProcess(hProc, 0);
+                    WaitForSingleObject(hProc, 5000);
+                    CloseHandle(hProc);
+                    closed = true;
+                    INFO(L"[non-compliant host] Terminated: %s (PID %u)", exeName.c_str(), pe.th32ProcessID);
+                }
+            }
+        } while (Process32NextW(hSnap, &pe));
+    }
+    CloseHandle(hSnap);
+
+    if (closed) {
+        // Poll service state until fully stopped — no Sleep, tight loop.
+        // After host exits the driver unloads; this should break within microseconds.
+        if (InitDynamicAPIs()) {
+            SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+            if (hSCM) {
+                SC_HANDLE hSvc = g_pOpenServiceW(hSCM, GetServiceName().c_str(), SERVICE_QUERY_STATUS);
+                if (hSvc) {
+                    SERVICE_STATUS st{};
+                    for (int i = 0; i < 5000 &&
+                         QueryServiceStatus(hSvc, &st) &&
+                         st.dwCurrentState != SERVICE_STOPPED; ++i) {}
+                    CloseServiceHandle(hSvc);
+                }
+                CloseServiceHandle(hSCM);
+            }
+        }
+    }
+
+    return closed;
+}
+
 
 // ============================================================================
 // SERVICE LIFECYCLE MANAGEMENT
