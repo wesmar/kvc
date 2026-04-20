@@ -101,7 +101,9 @@ static bool WriteUtf16File(const wchar_t* path, const std::wstring& content) {
     return true;
 }
 
-// Read existing UTF-16 LE file (strips BOM if present)
+// Read existing UTF-16 LE file (strips BOM if present).
+// Falls back to UTF-8/ASCII widening if no UTF-16 LE BOM is detected,
+// so manually edited UTF-8 files don't produce mojibake.
 static bool ReadUtf16File(const wchar_t* path, std::wstring& out) {
     HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -120,12 +122,29 @@ static bool ReadUtf16File(const wchar_t* path, std::wstring& out) {
 
     if (read < 2) return false;
 
-    size_t start = 0;
-    // Skip BOM if present
-    if (buf[0] == 0xFF && buf[1] == 0xFE) start = 2;
+    // UTF-16 LE with BOM
+    if (buf[0] == 0xFF && buf[1] == 0xFE) {
+        size_t wcharCount = (read - 2) / 2;
+        out.assign(reinterpret_cast<const wchar_t*>(buf.data() + 2), wcharCount);
+        return true;
+    }
 
-    size_t wcharCount = (read - start) / 2;
-    out.assign(reinterpret_cast<const wchar_t*>(buf.data() + start), wcharCount);
+    // No UTF-16 LE BOM: treat as UTF-8 (handles both BOM-less UTF-8 and UTF-8 BOM)
+    size_t start = 0;
+    if (read >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
+        start = 3; // skip UTF-8 BOM
+
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0,
+                                      reinterpret_cast<const char*>(buf.data() + start),
+                                      static_cast<int>(read - start),
+                                      nullptr, 0);
+    if (wideLen <= 0) return false;
+
+    out.resize(static_cast<size_t>(wideLen));
+    MultiByteToWideChar(CP_UTF8, 0,
+                        reinterpret_cast<const char*>(buf.data() + start),
+                        static_cast<int>(read - start),
+                        out.data(), wideLen);
     return true;
 }
 
@@ -289,7 +308,7 @@ static bool RemoveBootExecuteEntry() {
 // PUBLIC API - Controller methods
 // ============================================================================
 
-bool Controller::InstallSmssDriver(const std::wstring& driverArg) noexcept {
+bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) noexcept {
     INFO(L"Installing SMSS boot-phase driver loader...");
 
     // --- 0. Deploy kvc_smss.exe to System32 if not already present ---
@@ -325,36 +344,7 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg) noexcept {
     INFO(L"Service name : %s", serviceName.c_str());
     INFO(L"Image path   : %s", imagePath.c_str());
 
-    // --- 2. Resolve symbol offsets (reuse existing DSEBypass infrastructure) ---
-    if (!m_dseBypass) {
-        m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
-    }
-
-    auto kernelInfo = m_dseBypass->GetKernelInfo();
-    if (!kernelInfo) {
-        ERROR(L"Failed to get kernel information");
-        return false;
-    }
-    auto [kernelBase, kernelPath] = *kernelInfo;
-    INFO(L"Kernel path  : %s", kernelPath.c_str());
-
-    SymbolEngine symEngine;
-    auto offsets = symEngine.GetSymbolOffsets(kernelPath);
-    if (!offsets) {
-        INFO(L"PDB resolution failed, falling back to heuristic scanner (SeCiFinder)...");
-        offsets = symEngine.FindSeCiHeuristicOffsets(kernelPath);
-        if (!offsets) {
-            ERROR(L"Failed to resolve symbol offsets via PDB and heuristic scan");
-            return false;
-        }
-        INFO(L"Heuristic scan succeeded");
-    }
-    auto [offSeCi, offZwFlush] = *offsets;
-
-    INFO(L"Offset SeCiCallbacks : 0x%llX", offSeCi);
-    INFO(L"Offset ZwFlush       : 0x%llX", offZwFlush);
-
-    // --- 3. Read or create drivers.ini ---
+    // --- 2. Read or create drivers.ini ---
     std::wstring ini;
     bool fileExists = ReadUtf16File(SMSS_INI_PATH, ini);
 
@@ -365,27 +355,50 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg) noexcept {
         config += L"Execute=YES\r\n";
         config += L"RestoreHVCI=NO\r\n";
         config += L"Verbose=NO\r\n";
-
-        // DriverDevice = \Device\kvc (from MmGetPoolDiagnosticString ;))
-        std::wstring deviceName = GetServiceName();
-        config += L"DriverDevice=\\Device\\" + deviceName + L"\r\n";
+        config += L"DriverDevice=\\Device\\kvc\r\n";
 
         wchar_t ioctlReadBuf[32], ioctlWriteBuf[32];
-        // Format as decimal since kvc_smss parses with simple wcstoull
         _ui64tow_s(SMSS_IOCTL_READ,  ioctlReadBuf,  32, 10);
         _ui64tow_s(SMSS_IOCTL_WRITE, ioctlWriteBuf, 32, 10);
         config += std::wstring(L"IoControlCode_Read=")  + ioctlReadBuf  + L"\r\n";
         config += std::wstring(L"IoControlCode_Write=") + ioctlWriteBuf + L"\r\n";
 
-        wchar_t seciOffBuf[32], cbOffBuf[32], safeOffBuf[32];
-        _ui64tow_s(offSeCi,              seciOffBuf, 32, 10);
-        _ui64tow_s(SMSS_CALLBACK_OFFSET, cbOffBuf,   32, 10);
-        _ui64tow_s(offZwFlush,           safeOffBuf, 32, 10);
-        config += std::wstring(L"Offset_SeCiCallbacks=") + seciOffBuf + L"\r\n";
-        config += std::wstring(L"Offset_Callback=")      + cbOffBuf   + L"\r\n";
-        config += std::wstring(L"Offset_SafeFunction=")  + safeOffBuf + L"\r\n";
-        config += L"\r\n";
+        if (usePdb) {
+            if (!m_dseBypass)
+                m_dseBypass = std::make_unique<DSEBypass>(m_rtc, &m_trustedInstaller);
 
+            auto kernelInfo = m_dseBypass->GetKernelInfo();
+            if (kernelInfo) {
+                auto [kernelBase, kernelPath] = *kernelInfo;
+                INFO(L"Kernel path  : %s", kernelPath.c_str());
+
+                SymbolEngine symEngine;
+                auto offsets = symEngine.GetSymbolOffsets(kernelPath);
+                if (offsets) {
+                    auto [offSeCi, offZwFlush] = *offsets;
+                    INFO(L"Offset SeCiCallbacks : 0x%llX", offSeCi);
+                    INFO(L"Offset ZwFlush       : 0x%llX", offZwFlush);
+
+                    wchar_t seciOffBuf[32], cbOffBuf[32], safeOffBuf[32];
+                    _ui64tow_s(offSeCi,              seciOffBuf, 32, 10);
+                    _ui64tow_s(SMSS_CALLBACK_OFFSET, cbOffBuf,   32, 10);
+                    _ui64tow_s(offZwFlush,           safeOffBuf, 32, 10);
+                    config += std::wstring(L"Offset_SeCiCallbacks=") + seciOffBuf + L"\r\n";
+                    config += std::wstring(L"Offset_Callback=")      + cbOffBuf   + L"\r\n";
+                    config += std::wstring(L"Offset_SafeFunction=")  + safeOffBuf + L"\r\n";
+                    config += L"OffsetSource=PDB\r\n";
+                    INFO(L"PDB offsets resolved and written to drivers.ini");
+                } else {
+                    INFO(L"PDB lookup failed - boot-time scanner will resolve offsets");
+                }
+            } else {
+                INFO(L"Kernel info unavailable - boot-time scanner will resolve offsets");
+            }
+        } else {
+            INFO(L"Boot-time scanner will resolve kernel offsets (use --pdb to pre-resolve via symbols)");
+        }
+
+        config += L"\r\n";
         ini = config + ini;
         fileExists = false; // force full rewrite
     }

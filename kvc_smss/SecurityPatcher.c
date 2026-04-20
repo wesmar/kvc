@@ -366,11 +366,110 @@ NTSTATUS ExecuteAutoPatchLoad(PINI_ENTRY entry, PCONFIG_SETTINGS config, PULONGL
 // RemoveStateSection strips [DSE_STATE] by rewriting the file without it.
 // ============================================================================
 
+// Scans the raw bytes of STATE_FILE_PATH for the [DSE_STATE] header in either
+// UTF-16 LE (native format) or UTF-8 / ANSI (editor-saved variants).
+// Used as a fallback when ReadIniFile cannot parse the file encoding.
+static BOOLEAN FileContainsDseStateRaw(void) {
+    UNICODE_STRING usPath;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE hFile = NULL;
+    NTSTATUS status;
+    LARGE_INTEGER offset;
+    UCHAR buf[4096];
+    BOOLEAN found = FALSE;
+
+    // UTF-16 LE pattern for "[DSE_STATE]" — 22 bytes, no NUL terminator
+    static const UCHAR kPatternW[] = {
+        '[',0,'D',0,'S',0,'E',0,'_',0,'S',0,'T',0,'A',0,'T',0,'E',0,']',0
+    };
+    // UTF-8 / ANSI pattern for "[DSE_STATE]" — 11 bytes
+    static const UCHAR kPatternA[] = {
+        '[','D','S','E','_','S','T','A','T','E',']'
+    };
+    const ULONG kLenW = sizeof(kPatternW);   // 22
+    const ULONG kLenA = sizeof(kPatternA);   // 11
+    const ULONG kTail = kLenW - 1;           // max carry-over needed
+
+    RtlInitUnicodeString(&usPath, STATE_FILE_PATH);
+    InitializeObjectAttributes(&oa, &usPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+    status = NtOpenFile(&hFile, FILE_READ_DATA | SYNCHRONIZE, &oa, &iosb,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        FILE_SYNCHRONOUS_IO_NONALERT);
+    if (!NT_SUCCESS(status))
+        return FALSE;
+
+    offset.QuadPart = 0;
+
+    // carry[] holds the last (kTail) bytes of the previous chunk so that
+    // patterns spanning a chunk boundary are not missed.
+    UCHAR carry[21];   // kLenW - 1 = 21
+    ULONG carryLen = 0;
+    memset_impl(carry, 0, sizeof(carry));
+
+    while (!found) {
+        status = NtReadFile(hFile, NULL, NULL, NULL, &iosb,
+                            buf, sizeof(buf), &offset, NULL);
+        if (!NT_SUCCESS(status) || iosb.Information == 0)
+            break;
+
+        ULONG bytesRead = (ULONG)iosb.Information;
+        offset.QuadPart += bytesRead;
+
+        UCHAR window[21 + 4096];
+        memset_impl(window, 0, sizeof(window));
+        memcpy_impl(window, carry, carryLen);
+        memcpy_impl(window + carryLen, buf, bytesRead);
+        ULONG windowLen = carryLen + bytesRead;
+
+        for (ULONG i = 0; i + kLenW <= windowLen && !found; i++) {
+            ULONG j = 0;
+            while (j < kLenW && window[i + j] == kPatternW[j]) j++;
+            if (j == kLenW) found = TRUE;
+        }
+        for (ULONG i = 0; i + kLenA <= windowLen && !found; i++) {
+            ULONG j = 0;
+            while (j < kLenA && window[i + j] == kPatternA[j]) j++;
+            if (j == kLenA) found = TRUE;
+        }
+
+        if (windowLen >= kTail) {
+            carryLen = kTail;
+            memcpy_impl(carry, window + windowLen - kTail, kTail);
+        } else {
+            carryLen = windowLen;
+            memcpy_impl(carry, window, windowLen);
+        }
+    }
+
+    NtClose(hFile);
+    return found;
+}
+
 // Atomically replaces any existing [DSE_STATE] section and appends a new one
 // containing the given callback value as a 0x-prefixed hex string.
 // Called immediately before the DSE patch write; must not fail silently.
+//
+// Idempotency guard: if the exact same callback value is already present in
+// [DSE_STATE], the function returns immediately without touching the file.
+// This prevents duplicate sections when [DSE_STATE] exists in any encoding
+// (UTF-16 LE BOM is the authoritative format; a file saved as UTF-8 by an
+// external editor causes ReadIniFile to fall through to a clean re-write).
 BOOLEAN SaveStateSection(ULONGLONG callback) {
-    RemoveStateSection();  // ensure at most one [DSE_STATE] section exists
+    // --- Idempotency guard (encoding-agnostic) ---
+    ULONGLONG existing = 0;
+    if (LoadStateSection(&existing) && existing == callback) {
+        DEBUG_LOG(L"INFO: DSE state already present with matching value, skipping write\r\n");
+        return TRUE;
+    }
+    if (existing == 0 && FileContainsDseStateRaw()) {
+        DEBUG_LOG(L"INFO: [DSE_STATE] found via raw scan (non-UTF-16 file?), skipping duplicate write\r\n");
+        return TRUE;
+    }
+    // --- End idempotency guard ---
+
+    RemoveStateSection();  // ensure at most one [DSE_STATE] section exists, normalize encoding
 
     UNICODE_STRING usFilePath;
     OBJECT_ATTRIBUTES oa;
@@ -524,6 +623,7 @@ BOOLEAN RemoveStateSection(void) {
 
     PWSTR line = iniContent;
 
+    BOOLEAN wasUtf16 = (line[0] == 0xFEFF);
     if (line[0] == 0xFEFF)
         line++;
 
@@ -611,9 +711,16 @@ BOOLEAN RemoveStateSection(void) {
     }
 
     if (!foundDseSection) {
-        FreeAllocatedBuffer(newContent);
-        FreeIniFileBuffer(iniContent);
-        return TRUE;
+        if (wasUtf16) {
+            // Already UTF-16 LE, no [DSE_STATE] — nothing to do
+            FreeAllocatedBuffer(newContent);
+            FreeIniFileBuffer(iniContent);
+            return TRUE;
+        }
+        // File is not UTF-16 LE (e.g. saved as UTF-8 by an editor) — normalize
+        // encoding by rewriting as UTF-16 LE so SaveStateSection can append safely.
+        DEBUG_LOG(L"INFO: Normalizing drivers.ini encoding to UTF-16 LE\r\n");
+        // fall through to the write block below
     }
 
     UNICODE_STRING usFilePath;

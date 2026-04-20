@@ -660,9 +660,20 @@ int wmain(int argc, wchar_t* argv[])
     static const std::unordered_map<std::wstring, CommandHandler> commandMap = {
         // --- Service ---
         {L"install", [](int argc, wchar_t** argv) {
-            // kvc install <driver>  - register driver for SMSS boot-phase loading
+            // kvc install [--pdb] <driver>  - register driver for SMSS boot-phase loading
             if (argc >= 3) {
-                return g_controller->InstallSmssDriver(argv[2]) ? 0 : 1;
+                bool usePdb = false;
+                std::wstring driverArg;
+                for (int i = 2; i < argc; i++) {
+                    if (std::wstring(argv[i]) == L"--pdb") {
+                        usePdb = true;
+                    } else if (driverArg.empty()) {
+                        driverArg = argv[i];
+                    }
+                }
+                if (!driverArg.empty()) {
+                    return g_controller->InstallSmssDriver(driverArg, usePdb) ? 0 : 1;
+                }
             }
             // kvc install  - install kvc NT service
             wchar_t exePath[MAX_PATH];

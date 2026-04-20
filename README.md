@@ -11,33 +11,69 @@
 ---
 ## 📋 Changelog
 
+**[20.04.2026]**
+
+<details>
+<summary><strong>🔩 kvc_smss: boot-time offset scanner promoted to primary; PDB demoted to opt-in; DriverDevice hardened</strong> (click to expand)</summary>
+
+#### DriverDevice — obfuscation hardened
+
+`drivers.ini` now unconditionally writes `DriverDevice=\Device\kvc` instead of the resolved device name. `kvc_smss` resolves the `kvc` alias to the real obfuscated device name at runtime via `MmGetPoolDiagnosticString()`, so the INI never contains the actual driver identity in plaintext. Previously `kvc.exe` wrote the real name directly, which was readable to anyone who examined `C:\Windows\drivers.ini`.
+
+---
+
+#### Offset resolution — scanner promoted to primary
+
+Prior to this release, `kvc install <driver>` unconditionally resolved `SeCiCallbacks` and `SafeFunction` offsets via the PDB symbol infrastructure (same path as `dse off --safe`) and wrote them into `drivers.ini`. The boot loader used these pre-resolved values, with the heuristic scanner (`FindKernelOffsetsLocally`) acting only as a fallback.
+
+This release inverts the priority:
+
+| Mode | Trigger | Behaviour |
+|---|---|---|
+| **Scanner (default)** | `kvc install <driver>` | No offsets written to INI. `kvc_smss` runs `FindKernelOffsetsLocally` at every boot. Always resolves against the ntoskrnl.exe that will actually load — immune to Windows Update offset drift. |
+| **PDB (opt-in)** | `kvc install <driver> --pdb` | PDB lookup attempted at install time. On success: offsets + `OffsetSource=PDB` written to INI; scanner skipped at boot. On failure: INI written without offsets; scanner runs at boot. |
+
+**Why the inversion?** The `FindKernelOffsetsLocally` heuristic was substantially improved: it now runs three independent passes — Fast LEA/ZeroMemory pattern, exhaustive Structural scan, and Legacy anchor — and accepts the highest-scoring candidate. Empirical testing on Windows 10 19041 through Windows 11 26H2 shows reliable identification in under 50 ms cold / under 5 ms warm. This is fast enough to absorb at every boot with no user-visible delay.
+
+The PDB path has a structural fragility: if Windows Update ships a new `ntoskrnl.exe` before the user re-runs `kvc install`, the stale offsets in INI remain valid-looking (non-zero) and will suppress the scanner, causing the bypass to silently mis-patch the wrong address. The scanner, operating on the live binary at boot time, has no such window.
+
+PDB remains available for environments where the symbol server is accessible at install time and the operator explicitly prefers deterministic pre-resolved offsets (e.g. air-gapped targets where a single boot attempt is critical).
+
+---
+
+#### UTF-16 LE encoding — stabilised
+
+`drivers.ini` is always written and re-written as UTF-16 LE with BOM. If the file was previously edited and saved by an external text editor as UTF-8 (with or without BOM), `kvc_smss` now transparently re-normalises it to UTF-16 LE on the first write that touches the file (e.g. when appending a `[DSE_STATE]` recovery section). Prior to this release, an UTF-8-saved `drivers.ini` caused the state persistence path (`SaveStateSection` / `RemoveStateSection`) to skip re-encoding, leaving a mixed-encoding file that could be misread on the following boot.
+
+</details>
+
 **[12.04.2026]**
 
 <details>
-<summary><strong>🔬 kvcforensic.dat — LSASS minidump credential extraction via KvcForensic</strong> (click to expand)</summary>
+<summary><strong>🔬 KvcForensic — LSASS minidump credential extraction (kvc analyze)</strong> (click to expand)</summary>
 
-New optional module, separate release asset. Embeds [`KvcForensic.exe`](https://github.com/wesmar/KvcForensic) + `KvcForensic.json` (per-build LSA offset templates), XOR-encrypted with the standard KVC key.
-
-**Validated extraction targets** (see [KvcForensic](https://github.com/wesmar/KvcForensic) for full table):
-
-| Windows version | Build range | Status |
-|---|---|---|
-| Windows 11 26H1 | 28000+ | Full |
-| Windows 11 25H2 | 26200–27999 | Full |
-| Windows 11 24H2 / Server 2025 | 26100–26199 | Full |
-| Windows 10 22H2 | 19045 | Legacy core decrypt |
-| Win11 23H2–22H2, Win10 1809–22H2 | 17763–26099 | Legacy path, limited validation |
-| Win10 1803 and earlier, 8.x, 7 | below 17763 | Template only / experimental |
-
-Packages: MSV1_0 (NT/LM/SHA1), WDigest (cleartext), Kerberos (sessions + tickets), DPAPI (master keys), CredMan.
-TSPKG and Kerberos ticket export (`.kirbi`/`.ccache`) are **in progress / experimental**.
+`kvcforensic.dat` is a new optional module distributed as a separate release asset. It embeds `KvcForensic.exe` (the analysis engine) and `KvcForensic.json` (LSA structure offset templates for all supported Windows builds), XOR-encrypted with the standard KVC key.
 
 **Commands:**
-- `kvc analyze <dump>` — run KvcForensic CLI (`--format txt|json|both`, `--full`, `--tickets <dir>`)
-- `kvc analyze lsass` — auto-locate LSASS dump in CWD then Downloads
-- `kvc analyze --gui` — launch KvcForensic GUI
 
-**Deployment:** `kvc setup` deploys to System32 if present in CWD. If missing at runtime, `kvc analyze` prompts to download from GitHub. Same auto-download for `kvc.dat` on `kvc bp` / `kvc export secrets`.
+- `kvc analyze <dump>` — extract credentials from any Windows LSASS minidump
+  - `--format txt|json|both` — output format (default: both)
+  - `--full` — include verbose fields (NTLM hash, session metadata, etc.)
+  - `--tickets <dir>` — export Kerberos tickets to directory
+- `kvc analyze lsass` — auto-locate LSASS dump in CWD then Downloads folder
+- `kvc analyze --gui` — launch KvcForensic GUI for interactive inspection
+
+**Deployment and auto-download:**
+
+- `kvc setup` deploys `kvcforensic.dat` to System32 if present in CWD (optional, non-fatal if absent)
+- If `kvcforensic.dat` is not present when `kvc analyze` is called, KVC prompts to download it automatically from the GitHub release
+- Same on-demand mechanism for `kvc.dat`: if `kvc bp` or `kvc export secrets` is called and `kvc_pass.exe` is not deployed, KVC prompts to download and set up `kvc.dat` automatically
+
+**Integration:**
+
+- After `kvc dump lsass`, KVC prompts whether to analyze the dump immediately if `kvcforensic.dat` is available
+- At runtime: `kvcforensic.dat` is decrypted to `%TEMP%\KvcForensic\`, executed with inherited console, cleaned up after exit
+- Built with KvcXor option 7 (new menu entry)
 
 </details>
 
@@ -194,7 +230,7 @@ STEP 5  Restore original SeCiCallbacks callback
 STEP 6  Unload kvc.sys
 ```
 
-Kernel symbol offsets (`Offset_SeCiCallbacks`, `Offset_SafeFunction`) are resolved at install time via PDB download — the same `SymbolEngine` infrastructure used by `kvc dse off --safe` — and written into `C:\Windows\drivers.ini`. No PDB download occurs during boot.
+Kernel symbol offsets (`Offset_SeCiCallbacks`, `Offset_SafeFunction`) are resolved by `kvc_smss` at every boot using the built-in heuristic scanner (`FindKernelOffsetsLocally`) — no PDB download, no network access, no pre-baked values. The scanner operates on the `ntoskrnl.exe` image that will actually load, making it immune to offset drift after Windows Update. Optionally, `kvc install <driver> --pdb` resolves offsets at install time via the `SymbolEngine` PDB infrastructure and writes `OffsetSource=PDB` to `drivers.ini`; the boot scanner is then skipped. Re-run install after any Windows Update when using `--pdb` mode.
 
 #### INI-Driven Operation
 
@@ -220,13 +256,16 @@ Execute=YES                       ; NO = disable all operations without removing
 RestoreHVCI=NO                    ; YES = re-enable Memory Integrity flag after patching
 Verbose=NO                        ; YES = screen output during boot; NO = silent (verify via sc query)
 
-DriverDevice=\Device\RTCore64     ; kvc.sys device path
-IoControlCode_Read=2147492936     ; 0x80002048 — RTCore64 physical memory read
-IoControlCode_Write=2147492940    ; 0x8000204C — RTCore64 physical memory write
+DriverDevice=\Device\kvc          ; resolved to real device name at runtime by kvc_smss
+IoControlCode_Read=2147491912     ; 0x80002048 — physical memory read IOCTL
+IoControlCode_Write=2147491916    ; 0x8000204C — physical memory write IOCTL
 
-Offset_SeCiCallbacks=0xF047A0    ; ntoskrnl offset to SeCiCallbacks (auto-set by kvc install)
-Offset_Callback=0x20             ; offset within SeCiCallbacks to CiValidateImageHeader
-Offset_SafeFunction=0x6A7BB0     ; ntoskrnl offset to ZwFlushInstructionCache
+; Offset fields omitted by default — kvc_smss scanner resolves them at boot.
+; Present only when kvc install <driver> --pdb was used:
+; Offset_SeCiCallbacks=...        ; ntoskrnl RVA of SeCiCallbacks
+; Offset_Callback=32              ; slot offset within SeCiCallbacks (CiValidateImageHeader)
+; Offset_SafeFunction=...         ; ntoskrnl RVA of ZwFlushInstructionCache
+; OffsetSource=PDB                ; suppresses boot-time scanner when set
 
 ; --- LOAD: unsigned driver with AutoPatch DSE bypass ---
 [Driver0]
@@ -363,17 +402,23 @@ This is not a heuristic or a hack — it is a deterministic, structurally-aware 
 
 </details>
 
-#### Kernel offsets auto-set at install time
+#### Install
 
 ```
-kvc install omnidriver
+kvc install omnidriver           # scanner resolves offsets at every boot (default)
+kvc install omnidriver --pdb     # pre-resolve offsets from PDB; re-run after Windows Update
 ```
 
-This single command:
+`kvc install <driver>` (default):
 1. Extracts `kvc_smss.exe` from the embedded icon resource and writes it to `C:\Windows\System32\`
-2. Downloads ntoskrnl PDB (once, cached in `.\symbols\`) and resolves `Offset_SeCiCallbacks` + `Offset_SafeFunction`
-3. Writes `C:\Windows\drivers.ini` with populated `[Config]` and `[Driver0]` sections
-4. Registers `kvc_smss` in `BootExecute` (`autocheck autochk *` → `kvc_smss`)
+2. Writes `C:\Windows\drivers.ini` — `[Config]` with `DriverDevice=\Device\kvc`, no offset fields; `[Driver0]` entry
+3. Registers `kvc_smss` in `BootExecute` (`autocheck autochk *` → `kvc_smss`)
+4. At each boot, `kvc_smss` runs the heuristic scanner on `ntoskrnl.exe` to resolve offsets fresh
+
+`kvc install omnidriver --pdb` additionally:
+- Downloads ntoskrnl PDB (once, cached in `.\symbols\`) and resolves `Offset_SeCiCallbacks` + `Offset_SafeFunction`
+- Writes offsets + `OffsetSource=PDB` to `drivers.ini`; boot scanner is skipped
+- If PDB lookup fails: proceeds without offsets, scanner runs at boot
 
 #### Cleanup
 
@@ -510,7 +555,7 @@ C:\>kvc driver load kvckbd
 
 **Universal DSE bypass** — `kvc dse off` now works on both Windows 10 and Windows 11. The Standard method uses a dual-path approach: first attempts fast PE-section parsing to locate the `CiPolicy` section (Windows 11), and if not found, automatically falls back to SymbolEngine-based resolution of `g_CiOptions` from PDB symbols (Windows 10). This ensures compatibility across all supported Windows versions without requiring the `--safe` flag. Symbol resolution is performed locally using Microsoft Symbol Server — PDB files are downloaded automatically on first use and cached in `C:\ProgramData\dbg\sym\`.
 
-> **Superseded:** As of [10.04.2026], the SymbolEngine PDB fallback for Windows 10 has been replaced by a fully offline semantic probe (`CiOptionsFinder`). No PDB download or network access is required. The `SymbolEngine` infrastructure is retained for `SeCiCallbacks`/`SafeFunction` offset resolution used by `dse off --safe` and `kvc_smss`.
+> **Superseded:** As of [10.04.2026], the SymbolEngine PDB fallback for Windows 10 has been replaced by a fully offline semantic probe (`CiOptionsFinder`). No PDB download or network access is required. The `SymbolEngine` infrastructure is retained for `SeCiCallbacks`/`SafeFunction` offset resolution used by `dse off --safe`. `kvc_smss` uses its own boot-time heuristic scanner by default; PDB resolution is opt-in via `kvc install --pdb`.
 
 </details>
 

@@ -119,11 +119,13 @@ void HelpSystem::PrintServiceCommands() noexcept
     PrintSectionHeader(L"SMSS Boot-Phase Driver Loader");
     PrintCommandLine(L"install <driver>", L"Register driver for early SMSS boot loading (auto-resolves System32\\drivers\\)");
     PrintCommandLine(L"install <driver.sys>", L"Same - .sys extension optional");
-    PrintCommandLine(L"install <driver> <path>", L"Register driver from custom path");
+    PrintCommandLine(L"install --pdb <driver>", L"Same + pre-resolve offsets from PDB symbols (skips boot-time scan)");
     PrintNote(L"Writes entry to C:\\Windows\\drivers.ini (UTF-16, AutoPatch=YES)");
     PrintNote(L"Adds kvc_smss.exe to BootExecute: autocheck autochk * \\0 kvc_smss");
-    PrintNote(L"Kernel offsets (SeCiCallbacks, ZwFlushInstructionCache) resolved via PDB");
-    PrintNote(L"Same PDB/symbol infrastructure as 'dse off --safe' - no duplication");
+    PrintNote(L"Default: no offsets written - kvc_smss heuristic scanner resolves at boot (always fresh)");
+    PrintNote(L"--pdb: resolves SeCiCallbacks/ZwFlushInstructionCache via PDB, writes to INI (OffsetSource=PDB)");
+    PrintNote(L"--pdb fallback: if PDB lookup fails, scanner runs at boot anyway");
+    PrintNote(L"--pdb caveat: stale after Windows update - re-run install or drop --pdb to revert to scanner");
     PrintNote(L"kvc_smss runs before services.exe, before antivirus user-mode components");
     PrintNote(L"DSE bypass sequence: kvc.sys (DriverStore) -> patch -> load target -> restore -> unload");
     PrintNote(L"Verbose=YES in drivers.ini: screen output during boot; NO: silent (check via sc query)");
@@ -445,7 +447,8 @@ void HelpSystem::PrintTechnicalFeatures() noexcept
     std::wcout << L"  - Supports LOAD, UNLOAD, RENAME, DELETE operations in configurable order\n";
     std::wcout << L"  - HVCI detection: patches SYSTEM hive directly if Memory Integrity is active\n";
     std::wcout << L"  - Verbose=NO for silent boot - no screen output, verify via sc query\n";
-    std::wcout << L"  - Kernel symbol offsets shared with 'dse off --safe' PDB infrastructure\n\n";
+    std::wcout << L"  - Default: heuristic scanner resolves offsets at boot (Fast->Structural->Legacy)\n";
+    std::wcout << L"  - Optional --pdb flag pre-writes offsets from symbols; stale after Windows Update\n\n";
 }
 
 void HelpSystem::PrintDefenderNotes() noexcept
@@ -543,9 +546,9 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc uninstall smss", L"Remove only SMSS boot loader (keep NT service)");
 
     // SMSS boot-phase driver loader
-    printLine(L"kvc install omnidriver", L"Register omnidriver.sys for SMSS boot loading");
+    printLine(L"kvc install omnidriver", L"Register omnidriver.sys for SMSS boot loading (scanner resolves offsets at boot)");
+    printLine(L"kvc install --pdb omnidriver", L"Same + pre-resolve offsets via PDB (faster boot, re-run after Windows update)");
     printLine(L"kvc install omnidriver.sys", L"Same - .sys extension optional");
-    printLine(L"kvc install omnidriver C:\\drv\\omnidriver.sys", L"Register from custom path");
     printLine(L"kvc install kvcstrm", L"Register kvcstrm for early load (before AV user-mode)");
     
     // Driver Signature Enforcement control
