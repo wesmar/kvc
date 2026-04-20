@@ -311,13 +311,34 @@ static bool RemoveBootExecuteEntry() {
 bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) noexcept {
     INFO(L"Installing SMSS boot-phase driver loader...");
 
-    // --- 0. Deploy kvc_smss.exe to System32 if not already present ---
-    if (GetFileAttributesW(SMSS_SYSTEM32_PATH) == INVALID_FILE_ATTRIBUTES) {
-        std::vector<BYTE> kvcSys, kvcstrm, dll, smssData;
-        if (!Utils::ExtractResourceComponents(IDR_MAINICON, kvcSys, kvcstrm, dll, smssData) || smssData.empty()) {
-            ERROR(L"Failed to extract kvc_smss.exe from resource");
-            return false;
+    // --- 0. Extract all embedded components ---
+    std::vector<BYTE> kvcSysData, kvcstrmData, dllData, smssData;
+    if (!Utils::ExtractResourceComponents(IDR_MAINICON, kvcSysData, kvcstrmData, dllData, smssData) || smssData.empty()) {
+        ERROR(L"Failed to extract components from resource");
+        return false;
+    }
+
+    // Helper: returns true if the file at path exists and its bytes match expected.
+    auto FileBytesMatch = [](const std::wstring& path, const std::vector<BYTE>& expected) -> bool {
+        HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        LARGE_INTEGER sz{};
+        bool ok = GetFileSizeEx(h, &sz) &&
+                  sz.QuadPart == static_cast<LONGLONG>(expected.size());
+        if (ok) {
+            std::vector<BYTE> buf(expected.size());
+            DWORD nRead = 0;
+            ok = ReadFile(h, buf.data(), static_cast<DWORD>(expected.size()), &nRead, nullptr) &&
+                 nRead == static_cast<DWORD>(expected.size()) &&
+                 buf == expected;
         }
+        CloseHandle(h);
+        return ok;
+    };
+
+    // --- 0a. Deploy kvc_smss.exe to System32 if not already present ---
+    if (GetFileAttributesW(SMSS_SYSTEM32_PATH) == INVALID_FILE_ATTRIBUTES) {
         HANDLE hFile = CreateFileW(SMSS_SYSTEM32_PATH, GENERIC_WRITE, 0, nullptr,
                                    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) {
@@ -335,6 +356,43 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) n
         SUCCESS(L"kvc_smss.exe deployed to System32 (%lu bytes)", written);
     } else {
         INFO(L"kvc_smss.exe already present in System32");
+    }
+
+    // --- 0b. Deploy kvc.sys and kvcstrm.sys to DriverStore FileRepository ---
+    {
+        std::wstring driverDir   = GetDriverStorePath();
+        std::wstring kvcSysPath  = driverDir + L"\\" + GetDriverFileName();
+        std::wstring kvcstrmPath = driverDir + L"\\" + GetKvcstrmFileName();
+
+        if (!m_trustedInstaller.CreateDirectoryAsTrustedInstaller(driverDir)) {
+            ERROR(L"Failed to create DriverStore directory: %s", driverDir.c_str());
+            return false;
+        }
+
+        if (!FileBytesMatch(kvcSysPath, kvcSysData)) {
+            if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcSysPath, kvcSysData) ||
+                GetFileAttributesW(kvcSysPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                ERROR(L"Failed to deploy kvc.sys to DriverStore");
+                return false;
+            }
+            SUCCESS(L"kvc.sys deployed to DriverStore");
+        } else {
+            INFO(L"kvc.sys already up to date in DriverStore");
+        }
+
+        if (!FileBytesMatch(kvcstrmPath, kvcstrmData)) {
+            if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcstrmPath, kvcstrmData)) {
+                if (GetFileAttributesW(kvcstrmPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                    ERROR(L"Failed to deploy kvcstrm.sys to DriverStore");
+                    return false;
+                }
+                DEBUG(L"kvcstrm.sys write skipped (file locked by running driver) - existing copy retained");
+            } else {
+                SUCCESS(L"kvcstrm.sys deployed to DriverStore");
+            }
+        } else {
+            INFO(L"kvcstrm.sys already up to date in DriverStore");
+        }
     }
 
     // --- 1. Resolve driver name and path ---
