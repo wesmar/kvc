@@ -6,6 +6,15 @@
 
 *Comprehensive Ring-0 toolkit for process protection manipulation, memory forensics, advanced credential extraction, and Driver Signature Enforcement control on modern Windows platforms.*
 
+---
+
+<img src="https://raw.githubusercontent.com/wesmar/BootBypass/main/images/bb.png" alt="KVC v1.0.3 — fully hardened system, Device Security clean" width="700"/>
+
+**KVC v1.0.3 — fully hardened system (Memory Integrity ON, Secure Boot ON, TPM ON) after `kvc install <your_unsigned_driver>`**
+
+After the initial one-time reboot required to load the unsigned driver, subsequent reboots require no additional restarts.
+Set `RestoreHVCI=YES` in `C:\Windows\drivers.ini` to have `kvc_smss` automatically restore the Memory Integrity flag on every boot — `windowsdefender://devicesecurity` stays clean indefinitely.
+
 </div>
 
 ---
