@@ -11,6 +11,79 @@
 ---
 ## 📋 Changelog
 
+**[02.05.2026]**
+
+<details>
+<summary><strong>🔪 kvckiller.sys — digitally signed kill driver; secengine overhaul; restore relaunch; hive path fix</strong> (click to expand)</summary>
+
+#### kvckiller.sys — new signed kernel driver
+
+A fourth embedded binary, **`kvckiller.sys`** (service: `wsftprm`, device: `\\.\Warsaw_PM`), joins the resource bundle alongside `kvc.sys`, `kvcstrm.sys`, and `kvc_smss.exe`. Unlike `kvcstrm.sys`, `kvckiller.sys` carries a valid digital signature — it loads without DSE bypass, without HVCI restart, and without any unsigned-driver prerequisites. It exposes a single IOCTL (`0x22201C`) that terminates any process regardless of PP/PPL level via a 1036-byte request (PID in the first 4 bytes, remainder zero-padded).
+
+Extracted by the existing `SplitKvcEvtx` / `ExtractResourceComponents` pipeline; deployed to DriverStore alongside `kvc.sys` and `kvcstrm.sys` on `kvc setup`.
+
+---
+
+#### secengine disable — complete three-target shutdown, no restart
+
+`kvc secengine disable` is fully reworked. The previous implementation relied on `kvcstrm.sys` to kill `MsMpEng.exe` and fell back to `--restart` when kvcstrm was unavailable.
+
+New flow:
+
+1. **IFEO blocks written** (offline hive edit, `REG_FORCE_RESTORE`) for all three targets:
+   - `MsMpEng.exe` (required — fails if block cannot be set)
+   - `SecurityHealthSystray.exe` (best-effort)
+   - `SecurityHealthService.exe` (best-effort)
+
+2. **kvckiller session** (`wsftprm` service — create, start, cleanup):
+   - `MsMpEng.exe` and `SecurityHealthSystray.exe` killed via IOCTL `0x22201C`
+   - `SecurityHealthService` stopped via `ControlService(SERVICE_CONTROL_STOP)`
+
+3. **wsftprm cleaned up** — service stopped and deleted after use.
+
+`--restart` flag removed. No restart required on any system where `kvckiller.sys` is deployed.
+
+`kvc secengine enable` now also explicitly starts `SecurityHealthService` via SCM after `StartService(WinDefend)`.
+
+---
+
+#### kvc kill — kvckiller replaces kvcstrm as fallback
+
+`KillMultipleTargets` primary path unchanged (kvc.sys + `KillProcessInternal`). The kvcstrm fallback for survivors is replaced by a kvckiller session (same `wsftprm`/`\\.\Warsaw_PM`/IOCTL pattern). Digitally signed driver — no HVCI or DSE constraint on the fallback path.
+
+Before killing, `QueryFullProcessImageNameW` snapshots the full exe path of each target PID into `HKCU\Software\kvc\KilledPaths\<exename>`. This path is used by `kvc restore`.
+
+---
+
+#### kvc restore — process relaunch fallback
+
+`kvc restore <name>` previously failed with `No saved state found for signer` when called after `kvc kill` (no PPL state had been saved). Now, when the session registry lookup finds no PPL state, a two-stage relaunch attempt runs automatically:
+
+1. **SCM service scan** — enumerate all Win32 services, find one whose `ImagePath` contains the exe name, call `StartServiceW`.
+2. **Cached path launch** — fall back to the path stored in `HKCU\Software\kvc\KilledPaths` at kill time, launch via `ShellExecuteExW("runas", path)`.
+
+Example: `kvc kill msmpeng` stores `C:\ProgramData\Microsoft\Windows Defender\Platform\...\MsMpEng.exe`, then `kvc restore msmpeng` finds and starts `WinDefend` via SCM.
+
+---
+
+#### IFEO hive file path fix
+
+`CreateIFEOSnapshot` built the hive file path as `ctx.tempPath + L"Ifeo.hiv"` where `GetSystemTempPath()` returns `C:\Windows\Temp` (no trailing backslash). Result: the hive file landed at `C:\Windows\TempIfeo.hiv` instead of `C:\Windows\Temp\Ifeo.hiv`.
+
+Fixed: `ctx.tempPath + L"\\Ifeo.hiv"`.
+
+Side effect: CLFS transaction log files (`{GUID}.TM.blf`, `{GUID}.TMContainer*.regtrans-ms`) were accumulating in `C:\Windows\` with the `TempIfeo.hiv` prefix. `HiveContext::Cleanup` previously only scanned `tempPath` for `.regtrans-ms` by extension. Cleanup now scans the **parent directory of the hive file** for any file whose name starts with `<hivefilename>{` — catches both `.TM.blf` and `.TMContainer*.regtrans-ms` regardless of GUID suffix.
+
+---
+
+#### Non-compliant host process handling (MSI Afterburner / RTCore64)
+
+`EnsureDriverAvailable` calls `CheckAndTerminateNonCompliantHost()` before `ForceRemoveService` when a conflicting `RTCore64` service is detected. The function reads the host executable path from `HKLM\SOFTWARE\WOW6432Node\MSI\Afterburner\InstallPath`, locates the running process by filename (case-insensitive), and calls `TerminateProcess` directly. The driver unloads automatically on host exit. The host is not restarted by KVC — it restarts itself. No `WM_CLOSE`, no SCM interaction, no restore.
+
+</details>
+
+---
+
 **[20.04.2026]**
 
 <details>

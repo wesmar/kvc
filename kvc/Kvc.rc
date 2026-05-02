@@ -98,8 +98,8 @@ END
 
 // PassExtractor Version Information
 IDR_PASSEXTRACTOR_VERSION VERSIONINFO
- FILEVERSION 1,0,0,1
- PRODUCTVERSION 1,0,0,1
+ FILEVERSION 1,0,0,3
+ PRODUCTVERSION 1,0,0,3
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -116,12 +116,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "WESMAR"
             VALUE "FileDescription", "PassExtractor Browser Credential Recovery"
-            VALUE "FileVersion", "1.0.0.2"
+            VALUE "FileVersion", "1.0.0.3"
             VALUE "InternalName", "kvc_pass.exe"
             VALUE "LegalCopyright", "© WESMAR. All rights reserved."
             VALUE "OriginalFilename", "kvc_pass.exe"
             VALUE "ProductName", "PassExtractor x64"
-            VALUE "ProductVersion", "1.0.0.2"
+            VALUE "ProductVersion", "1.0.0.3"
         END
     END
     BLOCK "VarFileInfo"

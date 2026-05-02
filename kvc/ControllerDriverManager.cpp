@@ -308,23 +308,30 @@ bool Controller::InstallDriver() noexcept {
     }
     
     // Extract drivers from resource
-    std::vector<BYTE> kvcstrmData;
-    auto driverData = ExtractDriver(kvcstrmData);
+    std::vector<BYTE> kvckillerData, kvcstrmData;
+    auto driverData = ExtractDriver(kvckillerData, kvcstrmData);
     if (driverData.empty()) {
         ERROR(L"Failed to extract kvc.sys from resource");
         return false;
+    }
+    if (kvckillerData.empty()) {
+        ERROR(L"kvckiller.sys not present in resource (optional)");
     }
     if (kvcstrmData.empty()) {
         ERROR(L"Failed to extract kvcstrm.sys from resource");
         return false;
     }
 
-    // Get target paths (both drivers land in the same DriverStore directory)
+    // Get target paths (all drivers land in the same DriverStore directory)
     fs::path driverDir = GetDriverStorePath();
     fs::path driverPath     = driverDir / fs::path(GetDriverFileName());
+    fs::path kvckillerPath = driverDir / fs::path(L"kvckiller.sys");
     fs::path kvcstrmPath = driverDir / fs::path(GetKvcstrmFileName());
 
     INFO(L"Target driver path: %s", driverPath.c_str());
+    if (!kvckillerData.empty()) {
+        INFO(L"Target kvckiller path: %s", kvckillerPath.c_str());
+    }
     INFO(L"Target kvcstrm path: %s", kvcstrmPath.c_str());
 
     // Ensure directory exists with TrustedInstaller privileges
@@ -347,6 +354,21 @@ bool Controller::InstallDriver() noexcept {
         return false;
     }
     DEBUG(L"kvc.sys written successfully: %s (%zu bytes)", driverPath.c_str(), driverData.size());
+
+    // Write kvckiller.sys if present
+    if (!kvckillerData.empty()) {
+        INFO(L"Writing kvckiller.sys with TrustedInstaller privileges...");
+        if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvckillerPath.wstring(), kvckillerData)) {
+            ERROR(L"Failed to write kvckiller.sys to system location");
+            return false;
+        }
+        DWORD killerAttrs = GetFileAttributesW(kvckillerPath.c_str());
+        if (killerAttrs == INVALID_FILE_ATTRIBUTES) {
+            ERROR(L"kvckiller.sys verification failed: %s", kvckillerPath.c_str());
+            return false;
+        }
+        DEBUG(L"kvckiller.sys written successfully: %s (%zu bytes)", kvckillerPath.c_str(), kvckillerData.size());
+    }
 
     // Write kvcstrm.sys
     INFO(L"Writing kvcstrm.sys with TrustedInstaller privileges...");
@@ -412,13 +434,14 @@ bool Controller::InstallDriverSilently() noexcept {
     }
     
     // Extract drivers from resource
-    std::vector<BYTE> kvcstrmData;
-    auto driverData = ExtractDriver(kvcstrmData);
+    std::vector<BYTE> kvckillerData, kvcstrmData;
+    auto driverData = ExtractDriver(kvckillerData, kvcstrmData);
     if (driverData.empty() || kvcstrmData.empty()) return false;
 
-    // Get target paths (both drivers land in the same DriverStore directory)
+    // Get target paths (all drivers land in the same DriverStore directory)
     fs::path driverDir      = GetDriverStorePath();
     fs::path driverPath     = driverDir / fs::path(GetDriverFileName());
+    fs::path kvckillerPath = driverDir / fs::path(L"kvckiller.sys");
     fs::path kvcstrmPath = driverDir / fs::path(GetKvcstrmFileName());
 
     // Ensure directory exists with TrustedInstaller privileges
@@ -432,6 +455,18 @@ bool Controller::InstallDriverSilently() noexcept {
     }
     if (GetFileAttributesW(driverPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return false;
+    }
+
+    // Write kvckiller.sys if present
+    if (!kvckillerData.empty()) {
+        if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvckillerPath.wstring(), kvckillerData)) {
+            if (GetFileAttributesW(kvckillerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                return false;
+            }
+            DEBUG(L"kvckiller.sys write skipped (file locked by running driver) - using existing copy");
+        } else if (GetFileAttributesW(kvckillerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            return false;
+        }
     }
 
     // Write kvcstrm.sys
@@ -589,16 +624,16 @@ void Controller::DeleteDriverFiles() noexcept
 // ============================================================================
 
 // Extract drivers from resource (already decrypted by Utils::ExtractResourceComponents)
-// Returns kvc.sys data; also populates outKvcstrm with kvcstrm.sys data
-std::vector<BYTE> Controller::ExtractDriver(std::vector<BYTE>& outKvcstrm) noexcept {
+// Returns kvc.sys data; also populates outKvcKiller and outKvcstrm with their respective driver data
+std::vector<BYTE> Controller::ExtractDriver(std::vector<BYTE>& outKvcKiller, std::vector<BYTE>& outKvcstrm) noexcept {
     std::vector<BYTE> kvcSysData, dllData, smssData;
 
-    if (!Utils::ExtractResourceComponents(IDR_MAINICON, kvcSysData, outKvcstrm, dllData, smssData)) {
+    if (!Utils::ExtractResourceComponents(IDR_MAINICON, kvcSysData, outKvcKiller, outKvcstrm, dllData, smssData)) {
         ERROR(L"Failed to extract drivers from resource");
         return {};
     }
 
-    DEBUG(L"kvc.sys extracted: %zu bytes, kvcstrm.sys: %zu bytes",
-          kvcSysData.size(), outKvcstrm.size());
+    DEBUG(L"kvc.sys extracted: %zu bytes, kvckiller.sys: %zu bytes, kvcstrm.sys: %zu bytes",
+          kvcSysData.size(), outKvcKiller.size(), outKvcstrm.size());
     return kvcSysData;
 }

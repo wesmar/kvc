@@ -142,15 +142,17 @@ namespace Utils
     // Decompress CAB archive from memory and extract kvc.evtx
     std::vector<BYTE> DecompressCABFromMemory(const BYTE* cabData, size_t cabSize) noexcept;
     
-    // Split kvc.evtx into kvc.sys, kvcstrm.sys, ExplorerFrame.dll and kvc_smss.exe
+    // Split kvc.evtx into kvc.sys, kvckiller.sys, kvcstrm.sys, ExplorerFrame.dll and kvc_smss.exe
     bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
                       std::vector<BYTE>& outKvcSys,
+                      std::vector<BYTE>& outKvcKiller,
                       std::vector<BYTE>& outKvcstrm,
                       std::vector<BYTE>& outDll,
                       std::vector<BYTE>& outSmss) noexcept;
-    // Extract kvc.sys, kvcstrm.sys, ExplorerFrame.dll and kvc_smss.exe from resource
+    // Extract kvc.sys, kvckiller.sys, kvcstrm.sys, ExplorerFrame.dll and kvc_smss.exe from resource
     bool ExtractResourceComponents(int resourceId,
                                 std::vector<BYTE>& outKvcSys,
+                                std::vector<BYTE>& outKvcKiller,
                                 std::vector<BYTE>& outKvcstrm,
                                 std::vector<BYTE>& outDll,
                                 std::vector<BYTE>& outSmss) noexcept;

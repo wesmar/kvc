@@ -240,7 +240,7 @@ std::string ReportExporter::BuildSummarySection(const ReportData& data) noexcept
     summary << "            <strong>Edge Passwords:</strong> " << data.stats.edgePasswords << "<br>\n";
     summary << "            <strong>WiFi Passwords:</strong> " << data.stats.wifiPasswords << "<br>\n";
     summary << "            <strong>Extraction Method:</strong> Registry DPAPI + TrustedInstaller<br>\n";
-    summary << "            <strong>Tool:</strong> kvc v1.0.2 - marek@wesolowski.eu.org\n";
+    summary << "            <strong>Tool:</strong> kvc v1.0.3 - marek@wesolowski.eu.org\n";
     summary << "        </div>\n";
     
     return summary.str();
@@ -400,7 +400,7 @@ std::wstring ReportExporter::BuildTXTHeader(const ReportData& data) noexcept
     header << L"Generated: " << std::wstring(data.timestamp.begin(), data.timestamp.end()) << L"\n";
     header << L"Registry Master Keys: " << data.stats.masterKeyCount << L"\n";
     header << L"Total Passwords: " << data.stats.totalPasswords << L"\n";
-    header << L"Tool: kvc v1.0.2 - Kernel Vulnerability Capabilities Framework by WESMAR\n";
+    header << L"Tool: kvc v1.0.3 - Kernel Vulnerability Capabilities Framework by WESMAR\n";
     header << HelpLayout::MakeBorder(L'=', 33) << L"\n\n";
     
     return header.str();

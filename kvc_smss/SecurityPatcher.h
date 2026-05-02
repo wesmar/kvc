@@ -29,7 +29,7 @@ HANDLE OpenDriverDevice(PCWSTR deviceName);
 
 // Appends [DSE_STATE]\nOriginalCallback=0x... to drivers.ini (UTF-16 LE).
 BOOLEAN SaveStateSection(ULONGLONG callback);
-// Parses drivers.ini for [DSE_STATE] OriginalCallback value; fills *outCallback.
+// Parses drivers.ini for [DSE_STATE] OriginalCallback; fills *outCallback.
 BOOLEAN LoadStateSection(ULONGLONG* outCallback);
 // Rewrites drivers.ini without the [DSE_STATE] section.
 BOOLEAN RemoveStateSection(void);
@@ -38,9 +38,8 @@ BOOLEAN RemoveStateSection(void);
 // Main DSE bypass
 // ============================================================================
 
-// 5-step sequence: load kvc.sys → patch SeCiCallbacks slot → load target
-// driver → restore slot → unload kvc.sys.  Persists callback to drivers.ini
-// before patching for crash recovery.
+// 5-step sequence: ExtractkvcFromResource → load kvc.sys → patch
+// SeCiCallbacks slot → load target driver → restore slot → unload/cleanup.
 NTSTATUS ExecuteAutoPatchLoad(PINI_ENTRY entry, PCONFIG_SETTINGS config, PULONGLONG originalCallback);
 
 #endif

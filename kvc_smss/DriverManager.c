@@ -40,7 +40,6 @@ static BOOLEAN AsciiWideEqualsIgnoreCase(const char* ascii, PCWSTR wide) {
 
 // Returns a pointer into path pointing at the last path component
 // (the part after the last backslash or forward slash).
-// charCount is the number of WCHARs in path (not including null terminator).
 static PCWSTR FindWideBaseName(PCWSTR path, SIZE_T charCount) {
     SIZE_T i;
     PCWSTR base = path;
@@ -71,13 +70,8 @@ static BOOLEAN WideStringContainsChar(PCWSTR text, WCHAR ch) {
 
 // Resolves the image filename (basename only, e.g. "mydrv.sys") for a given
 // service name.  Lookup order:
-//   1. Read ImagePath from HKLM\...\Services\<serviceName> in the registry;
-//      extract the basename component.
-//   2. Fall back to serviceName + ".sys" if the key is absent or has no
-//      ImagePath, or if the value contains no path separator.
-//
-// imageName receives up to imageNameCount WCHARs (including null terminator).
-// Returns FALSE if the buffer is too small or serviceName is NULL.
+//   1. Read ImagePath from HKLM\...\Services\<serviceName>; extract basename.
+//   2. Fall back to serviceName + ".sys" if the key is absent or has no path.
 static BOOLEAN BuildDriverImageName(PCWSTR serviceName, PWSTR imageName, SIZE_T imageNameCount) {
     WCHAR fullServicePath[MAX_PATH_LEN];
     UNICODE_STRING usServiceName;
@@ -156,8 +150,7 @@ static BOOLEAN BuildDriverImageName(PCWSTR serviceName, PWSTR imageName, SIZE_T 
 }
 
 // Returns TRUE if the driver associated with serviceName is present in the
-// running kernel module list.  Resolves the image basename via BuildDriverImageName
-// so that the check works even if the registry key doesn't exist yet.
+// running kernel module list.
 BOOLEAN IsDriverLoaded(PCWSTR serviceName) {
     WCHAR imageName[MAX_PATH_LEN];
     SYSTEM_MODULE_INFORMATION* moduleInfo = NULL;
@@ -183,12 +176,10 @@ BOOLEAN IsDriverLoaded(PCWSTR serviceName) {
     return isLoaded;
 }
 
-// Creates (or opens if already present) the SCM registry key for serviceName
-// and writes the minimum values NtLoadDriver requires:
-//   ImagePath (REG_EXPAND_SZ), DisplayName (REG_SZ), Type (REG_DWORD),
-//   Start (REG_DWORD), ErrorControl (REG_DWORD, always 1 = Normal).
-//
-// driverType: "KERNEL" → Type=1, "FILE_SYSTEM" → Type=2.
+// Creates (or opens) the SCM registry key for serviceName and writes the
+// minimum values NtLoadDriver requires: ImagePath, DisplayName, Type, Start,
+// ErrorControl.  STATUS_OBJECT_NAME_COLLISION is non-fatal (key already exists).
+// driverType: "KERNEL"→Type=1, "FILE_SYSTEM"→Type=2.
 // startType:  "BOOT"=0, "SYSTEM"=1, "AUTO"=2, "DISABLED"=4, else DEMAND=3.
 NTSTATUS CreateDriverRegistryEntry(PCWSTR serviceName, PCWSTR imagePath, PCWSTR driverType, PCWSTR startType) {
     WCHAR fullServicePath[MAX_PATH_LEN];
@@ -259,9 +250,7 @@ NTSTATUS CreateDriverRegistryEntry(PCWSTR serviceName, PCWSTR imagePath, PCWSTR 
     return status;
 }
 
-// Creates the registry key (or reuses it if already present) then calls
-// NtLoadDriver.  STATUS_OBJECT_NAME_COLLISION from CreateDriverRegistryEntry
-// is treated as success (key existed from a previous run).
+// Creates the registry key then calls NtLoadDriver.
 NTSTATUS LoadDriver(PCWSTR serviceName, PCWSTR imagePath, PCWSTR driverType, PCWSTR startType) {
     WCHAR fullServicePath[MAX_PATH_LEN];
     UNICODE_STRING usServiceName;
@@ -282,8 +271,7 @@ NTSTATUS LoadDriver(PCWSTR serviceName, PCWSTR imagePath, PCWSTR driverType, PCW
     return NtLoadDriver(&usServiceName);
 }
 
-// Calls NtUnloadDriver with the full registry path for serviceName.
-// Does not delete the registry key — use CleanupOmniDriver for that.
+// Calls NtUnloadDriver.  Registry key and driver file are NOT removed here.
 NTSTATUS UnloadDriver(PCWSTR serviceName) {
     WCHAR fullServicePath[MAX_PATH_LEN];
     UNICODE_STRING usServiceName;

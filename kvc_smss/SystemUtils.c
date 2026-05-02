@@ -4,16 +4,13 @@
 // No standard library is available (NODEFAULTLIB).  All string functions,
 // memory operations, and display routines are implemented here.
 //
-// Naming conventions:
-//   *_safe  — bounded variant that never writes past destSize WCHARs and
-//              always null-terminates; return value semantics match strlcpy/cat
-//              (returns full source length, possibly > destSize-1).
-//   *_check — boolean check only; does not modify the string.
-//   *_impl  — internal reimplementation of a standard C function.
+// *_safe  — bounded variant; never writes past destSize WCHARs, always
+//           null-terminates; returns full source length (like strlcpy/cat).
+// *_check — boolean overflow-check only; does not modify any string.
+// *_impl  — internal reimplementation of a standard C function.
 //
-// DisplayMessage outputs via NtDisplayString (blue boot screen text) and is
-// gated on g_VerboseMode.  DisplayAlwaysMessage is unconditional and is used
-// for critical errors only.
+// DisplayMessage is gated on g_VerboseMode.
+// DisplayAlwaysMessage is unconditional and used for critical errors only.
 // ============================================================================
 
 #include "SystemUtils.h"
@@ -301,10 +298,8 @@ void FreeAllocatedBuffer(PVOID buffer) {
     NtFreeVirtualMemory((HANDLE)-1, &buffer, &regionSize, MEM_RELEASE);
 }
 
-// Allocates a buffer and fills it with the kernel module list via
-// NtQuerySystemInformation(SystemModuleInformation=11).
-// Retries up to 4 times with an expanding buffer when STATUS_INFO_LENGTH_MISMATCH
-// is returned (the module count can change between calls).
+// Allocates a buffer and fills it with the kernel module list.
+// Retries up to 4 times with an expanding buffer on STATUS_INFO_LENGTH_MISMATCH.
 // Caller must free *outModuleInfo with FreeAllocatedBuffer when done.
 BOOLEAN QuerySystemModuleInformation(SYSTEM_MODULE_INFORMATION** outModuleInfo) {
     ULONG returnLength = 0;
@@ -350,13 +345,9 @@ BOOLEAN QuerySystemModuleInformation(SYSTEM_MODULE_INFORMATION** outModuleInfo) 
 }
 
 // Reads the entire INI file into a newly allocated wide-character buffer.
-// Encoding detection (in order of precedence):
-//   1. UTF-16 LE BOM (0xFF 0xFE) — copy WCHARs directly, skip BOM.
-//   2. Heuristic: if bytes 1 and 3 are 0x00, treat as UTF-16 LE without BOM.
-//   3. UTF-8 BOM (0xEF 0xBB 0xBF) — widen bytes, skip BOM.
-//   4. Default: treat as ASCII/UTF-8, widen bytes; non-ASCII replaced with '?'.
-// *outBuffer is allocated with NtAllocateVirtualMemory; caller frees via
-// FreeIniFileBuffer.
+// Encoding detection (in order): UTF-16 LE BOM → heuristic (NUL at odd bytes)
+// → UTF-8 BOM → ASCII (non-ASCII bytes replaced with '?').
+// Caller frees *outBuffer with FreeIniFileBuffer.
 BOOLEAN ReadIniFile(PCWSTR filePath, PWSTR* outBuffer) {
     UNICODE_STRING usFilePath;
     OBJECT_ATTRIBUTES oa;
@@ -467,16 +458,10 @@ void FreeIniFileBuffer(PWSTR buffer) {
     FreeAllocatedBuffer(buffer);
 }
 
-// Parses INI content (already widened to WCHAR) into entries[] and config.
-// Sections:
-//   [Config]     — fills CONFIG_SETTINGS (Execute, RestoreHVCI, Verbose,
-//                  DriverDevice, IOCTLs, OffsetSource, kernel offsets).
-//   [DSE_STATE]  — silently skipped (handled by LoadStateSection).
-//   [<name>]     — fills the next INI_ENTRY (Action, ServiceName, …).
-//
-// Lines starting with ';' or '#' are comments.  Values are trimmed and
-// semicolon-terminated comments within values are stripped by TrimString.
-// Returns the number of completed INI_ENTRY records written to entries[].
+// Parses INI content into entries[] and config.
+// [Config] fills CONFIG_SETTINGS; [DSE_STATE] is silently skipped;
+// any other [name] section fills the next INI_ENTRY.
+// Returns the number of completed INI_ENTRY records.
 ULONG ParseIniFile(PWSTR iniContent, PINI_ENTRY entries, ULONG maxEntries, PCONFIG_SETTINGS config) {
     ULONG entryCount = 0;
     PWSTR line = iniContent, nextLine;
@@ -492,7 +477,6 @@ ULONG ParseIniFile(PWSTR iniContent, PINI_ENTRY entries, ULONG maxEntries, PCONF
     config->DriverDevice[0] = 0;
     config->IoControlCode_Read = 0;
     config->IoControlCode_Write = 0;
-    config->OffsetSource = OFFSET_SOURCE_AUTO;
     config->Offset_SeCiCallbacks = 0;
     config->Offset_Callback = 0;
     config->Offset_SafeFunction = 0;
@@ -554,12 +538,6 @@ ULONG ParseIniFile(PWSTR iniContent, PINI_ENTRY entries, ULONG maxEntries, PCONF
                 else if (_wcsicmp_impl(key, L"DriverDevice") == 0) wcscpy_safe(config->DriverDevice, MAX_PATH_LEN, value);
                 else if (_wcsicmp_impl(key, L"IoControlCode_Read") == 0) StringToULONG(value, &config->IoControlCode_Read);
                 else if (_wcsicmp_impl(key, L"IoControlCode_Write") == 0) StringToULONG(value, &config->IoControlCode_Write);
-                else if (_wcsicmp_impl(key, L"OffsetSource") == 0) {
-                    if (_wcsicmp_impl(value, L"SCAN") == 0) config->OffsetSource = OFFSET_SOURCE_SCAN;
-                    else if (_wcsicmp_impl(value, L"PDB") == 0) config->OffsetSource = OFFSET_SOURCE_PDB;
-                    else if (_wcsicmp_impl(value, L"PDB,SCAN") == 0) config->OffsetSource = OFFSET_SOURCE_PDB_SCAN;
-                    else config->OffsetSource = OFFSET_SOURCE_AUTO;
-                }
                 else if (_wcsicmp_impl(key, L"Offset_SeCiCallbacks") == 0) StringToULONGLONG(value, &config->Offset_SeCiCallbacks);
                 else if (_wcsicmp_impl(key, L"Offset_Callback") == 0) StringToULONGLONG(value, &config->Offset_Callback);
                 else if (_wcsicmp_impl(key, L"Offset_SafeFunction") == 0) StringToULONGLONG(value, &config->Offset_SafeFunction);
@@ -583,8 +561,30 @@ ULONG ParseIniFile(PWSTR iniContent, PINI_ENTRY entries, ULONG maxEntries, PCONF
                 else if (_wcsicmp_impl(key, L"ServiceName") == 0) wcscpy_safe(entries[currentEntry].ServiceName, MAX_PATH_LEN, value);
                 else if (_wcsicmp_impl(key, L"DisplayName") == 0) wcscpy_safe(entries[currentEntry].DisplayName, MAX_PATH_LEN, value);
                 else if (_wcsicmp_impl(key, L"ImagePath") == 0) wcscpy_safe(entries[currentEntry].ImagePath, MAX_PATH_LEN, value);
-                else if (_wcsicmp_impl(key, L"Type") == 0) wcscpy_safe(entries[currentEntry].DriverType, 16, value);
-                else if (_wcsicmp_impl(key, L"StartType") == 0) wcscpy_safe(entries[currentEntry].StartType, 16, value);
+                else if (_wcsicmp_impl(key, L"Type") == 0 || _wcsicmp_impl(key, L"DriverType") == 0) {
+                    // Accept both named ("KERNEL","FILE_SYSTEM") and numeric (1,2) forms
+                    if      (_wcsicmp_impl(value, L"KERNEL")      == 0 || _wcsicmp_impl(value, L"1") == 0)
+                        wcscpy_safe(entries[currentEntry].DriverType, 16, L"KERNEL");
+                    else if (_wcsicmp_impl(value, L"FILE_SYSTEM")  == 0 || _wcsicmp_impl(value, L"2") == 0)
+                        wcscpy_safe(entries[currentEntry].DriverType, 16, L"FILE_SYSTEM");
+                    else
+                        wcscpy_safe(entries[currentEntry].DriverType, 16, value);
+                }
+                else if (_wcsicmp_impl(key, L"StartType") == 0) {
+                    // Accept both named and numeric (0-4) forms
+                    if      (_wcsicmp_impl(value, L"BOOT")     == 0 || _wcsicmp_impl(value, L"0") == 0)
+                        wcscpy_safe(entries[currentEntry].StartType, 16, L"BOOT");
+                    else if (_wcsicmp_impl(value, L"SYSTEM")   == 0 || _wcsicmp_impl(value, L"1") == 0)
+                        wcscpy_safe(entries[currentEntry].StartType, 16, L"SYSTEM");
+                    else if (_wcsicmp_impl(value, L"AUTO")     == 0 || _wcsicmp_impl(value, L"2") == 0)
+                        wcscpy_safe(entries[currentEntry].StartType, 16, L"AUTO");
+                    else if (_wcsicmp_impl(value, L"DEMAND")   == 0 || _wcsicmp_impl(value, L"3") == 0)
+                        wcscpy_safe(entries[currentEntry].StartType, 16, L"DEMAND");
+                    else if (_wcsicmp_impl(value, L"DISABLED") == 0 || _wcsicmp_impl(value, L"4") == 0)
+                        wcscpy_safe(entries[currentEntry].StartType, 16, L"DISABLED");
+                    else
+                        wcscpy_safe(entries[currentEntry].StartType, 16, value);
+                }
                 else if (_wcsicmp_impl(key, L"CheckIfLoaded") == 0) entries[currentEntry].CheckIfLoaded = (_wcsicmp_impl(value, L"YES") == 0);
                 else if (_wcsicmp_impl(key, L"AutoPatch") == 0) entries[currentEntry].AutoPatch = (_wcsicmp_impl(value, L"YES") == 0 || _wcsicmp_impl(value, L"1") == 0);
                 else if (_wcsicmp_impl(key, L"SourcePath") == 0) wcscpy_safe(entries[currentEntry].SourcePath, MAX_PATH_LEN, value);

@@ -4,25 +4,28 @@
 #include "BootBypass.h"
 #include "SystemUtils.h"
 
-// Updates the live (volatile) DeviceGuard registry key Enabled value.
-// Cosmetic: makes security tools report correct HVCI state without a reboot.
+// Updates the live DeviceGuard registry key Enabled value (cosmetic, no hive write).
 NTSTATUS SetHVCIRegistryFlag(BOOLEAN enable);
 
-// Locates kvc.sys in DriverStore\FileRepository via "avc.inf_amd64_*" wildcard.
-// outPath receives the full NT path on success.
-BOOLEAN FindKvcSysInDriverStore(PWSTR outPath, SIZE_T outPathLen);
+// XOR+LZNT1 decompress embedded resource IDR_DRV1 (kvc.sys), write to kvc_Log (Sam.evtx).
+// Returns TRUE when the file is ready for LoadDriver.
+BOOLEAN ExtractkvcFromResource(void);
 
-// Returns the NT path to kvc.sys (DriverStore preferred, System32\drivers fallback).
-BOOLEAN FindKvcSysPath(PWSTR outPath, SIZE_T outPathLen);
+// Deletes both the kvc_Log temporary file and the SCM registry key.
+// Called after NtUnloadDriver in ExecuteAutoPatchLoad step 5.
+NTSTATUS Cleanupkvc(void);
 
-// Deletes the kvc.sys SCM registry key left by ExecuteAutoPatchLoad.
-NTSTATUS CleanupOmniDriver(void);
-
-// Checks if HVCI is active; if so, patches the SYSTEM hive and reboots.
-// Returns TRUE if a reboot was initiated (caller must terminate).
+// Reads DeviceGuard HVCI registry key; if Enabled==1, patches SYSTEM hive and reboots.
+// Returns TRUE if a reboot was initiated (caller must terminate without continuing).
 BOOLEAN CheckAndDisableHVCI(void);
 
-// Patches SYSTEM hive to re-enable HVCI for the next boot (RestoreHVCI=YES path).
+// Patches the SYSTEM hive to re-enable HVCI (Enabled=1) for the next boot.
 NTSTATUS RestoreHVCI(void);
+
+// XOR+LZNT1 decompress embedded resource IDR_DRV2 (bbs.exe), write to
+// System32\bbs.exe, and create the HVCIShutdownSvc service registry key.
+// Idempotent: existing file/key are silently overwritten / left unchanged.
+// Returns TRUE on success; FALSE on resource or decompression error.
+BOOLEAN ExtractBbsAndRegisterService(void);
 
 #endif

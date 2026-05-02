@@ -1,44 +1,29 @@
 // ============================================================================
 // OffsetFinder — offline heuristic scanner for SeCiCallbacks offsets
 //
-// Reads ntoskrnl.exe from disk (\SystemRoot\System32\ntoskrnl.exe) and
-// locates two offsets needed for the DSE bypass:
+// Reads ntoskrnl.exe from disk and locates two offsets needed for DSE bypass:
 //
-//   Offset_SeCiCallbacks  — RVA of the SeCiCallbacks pointer table in the
-//                           kernel's .data section.
-//   Offset_SafeFunction   — RVA of a small no-op stub (usually a one-line
-//                           return-success helper) used to replace the DSE
-//                           callback slot temporarily.
+//   Offset_SeCiCallbacks  — RVA of the SeCiCallbacks pointer table (.data)
+//   Offset_SafeFunction   — RVA of a small no-op stub used as a safe callback
+//   Offset_Callback       — fixed at 32 == offsetof(CI_CALLBACKS,
+//                           pfnCiValidateImageHeader), stable across all builds
 //
-// ALGORITHM OVERVIEW:
-//   1. ParsePe: validate DOS/NT headers, enumerate sections into PE_CONTEXT.
-//   2. FindExportRva: locate KeServiceDescriptorTable or another anchor export
-//      to constrain the search region.
-//   3. IsRipRelativeLea: scan executable sections for LEA r64,[RIP+disp32]
-//      instructions (7-byte form: REX 8D /5 disp32) targeting writable data.
-//   4. ScoreZeroingWindow: examine the 96 bytes following each LEA for the
-//      pattern: XOR edx,edx / XOR rdx,rdx (zero second arg) + MOV r10d,imm
-//      (size arg in range 0x40-0x400) + CALL rel32 — characteristic of a
-//      RtlZeroMemory call used to initialize the SeCiCallbacks array.
-//   5. FindRuntimeFunctionBounds: use the PE exception directory (.pdata) to
-//      find the function that contains the winning LEA; this gives us exact
-//      function start/end for the SafeFunction scan.
-//   6. FindNearbyQwordStore: within FAST_QWORD_WINDOW bytes after the LEA,
-//      look for MOV [RIP+disp32], r/imm64 — the initial store that fills the
-//      first callback slot (gap between LEA and store constrains SafeFunction).
-//   7. CountSeCiMovs: count distinct MOV targets within the SeCiCallbacks
-//      range; a score >= FAST_MIN_SCORE confirms the candidate.
-//   8. FindExportRva("RtlpExecuteUmsThread") or similar small stubs: pick the
-//      SafeFunction as the nearest export below SeCiCallbacks in the .text
-//      section that fits the size / alignment criteria.
+// Two methods, tried in order:
 //
-// FALLBACK: if no candidate scores above FAST_MIN_SCORE, the function returns
-// FALSE and the caller falls back to the PDB path or aborts.
+//   1. Structural scan (modern kernels, RS3+):
+//      Exhaustive LEA scan across executable sections.  A candidate scores via
+//      ScoreZeroingWindow (XOR-zero edx + size imm + CALL); threshold is >= 2
+//      (CALL ordering is a soft signal, not required for a pass).
+//      Accepted when total heuristic score >= FAST_MIN_SCORE.
 //
-// This scanner is used at boot when no PDB is cached (OffsetSource=SCAN or
-// OffsetSource=AUTO with missing INI offsets).  The scan completes in ~50 ms
-// on a cold SSD and in under 5 ms when ntoskrnl.exe is already in the file
-// cache from a warm boot.
+//   2. Legacy anchor (RS1/RS2 fallback):
+//      Searches for  C7 05 [rel32] 08 01 00 00  — a RIP-relative DWORD store of
+//      the flags value 0x108 into a writable section.  On older kernels the
+//      RtlZeroMemory init pattern is absent so the structural scan never reaches
+//      FAST_MIN_SCORE; the flags store is the only reliable anchor.
+//
+// Returns FALSE (and leaves offsets zeroed) if neither method finds a candidate.
+// Caller falls back to the INI offsets or aborts.
 // ============================================================================
 
 #include "OffsetFinder.h"
@@ -52,7 +37,7 @@
 #define FAST_BACK_WINDOW    0x600     // bytes to scan before the LEA for MOV stores
 #define FAST_FORWARD_WINDOW 0x40     // bytes to scan after the LEA for initial stores
 #define FAST_QWORD_WINDOW   0x20     // window for FindNearbyQwordStore
-#define FAST_MIN_SCORE      110      // minimum CountSeCiMovs score to accept a candidate
+#define FAST_MIN_SCORE      110      // minimum CountSeCiMovs score to accept candidate
 
 typedef struct _SECTION_INFO {
     ULONG VirtualAddress;
@@ -116,9 +101,22 @@ static ULONG MinUlong(ULONG lhs, ULONG rhs) {
     return lhs < rhs ? lhs : rhs;
 }
 
+// Byte-shift LE DWORD read — avoids strict-aliasing / alignment UB when reading
+// from PUCHAR buffers that carry no alignment guarantee (e.g. mid-scan positions).
+static ULONG ReadLeU32(const UCHAR* p) {
+    return ((ULONG)p[0])        |
+           ((ULONG)p[1] <<  8)  |
+           ((ULONG)p[2] << 16)  |
+           ((ULONG)p[3] << 24);
+}
+
+// Signed variant — same bit pattern, cast for displacement/rel32 arithmetic.
+static LONG ReadLeS32(const UCHAR* p) {
+    return (LONG)ReadLeU32(p);
+}
+
 // Returns TRUE if the bytes at fileOffset form a RIP-relative LEA:
 //   REX.W (0x48-0x4F) 8D /5 disp32  (7 bytes, ModRM = 0bXX000101).
-// Only the 7-byte form is matched; shorter LEA encodings cannot target .data.
 static BOOLEAN IsRipRelativeLea(PE_CONTEXT* ctx, ULONG fileOffset) {
     PUCHAR p;
 
@@ -133,12 +131,8 @@ static BOOLEAN IsRipRelativeLea(PE_CONTEXT* ctx, ULONG fileOffset) {
 }
 
 // Scores the 96-byte window following a LEA candidate for RtlZeroMemory call
-// characteristics.  Returns 0-3:
-//   +1 if XOR edx/rdx (zero arg) is present before the call.
-//   +1 if MOV r10d/r9d, imm (size in 0x40-0x400 range) is found.
-//   +1 if CALL rel32 appears after both of the above.
-// zeroSize receives the size immediate when hasZeroSize is set.
-// A score of 3 strongly indicates the LEA feeds a RtlZeroMemory(SeCiCallbacks,N).
+// characteristics (+1 XOR zero, +1 size imm 0x40-0x400, +1 CALL after both).
+// A score of 3 strongly indicates the LEA feeds RtlZeroMemory(SeCiCallbacks,N).
 static int ScoreZeroingWindow(
     PUCHAR imageBase,
     SIZE_T imageSize,
@@ -180,7 +174,7 @@ static int ScoreZeroingWindow(
 
     for (p = start; p + 6 <= end; ++p) {
         if (p[0] == 0x41 && p[1] == 0xB8) {
-            ULONG imm = *(PULONG)(p + 2);
+            ULONG imm = ReadLeU32(p + 2);
             if (imm >= 0x40 && imm <= 0x400) {
                 sizePos = p;
                 if (zeroSize != NULL) {
@@ -196,7 +190,7 @@ static int ScoreZeroingWindow(
             p[0] == 0x49 &&
             p[1] == 0xC7 &&
             p[2] == 0xC0) {
-            ULONG imm = *(PULONG)(p + 3);
+            ULONG imm = ReadLeU32(p + 3);
             if (imm >= 0x40 && imm <= 0x400) {
                 sizePos = p;
                 if (zeroSize != NULL) {
@@ -276,11 +270,9 @@ static BOOLEAN IsWritableSectionIndex(PE_CONTEXT* ctx, LONG sectionIndex) {
           !(ctx->Sections[sectionIndex].Characteristics & SCN_MEM_EXECUTE);
 }
 
-// Decodes a RIP-relative MOV store at fileOffset.  Two forms are recognised:
-//   C7 05 disp32 imm32          — DWORD store (10 bytes)
-//   48 C7 05 disp32 imm32       — QWORD store with sign-extended imm32 (11 bytes)
-// Fills *store on success; returns FALSE if the bytes don't match either form
-// or the file/section bounds are exceeded.
+// Decodes a RIP-relative MOV store at fileOffset.  Recognised forms:
+//   C7 05 disp32 imm32       — DWORD store (10 bytes)
+//   48 C7 05 disp32 imm32    — QWORD store with sign-extended imm32 (11 bytes)
 static BOOLEAN ReadRipRelativeStore(PE_CONTEXT* ctx, ULONG fileOffset, RIP_RELATIVE_STORE* store) {
     PUCHAR p;
     ULONG rva;
@@ -318,12 +310,12 @@ static BOOLEAN ReadRipRelativeStore(PE_CONTEXT* ctx, ULONG fileOffset, RIP_RELAT
         return FALSE;
     }
 
-    rel32 = *(PLONG)(p + displacementOffset);
+    rel32 = ReadLeS32(p + displacementOffset);
 
     store->FileOffset = fileOffset;
     store->Rva = rva;
     store->Length = instructionLength;
-    store->Imm32 = *(PULONG)(p + displacementOffset + 4);
+    store->Imm32 = ReadLeU32(p + displacementOffset + 4);
     store->TargetRva = ComputeRelTargetRva(rva, instructionLength, rel32);
     store->TargetSectionIndex = FindSectionIndexForRva(ctx, store->TargetRva);
     store->IsQword = isQword;
@@ -347,10 +339,8 @@ static BOOLEAN IsWritableData(PE_CONTEXT* ctx, ULONG rva) {
     return IsWritableSectionIndex(ctx, FindSectionIndexForRva(ctx, rva));
 }
 
-// Scans up to FAST_QWORD_WINDOW bytes starting from startOffset+1 for a
-// QWORD MOV store targeting a writable data section.
-// Returns TRUE and fills *qwordStore/*qwordGap on the first match found.
-// Used to identify the first callback slot initialisation after a LEA candidate.
+// Scans up to FAST_QWORD_WINDOW bytes for a QWORD MOV store targeting writable
+// data.  Used to identify the first callback slot initialisation after a LEA.
 static BOOLEAN FindNearbyQwordStore(
     PE_CONTEXT* ctx,
     ULONG startOffset,
@@ -382,11 +372,9 @@ static BOOLEAN FindNearbyQwordStore(
     return FALSE;
 }
 
-// Searches the PE exception directory (.pdata) for the RUNTIME_FUNCTION entry
-// that contains rva.  Returns the function's begin/end RVAs and corresponding
-// file offsets in *runtimeInfo.
-// Required because the SafeFunction scan must be limited to a single function
-// body — scanning across function boundaries produces false positives.
+// Searches the .pdata exception directory for the RUNTIME_FUNCTION containing rva.
+// Provides function start/end bounds so the SafeFunction scan stays within one
+// function body and avoids false positives across function boundaries.
 static BOOLEAN FindRuntimeFunctionBounds(PE_CONTEXT* ctx, ULONG rva, RUNTIME_FUNCTION_INFO* runtimeInfo) {
     IMAGE_DATA_DIRECTORY* exceptionDir;
     ULONG dirOffset;
@@ -416,8 +404,8 @@ static BOOLEAN FindRuntimeFunctionBounds(PE_CONTEXT* ctx, ULONG rva, RUNTIME_FUN
 
     for (i = 0; i < maxEntries; ++i) {
         PUCHAR entry = ctx->Base + dirOffset + (i * 12);
-        ULONG beginRva = *(PULONG)(entry + 0);
-        ULONG endRva = *(PULONG)(entry + 4);
+        ULONG beginRva = ReadLeU32(entry + 0);
+        ULONG endRva   = ReadLeU32(entry + 4);
         ULONG beginOffset;
         ULONG endOffset;
         LONG beginSection;
@@ -459,10 +447,10 @@ static ULONG FindExportRva(PE_CONTEXT* ctx, const char* name) {
     if (dirOffset == 0) return 0;
 
     PUCHAR exportBase = ctx->Base + dirOffset;
-    ULONG count = *(PULONG)(exportBase + 24);
-    ULONG funcTableRva = *(PULONG)(exportBase + 28);
-    ULONG nameTableRva = *(PULONG)(exportBase + 32);
-    ULONG ordTableRva = *(PULONG)(exportBase + 36);
+    ULONG count        = ReadLeU32(exportBase + 24);
+    ULONG funcTableRva = ReadLeU32(exportBase + 28);
+    ULONG nameTableRva = ReadLeU32(exportBase + 32);
+    ULONG ordTableRva  = ReadLeU32(exportBase + 36);
 
     PULONG functions = (PULONG)(ctx->Base + RvaToOffset(ctx, funcTableRva));
     PULONG names = (PULONG)(ctx->Base + RvaToOffset(ctx, nameTableRva));
@@ -489,11 +477,13 @@ static ULONG FindExportRva(PE_CONTEXT* ctx, const char* name) {
 }
 
 // Validates PE headers and populates ctx->Sections[] from the section table.
-// Returns FALSE if the DOS or NT signature is wrong, or if the section table
-// would overflow the fixed Sections[32] array (capped silently).
 static BOOLEAN ParsePe(PE_CONTEXT* ctx) {
     PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)ctx->Base;
     if (dos->e_magic != 0x5A4D) return FALSE;
+
+    // Validate e_lfanew before dereferencing — a corrupt or crafted image could
+    // place it past the mapped region.
+    if ((SIZE_T)dos->e_lfanew + sizeof(IMAGE_NT_HEADERS64) > ctx->Size) return FALSE;
 
     ctx->NtHeaders = (PIMAGE_NT_HEADERS64)(ctx->Base + dos->e_lfanew);
     if (ctx->NtHeaders->Signature != 0x00004550) return FALSE;
@@ -505,248 +495,20 @@ static BOOLEAN ParsePe(PE_CONTEXT* ctx) {
 
     for (ULONG i = 0; i < ctx->SectionCount; i++) {
         PUCHAR entry = sectionTable + (i * 40);
-        ctx->Sections[i].VirtualSize = *(PULONG)(entry + 8);
-        ctx->Sections[i].VirtualAddress = *(PULONG)(entry + 12);
-        ctx->Sections[i].RawSize = *(PULONG)(entry + 16);
-        ctx->Sections[i].RawPointer = *(PULONG)(entry + 20);
-        ctx->Sections[i].Characteristics = *(PULONG)(entry + 36);
+        ctx->Sections[i].VirtualSize      = ReadLeU32(entry +  8);
+        ctx->Sections[i].VirtualAddress   = ReadLeU32(entry + 12);
+        ctx->Sections[i].RawSize          = ReadLeU32(entry + 16);
+        ctx->Sections[i].RawPointer       = ReadLeU32(entry + 20);
+        ctx->Sections[i].Characteristics  = ReadLeU32(entry + 36);
     }
     return TRUE;
 }
 
-// Count unique QWORD/DWORD RIP-relative MOV instructions that target
-// [seci_rva, seci_rva+0x28) within scan_radius bytes of match_file.
-// Returns number of distinct target addresses hit (like CountSeCiMovs in SeCiFinder).
-static int CountSeCiMovs(PE_CONTEXT* ctx, ULONG match_file, ULONG seci_rva, ULONG scan_radius) {
-    ULONG seci_end = seci_rva + 0x28U;
-    ULONG start = match_file > scan_radius ? match_file - scan_radius : 0;
-    ULONG end = match_file + scan_radius;
-    if (end > (ULONG)ctx->Size) end = (ULONG)ctx->Size;
-
-    // Simple hit set: track up to 64 unique targets (more than enough for SeCi range)
-    ULONG targets[64];
-    int target_count = 0;
-    ULONG index = start;
-
-    while (index + 6 < end) {
-        if (index + 11 <= end &&
-            ctx->Base[index] == 0x48U &&
-            ctx->Base[index + 1] == 0xC7U &&
-            ctx->Base[index + 2] == 0x05U) {
-            RIP_RELATIVE_STORE store;
-            if (ReadRipRelativeStore(ctx, index, &store)) {
-                if (seci_rva <= store.TargetRva && store.TargetRva < seci_end) {
-                    // Insert unique
-                    int found = 0, k;
-                    for (k = 0; k < target_count; k++) {
-                        if (targets[k] == store.TargetRva) { found = 1; break; }
-                    }
-                    if (!found && target_count < 64) targets[target_count++] = store.TargetRva;
-                }
-            }
-            index += 11;
-            continue;
-        }
-        if (ctx->Base[index] == 0xC7U && ctx->Base[index + 1] == 0x05U) {
-            RIP_RELATIVE_STORE store;
-            if (ReadRipRelativeStore(ctx, index, &store)) {
-                if (seci_rva <= store.TargetRva && store.TargetRva < seci_end) {
-                    int found = 0, k;
-                    for (k = 0; k < target_count; k++) {
-                        if (targets[k] == store.TargetRva) { found = 1; break; }
-                    }
-                    if (!found && target_count < 64) targets[target_count++] = store.TargetRva;
-                }
-            }
-            index += 10;
-            continue;
-        }
-        index++;
-    }
-
-    return target_count;
-}
-
-// Structural scan: exhaustive LEA search across all executable sections.
-// For each valid LEA targeting a writable section, ScoreZeroingWindow must
-// return 3 (XOR zero + size imm + CALL) to proceed.  The candidate SeCiCallbacks
-// RVA is derived as target_rva - STRUCT_OFFSET.  MOV evidence and a nearby
-// QWORD store are scored; the highest-scoring candidate wins.
-// Returns best seci_rva or 0 if no candidate scores above threshold.
-static ULONG FindSeCiStructural(PE_CONTEXT* ctx) {
-    #define STRUCTURAL_FORWARD_WINDOW 0x240U
-    ULONG best_rva = 0;
-    LONG best_score = -1;
-
-    ULONG i;
-    for (i = 0; i < ctx->SectionCount; i++) {
-        ULONG sectionStart, sectionEnd, lea_file;
-
-        if (!(ctx->Sections[i].Characteristics & SCN_MEM_EXECUTE)) continue;
-        sectionStart = ctx->Sections[i].RawPointer;
-        sectionEnd = sectionStart + ctx->Sections[i].RawSize;
-        if (sectionEnd > (ULONG)ctx->Size) sectionEnd = (ULONG)ctx->Size;
-
-        for (lea_file = sectionStart; lea_file + LEA_LEN <= sectionEnd; ++lea_file) {
-            ULONG lea_rva, target_rva, seci_rva, search_end;
-            LONG lea_section_idx;
-            LONG rel32;
-            ULONG zero_size;
-            BOOLEAN has_zero_size;
-            int zero_score;
-            RUNTIME_FUNCTION_INFO runtimeInfo;
-            ULONG pos;
-
-            if (!IsRipRelativeLea(ctx, lea_file)) continue;
-            if (!FileOffsetToRva(ctx, lea_file, &lea_rva, &lea_section_idx)) continue;
-
-            rel32 = *(PLONG)(ctx->Base + lea_file + 3);
-            target_rva = ComputeRelTargetRva(lea_rva, LEA_LEN, rel32);
-            if (!IsWritableData(ctx, target_rva)) continue;
-
-            zero_score = ScoreZeroingWindow(ctx->Base, ctx->Size, lea_file, &zero_size, &has_zero_size);
-            if (zero_score < 3) continue;
-
-            seci_rva = target_rva - STRUCT_OFFSET;
-
-            if (FindRuntimeFunctionBounds(ctx, lea_rva, &runtimeInfo)) {
-                search_end = runtimeInfo.EndOffsetExclusive;
-            } else {
-                search_end = lea_file + STRUCTURAL_FORWARD_WINDOW;
-                if (search_end > (ULONG)ctx->Size) search_end = (ULONG)ctx->Size;
-            }
-
-            // Look for a DWORD store at seci_rva within the function
-            for (pos = lea_file; pos + 10 <= search_end; ++pos) {
-                RIP_RELATIVE_STORE store;
-                ULONG qword_gap;
-                RIP_RELATIVE_STORE qword_store;
-                int mov_hits, score;
-
-                if (!ReadRipRelativeStore(ctx, pos, &store)) continue;
-                if (store.IsQword || store.TargetRva != seci_rva) continue;
-
-                // Qword store after the DWORD store
-                BOOLEAN has_qword = FindNearbyQwordStore(ctx, pos, search_end, &qword_gap, &qword_store);
-                mov_hits = CountSeCiMovs(ctx, pos, seci_rva, 300);
-
-                score = 30;
-                score += zero_score * 10;
-                score += mov_hits;
-                {
-                    ULONG dist = pos - lea_file;
-                    ULONG pen = dist / 32;
-                    if (pen > 10) pen = 10;
-                    score -= (int)pen;
-                }
-                if (has_qword) {
-                    ULONG gap_capped = qword_gap < 16 ? qword_gap : 16;
-                    score += 50 - (int)gap_capped;
-                    if (IsWritableSectionIndex(ctx, qword_store.TargetSectionIndex)) score += 5;
-                }
-                if (store.Imm32 >= 0x40 && store.Imm32 <= 0x400) score += 5;
-                if (store.Imm32 == SECI_FLAGS_EXPECTED) score += 10;
-                if (has_zero_size) {
-                    if (store.Imm32 == zero_size + 12) score += 10;
-                    else if (store.Imm32 == zero_size || store.Imm32 == zero_size + 4 || store.Imm32 == zero_size + 8) score += 5;
-                }
-
-                if (score > best_score) {
-                    best_score = score;
-                    best_rva = seci_rva;
-                }
-            }
-        }
-    }
-
-    if (best_score >= 0) return best_rva;
-    return 0;
-}
-
-// Legacy anchor scan: looks for the byte sequence
-//   C7 05 <disp32> 0x08 0x01 0x00 0x00  48 C7 05 ...
-// which corresponds to a DWORD store of value 0x108 (SECI_FLAGS_EXPECTED)
-// followed immediately by a QWORD store — a pattern stable across Win10/11.
-// Walks backward from the anchor to find the LEA, then scores with CountSeCiMovs.
-// Used as a fallback when the structural scan finds no candidate.
-// Returns best seci_rva or 0 on failure.
-static ULONG FindSeCiLegacy(PE_CONTEXT* ctx) {
-    static const UCHAR kHead[2] = {0xC7, 0x05};
-    static const UCHAR kTail[7] = {0x08, 0x01, 0x00, 0x00, 0x48, 0xC7, 0x05};
-    ULONG best_rva = 0;
-    LONG best_score = -1;
-    ULONG pos;
-
-    for (pos = 0; pos + 2 <= (ULONG)ctx->Size; ++pos) {
-        ULONG tail_start, lea_file, search_start, search_end;
-        RUNTIME_FUNCTION_INFO runtimeInfo;
-        RIP_RELATIVE_STORE match_store;
-        ULONG match_rva;
-        LONG match_section;
-        int k;
-
-        if (ctx->Base[pos] != kHead[0] || ctx->Base[pos + 1] != kHead[1]) continue;
-        tail_start = pos + 6;
-        if (tail_start + 7 > (ULONG)ctx->Size) continue;
-
-        for (k = 0; k < 7; k++) {
-            if (ctx->Base[tail_start + k] != kTail[k]) goto next_pos;
-        }
-
-        if (!ReadRipRelativeStore(ctx, pos, &match_store)) goto next_pos;
-        if (!FileOffsetToRva(ctx, pos, &match_rva, &match_section)) goto next_pos;
-
-        if (FindRuntimeFunctionBounds(ctx, match_rva, &runtimeInfo)) {
-            search_start = runtimeInfo.BeginOffset;
-        } else {
-            search_start = pos > 0x600 ? pos - 0x600 : 0;
-        }
-        search_end = pos; // scan backward to match_store position
-
-        if (search_end < LEA_LEN || search_end <= search_start) goto next_pos;
-
-        lea_file = search_end - LEA_LEN;
-        for (;;) {
-            if (IsRipRelativeLea(ctx, lea_file)) {
-                ULONG lea_rva2, target_rva2, seci_rva;
-                LONG lea_sec;
-                LONG rel32;
-                int score;
-
-                if (FileOffsetToRva(ctx, lea_file, &lea_rva2, &lea_sec)) {
-                    rel32 = *(PLONG)(ctx->Base + lea_file + 3);
-                    target_rva2 = ComputeRelTargetRva(lea_rva2, LEA_LEN, rel32);
-                    if (IsWritableData(ctx, target_rva2)) {
-                        seci_rva = target_rva2 - STRUCT_OFFSET;
-                        score = CountSeCiMovs(ctx, pos, seci_rva, 300);
-                        if (seci_rva == match_store.TargetRva) score += 50;
-                        if (score > best_score) {
-                            best_score = score;
-                            best_rva = seci_rva;
-                        }
-                    }
-                }
-            }
-            if (lea_file == search_start) break;
-            lea_file--;
-        }
-
-    next_pos:;
-    }
-
-    if (best_score >= 1) return best_rva;
-    return 0;
-}
-
 // Main entry point for offline offset resolution.
-// Reads ntoskrnl.exe from disk into a VM-allocated buffer, runs the structural
-// scan first, then the legacy anchor scan as a fallback.  Whichever candidate
-// has the higher CountSeCiMovs score is accepted.
-//
-// On success: config->Offset_SeCiCallbacks and config->Offset_SafeFunction
-// are populated.  Returns TRUE if at least Offset_SeCiCallbacks was found.
-// SafeFunction is located as the nearest exported stub at or before
-// SeCiCallbacks in the .text section that is <= 0x20 bytes in size.
+// Reads ntoskrnl.exe from disk, runs structural scan first, then legacy anchor
+// scan as fallback.  Higher CountSeCiMovs score wins.
+// Populates config->Offset_SeCiCallbacks and config->Offset_SafeFunction.
+// Returns TRUE if at least Offset_SeCiCallbacks was found.
 BOOLEAN FindKernelOffsetsLocally(PCONFIG_SETTINGS config) {
     UNICODE_STRING usPath;
     OBJECT_ATTRIBUTES oa;
@@ -868,7 +630,7 @@ BOOLEAN FindKernelOffsetsLocally(PCONFIG_SETTINGS config) {
                         ULONG leaTarget;
 
                         if (FileOffsetToRva(&ctx, leaFileOffset, &leaRva, &leaSectionIndex)) {
-                            rel32 = *(PLONG)(ctx.Base + leaFileOffset + 3);
+                            rel32 = ReadLeS32(ctx.Base + leaFileOffset + 3);
                             leaTarget = ComputeRelTargetRva(leaRva, LEA_LEN, rel32);
 
                             if (leaTarget == leaTargetRva && IsWritableData(&ctx, leaTarget)) {
@@ -930,41 +692,54 @@ BOOLEAN FindKernelOffsetsLocally(PCONFIG_SETTINGS config) {
 
     if (bestScore >= FAST_MIN_SCORE) {
         config->Offset_SeCiCallbacks = bestSeCiRva;
+        // offsetof(CI_CALLBACKS, pfnCiValidateImageHeader) == 32, stable across
+        // all known builds; no need to derive it from the image.
         config->Offset_Callback = 32;
         foundSeci = TRUE;
         ULONGLONGToHexString(bestSeCiRva, hexBuf, TRUE);
-        DisplayMessage(L"SUCCESS: SeCiCallbacks found (Fast) at "); DisplayMessage(hexBuf); DisplayMessage(L"\r\n");
+        DisplayMessage(L"SUCCESS: SeCiCallbacks found at "); DisplayMessage(hexBuf); DisplayMessage(L"\r\n");
     }
 
+    // Legacy anchor fallback — covers RS1/RS2 where CipInitialize does not call
+    // RtlZeroMemory on the callbacks structure, so the structural scan never
+    // accumulates enough score.  The flags DWORD (0x108) store is the only
+    // pattern that has been consistent across all builds from RS1 onward.
     if (!foundSeci) {
-        ULONG structRva;
-        DisplayMessage(L"INFO: Fast method insufficient, trying Structural scan...\r\n");
-        structRva = FindSeCiStructural(&ctx);
-        if (structRva != 0) {
-            config->Offset_SeCiCallbacks = structRva;
-            config->Offset_Callback = 32;
-            foundSeci = TRUE;
-            ULONGLONGToHexString(structRva, hexBuf, TRUE);
-            DisplayMessage(L"SUCCESS: SeCiCallbacks found (Structural) at "); DisplayMessage(hexBuf); DisplayMessage(L"\r\n");
-        }
-    }
+        for (ULONG i = 0; i < ctx.SectionCount; i++) {
+            if (!(ctx.Sections[i].Characteristics & SCN_MEM_EXECUTE)) continue;
+            ULONG sectionStart = ctx.Sections[i].RawPointer;
+            ULONG sectionEnd   = MinUlong(ctx.Sections[i].RawPointer + ctx.Sections[i].RawSize,
+                                          (ULONG)ctx.Size);
 
-    if (!foundSeci) {
-        ULONG legacyRva;
-        DisplayMessage(L"INFO: Structural method failed, trying Legacy anchor...\r\n");
-        legacyRva = FindSeCiLegacy(&ctx);
-        if (legacyRva != 0) {
-            config->Offset_SeCiCallbacks = legacyRva;
-            config->Offset_Callback = 32;
-            foundSeci = TRUE;
-            ULONGLONGToHexString(legacyRva, hexBuf, TRUE);
-            DisplayMessage(L"SUCCESS: SeCiCallbacks found (Legacy) at "); DisplayMessage(hexBuf); DisplayMessage(L"\r\n");
+            for (ULONG off = sectionStart; off + 10 <= sectionEnd; ++off) {
+                if (ctx.Base[off] != 0xC7 || ctx.Base[off + 1] != 0x05) continue;
+                // Skip the QWORD-prefix form (48 C7 05) — ReadRipRelativeStore
+                // handles it, but we only want the plain DWORD store here.
+                if (off > 0 && ctx.Base[off - 1] == 0x48) continue;
+
+                RIP_RELATIVE_STORE store;
+                if (!ReadRipRelativeStore(&ctx, off, &store)) continue;
+                if (store.IsQword) continue;
+                if (store.Imm32 != SECI_FLAGS_EXPECTED) continue;
+                if (!IsWritableSectionIndex(&ctx, store.TargetSectionIndex)) continue;
+                // Reject anything landing in the PE headers.
+                if (store.TargetRva < 0x1000) continue;
+
+                config->Offset_SeCiCallbacks = store.TargetRva;
+                config->Offset_Callback = 32;
+                foundSeci = TRUE;
+                ULONGLONGToHexString(store.TargetRva, hexBuf, TRUE);
+                DisplayMessage(L"SUCCESS: SeCiCallbacks (legacy anchor) at ");
+                DisplayMessage(hexBuf); DisplayMessage(L"\r\n");
+                goto legacy_done;
+            }
         }
+        legacy_done:;
     }
 
     NtFreeVirtualMemory((HANDLE)-1, &base, &regionSize, MEM_RELEASE);
-
-    if (!foundSeci) DisplayMessage(L"WARNING: SeCiCallbacks NOT found by any method!\r\n");
+    
+    if (!foundSeci) DisplayMessage(L"WARNING: SeCiCallbacks NOT found!\r\n");
     if (!foundSafe) DisplayMessage(L"WARNING: SafeFunction NOT found!\r\n");
 
     return (foundSeci && foundSafe);

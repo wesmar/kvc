@@ -61,7 +61,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <MASM Include="..\kvc\MmPoolTelemetry.asm">
+    <MASM Include="MmPoolTelemetry.asm">
       <Filter>Source Files</Filter>
     </MASM>
   </ItemGroup>

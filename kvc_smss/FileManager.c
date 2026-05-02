@@ -3,19 +3,13 @@
 //
 // All I/O uses raw NT syscalls (NtOpenFile, NtSetInformationFile, etc.).
 // No Win32 API is available at SMSS phase.
-//
 // Path convention: NT native namespace (\??\C:\... or \SystemRoot\...).
-// All path buffers are MAX_PATH_LEN WCHARs wide; length is validated before
-// every string operation to prevent buffer overflow.
 // ============================================================================
 
 #include "FileManager.h"
 
-// Rename SourcePath to TargetPath (or vice versa depending on INI_ENTRY fields).
-// If TargetPath already exists and SourcePath does not, the rename is treated
-// as already complete and STATUS_SUCCESS is returned without touching anything.
-// FILE_RENAME_INFORMATION is built on a local 512-byte stack buffer; paths
-// longer than ~240 WCHARs will be rejected with STATUS_BUFFER_TOO_SMALL.
+// Rename SourcePath to TargetPath.  If TargetPath already exists and SourcePath
+// does not, the rename is treated as already complete — STATUS_SUCCESS returned.
 NTSTATUS ExecuteRename(PINI_ENTRY entry) {
     UNICODE_STRING usSourcePath, usTargetPath;
     OBJECT_ATTRIBUTES oa;
@@ -85,9 +79,8 @@ BOOLEAN IsDotDirectory(PWSTR name, ULONG nameLen) {
 }
 
 // Recursively deletes all contents of dirPath, then deletes dirPath itself.
-// Uses a 4 KB stack buffer for NtQueryDirectoryFile; entries are processed in
-// batches.  Subdirectories are deleted depth-first before their parent.
-// Returns STATUS_SUCCESS even if some entries could not be deleted (best-effort).
+// Subdirectories are deleted depth-first.  Returns STATUS_SUCCESS even if
+// some entries could not be deleted (best-effort).
 NTSTATUS DeleteDirectoryRecursive(PUNICODE_STRING dirPath) {
     OBJECT_ATTRIBUTES oa;
     IO_STATUS_BLOCK iosb;
@@ -181,7 +174,6 @@ NTSTATUS DeleteDirectoryRecursive(PUNICODE_STRING dirPath) {
 // Delete DeletePath (file or directory).
 // For directories: if RecursiveDelete=YES, calls DeleteDirectoryRecursive;
 // otherwise attempts a simple directory delete (fails if not empty).
-// Uses FileStandardInformation to distinguish file vs. directory before acting.
 NTSTATUS ExecuteDelete(PINI_ENTRY entry) {
     UNICODE_STRING usPath;
     OBJECT_ATTRIBUTES oa;

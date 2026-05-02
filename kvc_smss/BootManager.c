@@ -1,21 +1,22 @@
 // ============================================================================
-// BootManager — NATIVE entry point and main execution loop
+// BootManager — NATIVE entry point and main execution loop (BB variant)
 //
 // NtProcessStartup is invoked directly by the NT kernel during SMSS phase.
 // Responsibilities:
 //   1. Elevate process privileges (SeLoadDriver, SeBackup, SeRestore, SeShutdown)
 //   2. Load and parse drivers.ini from \SystemRoot\
-//   3. Resolve kernel offsets (INI / scanner)
+//   3. Resolve kernel offsets (INI → scanner fallback; no explicit OffsetSource)
 //   4. Disable HVCI if active (patches SYSTEM hive, then reboots)
 //   5. Execute driver actions: LOAD (with or without DSE bypass), UNLOAD,
 //      RENAME, DELETE
 //   6. Optionally restore HVCI hive entry and set cosmetic registry flag
 //
 // g_OriginalCallback holds the DSE callback address saved before patching.
-// It survives across reboot by being written to [DSE_STATE] in drivers.ini.
+// It survives across reboots via [DSE_STATE] in drivers.ini.
 // ============================================================================
 
 #include "BootManager.h"
+#include "SetupManager.h"
 #include "OffsetFinder.h"
 
 // Saved SeCiCallbacks slot value before DSE patching.
@@ -65,15 +66,9 @@ __declspec(noreturn) void __stdcall NtProcessStartup(void* Peb) {
         DisplayMessage(L"  SafeFunction = "); DisplayMessage(hexBuf); DisplayMessage(L"\r\n");
     }
 
-    // OFFSET_SOURCE_SCAN: always run heuristic scanner regardless of INI offsets.
-    // OFFSET_SOURCE_AUTO (default): run scanner only if INI offsets are missing.
-    // PDB mode (set by kvc.exe after a successful PDB lookup) writes offsets to INI
-    // and the scanner is skipped entirely on the next boot.
-    if (config.OffsetSource == OFFSET_SOURCE_SCAN ||
-        config.Offset_SeCiCallbacks == 0 || config.Offset_SafeFunction == 0) {
-        if (config.OffsetSource == OFFSET_SOURCE_SCAN) {
-            DisplayAlwaysMessage(L"INFO: OffsetSource=SCAN, forcing heuristic scanner\r\n");
-        }
+    // Run the heuristic scanner only when INI offsets are absent (AUTO mode).
+    // The scanner reads ntoskrnl.exe from disk and may take ~50 ms on a cold SSD.
+    if (config.Offset_SeCiCallbacks == 0 || config.Offset_SafeFunction == 0) {
         FindKernelOffsetsLocally(&config);
         if (g_VerboseMode) {
             WCHAR hexBuf[32];
@@ -110,6 +105,12 @@ __declspec(noreturn) void __stdcall NtProcessStartup(void* Peb) {
         }
         NtTerminateProcess((HANDLE)-1, STATUS_SUCCESS);
     }
+
+    // Deploy bbs.exe and register HVCIShutdownSvc for next-and-every-boot auto-start.
+    // Idempotent: FILE_OVERWRITE_IF for the binary, key collision is non-fatal.
+    // Must run after HVCI check so that System32 is writable and the registry
+    // SYSTEM hive is already in its final state for this boot cycle.
+    ExtractBbsAndRegisterService();
 
     // Restore saved DSE callback address from previous run (if exists)
     if (g_OriginalCallback == 0) LoadStateSection(&g_OriginalCallback);
