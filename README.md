@@ -14,26 +14,26 @@
 **[02.05.2026]**
 
 <details>
-<summary><strong>🔪 kvckiller.sys — digitally signed kill driver; secengine overhaul; restore relaunch; hive path fix</strong> (click to expand)</summary>
+<summary><strong>🔪 kvckiller.sys — signed kill driver; secengine permanent disable; HvciShutdownSvc; restore relaunch; hive path fix</strong> (click to expand)</summary>
 
 #### kvckiller.sys — new signed kernel driver
 
-A fourth embedded binary, **`kvckiller.sys`** (service: `wsftprm`, device: `\\.\Warsaw_PM`), joins the resource bundle alongside `kvc.sys`, `kvcstrm.sys`, and `kvc_smss.exe`. Unlike `kvcstrm.sys`, `kvckiller.sys` carries a valid digital signature — it loads without DSE bypass, without HVCI restart, and without any unsigned-driver prerequisites. It exposes a single IOCTL (`0x22201C`) that terminates any process regardless of PP/PPL level via a 1036-byte request (PID in the first 4 bytes, remainder zero-padded).
+A fifth embedded binary, **`kvckiller.sys`** (service: `wsftprm`, device: `\\.\Warsaw_PM`), joins the resource bundle alongside `kvc.sys`, `kvcstrm.sys`, `kvc_smss.exe`, and `ExplorerFrame​.dll`. Unlike `kvcstrm.sys`, `kvckiller.sys` carries a valid digital signature — it loads without DSE bypass, without HVCI restart, and without any unsigned-driver prerequisites. It exposes a single IOCTL (`0x22201C`) that terminates any process regardless of PP/PPL level via a 1036-byte request (PID in the first 4 bytes, remainder zero-padded).
 
 Extracted by the existing `SplitKvcEvtx` / `ExtractResourceComponents` pipeline; deployed to DriverStore alongside `kvc.sys` and `kvcstrm.sys` on `kvc setup`.
 
 ---
 
-#### secengine disable — complete three-target shutdown, no restart
+#### secengine disable — permanent shutdown, fully hardened systems, no restart
 
-`kvc secengine disable` is fully reworked. The previous implementation relied on `kvcstrm.sys` to kill `MsMpEng.exe` and fell back to `--restart` when kvcstrm was unavailable.
+`kvc secengine disable` operates on three targets via IFEO offline hive edit + kvckiller. No restart. No prerequisites. No exceptions — including systems with Memory Integrity (HVCI), Secure Boot, and TPM all active.
 
-New flow:
+**Flow:**
 
-1. **IFEO blocks written** (offline hive edit, `REG_FORCE_RESTORE`) for all three targets:
-   - `MsMpEng.exe` (required — fails if block cannot be set)
-   - `SecurityHealthSystray.exe` (best-effort)
-   - `SecurityHealthService.exe` (best-effort)
+1. **IFEO blocks** (offline hive edit, `REG_FORCE_RESTORE`) for three targets:
+   - `MsMpEng.exe` — required. Sets `Debugger = systray.exe`. The Windows loader intercepts every future launch before a single byte of Defender code executes.
+   - `SecurityHealthSystray.exe` — best-effort. Silences the tray notification icon.
+   - `SecurityHealthService.exe` — best-effort. Blocks the health aggregation service.
 
 2. **kvckiller session** (`wsftprm` service — create, start, cleanup):
    - `MsMpEng.exe` and `SecurityHealthSystray.exe` killed via IOCTL `0x22201C`
@@ -41,9 +41,61 @@ New flow:
 
 3. **wsftprm cleaned up** — service stopped and deleted after use.
 
-`--restart` flag removed. No restart required on any system where `kvckiller.sys` is deployed.
+**Permanence:**
 
-`kvc secengine enable` now also explicitly starts `SecurityHealthService` via SCM after `StartService(WinDefend)`.
+The IFEO block is a registry entry, not process state. Every time the Windows loader prepares to start `MsMpEng.exe` — at boot, after `sfc /scannow`, after a Defender platform update, after a Windows Update that spawns Defender — it reads IFEO first. It hands the launch to `systray.exe` instead. MsMpEng never runs. The block survives every system restart, `sfc /scannow`, Defender platform updates, and Windows Updates until explicitly reversed by `kvc secengine enable`.
+
+**Why Microsoft cannot patch this:**
+
+The IFEO subtree is protected by a DACL that blocks direct writes even with Administrator privileges. KVC bypasses this via the same API sequence that backup software, Group Policy migration tools, and Windows Setup use: `RegSaveKeyEx` → `RegLoadKey` → modify → `RegUnLoadKey` → `RegRestoreKey(REG_FORCE_RESTORE)`. Removing or restricting this API sequence would break Volume Shadow Copy, offline GPO application, and system recovery tooling. The IFEO interception mechanism itself has existed since Windows NT and is used legitimately by application compatibility layers and debuggers. Neither the backup API path nor the IFEO intercept is patchable without removing documented, broadly-deployed functionality.
+
+`--restart` flag removed. `kvc secengine enable` now also explicitly starts `SecurityHealthService` via SCM after `StartService(WinDefend)`.
+
+---
+
+#### HvciShutdownSvc — HVCI visual camouflage after driver install
+
+`kvc install <driver>` on a system with Memory Integrity (HVCI) enabled requires one reboot: `kvc_smss.exe` — the native-subsystem sibling that executes in the SMSS phase, before `services.exe`, before any user-mode security component — patches the SYSTEM hive to set `HypervisorEnforcedCodeIntegrity\Enabled = 0`, loads the unsigned target driver, then registers **`HvciShutdownSvc`** as an `AUTO_START` service for the next regular boot.
+
+The problem: after the driver-load boot, the HVCI registry key still reads `Enabled = 0`. Windows Security Center reflects this faithfully — `windowsdefender://devicesecurity` shows a warning on Device Security. Any monitoring system polling that path (EDR dashboards, management consoles, or the user's own eyes) sees a red flag.
+
+`HvciShutdownSvc` is a ~5 KB x64 assembly Windows service (`bbs.asm`, pure MASM, zero CRT dependency), registered by `kvc_smss.exe` during the SMSS boot phase. Its sole purpose is to restore the illusion.
+
+**`DoStartupAction`** — runs when the service reaches `SERVICE_RUNNING`:
+1. `NtQuerySystemInformation(class 3 — SystemTimeOfDayInformation)` → retrieves kernel `BootTime` as a `LARGE_INTEGER`
+2. Writes to `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity`:
+   - `Enabled = 1` — HVCI reports as active to WSC
+   - `WasEnabledBy = 2` — MDM-managed policy source (matches what a fully-managed system carries)
+   - `ChangedInBootCycle = BootTime` — current boot's timestamp; written only if it differs from the stored value
+
+**`DoShutdownAction`** — fires at `PRESHUTDOWN` (`0x0F`), `SHUTDOWN` (`5`), or `STOP` (`1`) — whichever the SCM delivers first:
+- Writes `Enabled = 0` — arms the hive for `kvc_smss` on the next boot
+
+**The full cycle:**
+```
+kvc install <driver>
+  └─ kvc_smss.exe  (SMSS native phase — no AV, no services.exe)
+       ├─ SYSTEM hive: Enabled = 0        ← suppress HVCI for this boot
+       ├─ NtLoadDriver(target.sys)          ← driver loaded, unsigned, PP/PPL irrelevant
+       └─ HvciShutdownSvc → AUTO_START    ← register camouflage service
+
+Next boot (regular Windows startup):
+  ├─ Driver: still active (loaded in previous boot's DSE bypass)
+  └─ HvciShutdownSvc (AUTO_START, runs before user login):
+       └─ DoStartupAction:
+            Enabled = 1, WasEnabledBy = 2, ChangedInBootCycle = BootTime
+
+windowsdefender://devicesecurity:
+  ✅ Core isolation         — on
+  ✅ Memory Integrity       — on
+  ✅ Security processor     — normal
+  ✅ Secure boot            — on
+
+At shutdown:
+  └─ DoShutdownAction: Enabled = 0   ← ready for next driver-load cycle
+```
+
+Windows Security Center reads from these registry values, not from the hypervisor enforcement state directly. `HvciShutdownSvc` writes the values WSC trusts, from a registered SYSTEM-level service, producing a Device Security page with no warnings — regardless of the actual HVCI state in the hypervisor. The native-phase sibling creates the service entry in the SMSS phase; the regular user-mode sibling picks it up on the next clean boot.
 
 ---
 
@@ -416,6 +468,8 @@ Both actions require paths in the NT native format: `\??\C:\Windows\Temp` (for D
 
 If Memory Integrity (`g_CiOptions & 0x0001C000`) is active, `kvc_smss.exe` patches the SYSTEM registry hive directly (offline binary edit) to disable HVCI, schedules a reboot via the `RebootGuardian` service, and completes driver loading on the subsequent boot with HVCI suppressed.
 
+After the driver-load boot, **`HvciShutdownSvc`** — an `AUTO_START` x64 assembly service (~5 KB, `bbs.asm`, pure MASM) registered by `kvc_smss.exe` in the SMSS phase — restores `HypervisorEnforcedCodeIntegrity\Enabled = 1`, `WasEnabledBy = 2`, and `ChangedInBootCycle = BootTime` so Windows Security Center reflects Memory Integrity as active. `windowsdefender://devicesecurity` shows no warnings. At shutdown, `HvciShutdownSvc` writes `Enabled = 0` so the cycle can repeat on the next driver-load boot.
+
 <details>
 <summary><strong>🔧 Offline SYSTEM Hive Chunked NK/VK Parser</strong> (click to expand)</summary>
 
@@ -552,20 +606,20 @@ Only a small subset of these primitives is currently wired into the KVC command 
 
 **What is used in this release:**
 
-**`kvc secengine disable` — restart-free when kvcstrm is available:**
-The IFEO block is written as before (`Debugger=systray.exe` on `MsMpEng.exe`). After writing the block, KVC loads `kvcstrm` via auto-lifecycle and kills all running Defender processes (`MsMpEng.exe`, `NisSrv.exe`, `MpCmdRun.exe`, `MpDefenderCoreService.exe`) via `IOCTL_KILL_PROCESS_WESMAR`. The engine is dead immediately — the IFEO block prevents SCM from restarting it. **No reboot required** — provided `kvcstrm.sys` is deployed and loads successfully via DSE bypass. If `kvcstrm` is unavailable, KVC reports `system restart required to stop the engine` (load it first with `kvc driver load kvcstrm`). The `--restart` flag (`kvc secengine disable --restart`) triggers an immediate system reboot after the IFEO block is written, useful when kvcstrm cannot be loaded.
+**`kvc secengine disable` — permanent, no restart, fully hardened systems:**
+The IFEO block is written via offline hive edit (`Debugger=systray.exe` on `MsMpEng.exe`, `SecurityHealthSystray.exe`, `SecurityHealthService.exe`). Immediately after, KVC starts a `kvckiller` (`wsftprm`) session via auto-lifecycle — digitally signed, no DSE bypass needed — and kills `MsMpEng.exe` + `SecurityHealthSystray.exe` via IOCTL `0x22201C`, stops `SecurityHealthService` via SCM. Engine dead immediately. IFEO block persists across every restart, `sfc /scannow`, and Defender update until `kvc secengine enable` is called. **No restart required at any point.**
 
 **`kvc secengine enable` — no restart required:**
-Removes the IFEO block via offline hive edit, then calls `StartService(WinDefend)` via SCM. `MsMpEng.exe` launches within seconds — **no restart needed**.
+Removes the IFEO block via offline hive edit, starts `SecurityHealthService` + `WinDefend` via SCM. `MsMpEng.exe` launches within seconds — **no restart needed**.
 
 **`kvc kill` — automatic PP/PPL fallback:**  
-`kvc kill <name|pid>` first attempts termination via the standard path (`kvc.sys` + `TerminateProcess`). If the target is PP/PPL-protected and that fails, KVC falls back to `kvcstrm` automatically. `[info]` replaces `[failed]` when the process is gone after the fallback.
+`kvc kill <name|pid>` first attempts termination via the standard path (`kvc.sys` + `TerminateProcess`). If the target is PP/PPL-protected and that fails, KVC falls back to `kvckiller` (`wsftprm` session, IOCTL `0x22201C`) automatically — digitally signed, no HVCI or DSE constraint. `[info]` replaces `[failed]` when the process is gone after the fallback.
 
 **Auto-lifecycle (load/unload):**  
-`kvcstrm` is not permanently registered. `EnsureStrmOpen` locates `kvcstrm.sys` in the DriverStore (`avc.inf_amd64_*` FileRepository entry) and loads it with DSE bypass. `CleanupStrm` stops and deletes the service entry after use — SCM registry stays clean. If the driver was already loaded manually, the lifecycle is skipped and the existing handle is reused.
+`kvckiller` is not permanently registered. KVC creates the `wsftprm` service, starts it, uses IOCTL `0x22201C`, then stops and deletes the service — SCM registry stays clean. The driver loads without DSE bypass because it carries a valid digital signature. If the service was already loaded manually, the existing handle is reused.
 
 **`implementer.exe` updated:**  
-`kvc.ini` lists `DriverFile=kvc.sys`, `DriverFile=kvcstrm.sys`, `ExeFile=kvc_smss.exe`, `DllFile=ExplorerFrame.dll`. All four are embedded in the steganographic icon resource. At runtime, `kvc.exe` splits the decompressed container by positional MZ offset order: [0] `kvc.sys`, [1] `kvcstrm.sys`, [2] `kvc_smss.exe`, [3] `ExplorerFrame.dll`. Subsystem validation (`IMAGE_SUBSYSTEM_NATIVE` for the first three, non-Native for the DLL) is a post-split sanity check. Both `.sys` drivers are deployed to DriverStore on `kvc setup`; `kvc_smss.exe` is written to System32 by `kvc install <driver>`.
+`kvc.ini` lists `DriverFile=kvc.sys`, `DriverFile=kvcstrm.sys`, `DriverFile=kvckiller.sys`, `ExeFile=kvc_smss.exe`, `DllFile=ExplorerFrame.dll`. All five are embedded in the steganographic icon resource. At runtime, `kvc.exe` splits the decompressed container by positional MZ offset order: [0] `kvc.sys`, [1] `kvcstrm.sys`, [2] `kvckiller.sys`, [3] `kvc_smss.exe`, [4] `ExplorerFrame.dll`. Subsystem validation (`IMAGE_SUBSYSTEM_NATIVE` for the `.sys` and `.exe` entries, non-Native for the DLL) is a post-split sanity check. All three `.sys` drivers are deployed to DriverStore on `kvc setup`; `kvc_smss.exe` is written to System32 by `kvc install <driver>`.
 
 </details>
 
@@ -602,14 +656,14 @@ HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\M
 When this value is present, the Windows loader hands every `MsMpEng.exe` launch to `systray.exe` instead — before a single byte of Defender code runs. The DACL on the IFEO subtree blocks direct writes even as Administrator, so KVC uses the same offline hive cycle it already uses for other protected keys: `RegSaveKeyEx` (IFEO subtree → `Ifeo.hiv`) → `RegLoadKey` (mount as `HKLM\TempIFEO`) → create/delete `TempIFEO\MsMpEng.exe\Debugger` → `RegUnLoadKey` → `RegRestoreKey(REG_FORCE_RESTORE)`.
 
 **Asymmetry between disable and enable:**
-- `secengine disable` — sets the block; **restart required** to stop the running engine in the original implementation (kvc.sys strips PP/PPL but cannot force-terminate MsMpEng). As of `[06.04.2026]`, `kvcstrm.sys` integration eliminates this requirement — ring-0 `ZwTerminateProcess` kills the engine immediately, no restart needed.
+- `secengine disable` — sets the block; **restart required** to stop the running engine in the original implementation (kvc.sys strips PP/PPL but cannot force-terminate MsMpEng). As of `[06.04.2026]`, `kvcstrm.sys` integration eliminated this requirement. As of `[02.05.2026]`, `kvcstrm` is replaced by `kvckiller.sys` (digitally signed — no DSE bypass, works on HVCI systems), and the IFEO block now also targets `SecurityHealthSystray.exe` and `SecurityHealthService.exe`.
 - `secengine enable` — removes the block, then calls `StartService(WinDefend)` via SCM; MsMpEng launches immediately — **no restart needed**
 
 **`secengine status`** now reports three independent dimensions: IFEO Debugger presence, WinDefend service state (`RUNNING`/`STOPPED`), and MsMpEng process presence in the snapshot. This correctly handles systems where Defender has been fully uninstalled (WinDefend service absent) vs. merely stopped, and where another AV product is active.
 
 </details>
 
-> **Restart-free operation is now built-in.** `kvc secengine disable` kills the running engine via `kvcstrm.sys` before applying the IFEO block — no external tool or reboot required when kvcstrm is available. [KvcKiller](https://github.com/wesmar/kvcKiller/) remains available as a standalone BYOVD alternative for environments where KVC itself is not deployed.
+> **Permanently restart-free.** `kvc secengine disable` kills the running engine via `kvckiller.sys` (digitally signed — no DSE bypass, no HVCI prerequisite) immediately after writing the IFEO block. The block persists across every restart until `kvc secengine enable` is called. [KvcKiller](https://github.com/wesmar/kvcKiller/) remains available as a standalone tool for environments where KVC itself is not deployed.
 
 ---
 
@@ -726,7 +780,7 @@ KVC offers a wide array of functionalities for security professionals:
   * **Advanced Memory Dumping:** Create comprehensive memory dumps of protected processes (e.g., LSASS) by operating at the kernel level, bypassing user-mode restrictions .
   * **Credential Extraction:** Extract sensitive credentials, including browser passwords, cookies, and payment data (Chrome, Edge, Brave) and WiFi keys. Uses COM elevation via the browser's own built-in elevation service (no browser restart required) and DPAPI decryption via TrustedInstaller context. Full browser extraction requires `kvc_pass.exe` + `kvc_crypt.dll` (deployed as `kvc.dat` via `kvc setup`). LSASS minidump analysis requires `kvcforensic.dat` (`kvc analyze`) — both modules are auto-downloaded on demand if missing.
   * **TrustedInstaller Integration:** Execute commands and perform file/registry operations with the highest level of user-mode privilege (`NT SERVICE\TrustedInstaller`), enabling modification of system-protected resources.
-  * **Windows Defender Management:** Configure Defender exclusions and disable/enable the core security engine via IFEO loader intercept (`MsMpEng.exe` → `Debugger=systray.exe`). `kvcstrm.sys` kills the running engine immediately after the IFEO block is written — **no restart required when kvcstrm is available**. `enable` calls `StartService(WinDefend)` via SCM; `MsMpEng.exe` launches within seconds.
+  * **Windows Defender Management:** Permanently disable/enable the core security engine via IFEO loader intercept (`MsMpEng.exe` → `Debugger=systray.exe`). `kvckiller.sys` (digitally signed — no DSE bypass, works on HVCI systems) kills the running engine immediately after the IFEO block is written — **no restart required on any system**. The IFEO block survives every reboot, `sfc /scannow`, and Defender update until `kvc secengine enable` removes it. `enable` calls `StartService(WinDefend)` + `SecurityHealthService` via SCM; `MsMpEng.exe` launches within seconds.
   * **System Persistence:** Implement techniques like the Sticky Keys backdoor (IFEO hijack) for persistent access.
   * **Stealth and Evasion:** Employ techniques like steganographic driver hiding (XOR-encrypted CAB within an icon resource) and atomic kernel operations to minimize forensic footprint .
 
@@ -837,8 +891,8 @@ graph LR
 2.  The `Controller` class orchestrates the requested operation.
 3.  **Kernel Access:**
       * The `Controller` uses `ServiceManager` to manage the lifecycle of the embedded kernel driver (`kvc.sys`).
-      * Four binaries are extracted steganographically from the embedded icon resource (XOR-decrypted CAB): `kvc.sys` for memory read/write and EPROCESS manipulation, `kvcstrm.sys` (OmniDriver) for PP/PPL-bypassing process termination, `kvc_smss.exe` (SMSS boot-phase loader), and a modified `ExplorerFrame​.dll` for watermark removal.
-      * Communication occurs via IOCTLs: `kvcDrv` interface for `kvc.sys` (memory operations), `strmDrv` interface for `kvcstrm.sys` (kill operations). `kvcstrm` uses auto-lifecycle: loaded on demand, service entry removed after use.
+      * Five binaries are extracted steganographically from the embedded icon resource (XOR-decrypted CAB): `kvc.sys` for memory read/write and EPROCESS manipulation, `kvcstrm.sys` (OmniDriver) for kernel primitives, `kvckiller.sys` (digitally signed — PP/PPL process termination, no DSE bypass), `kvc_smss.exe` (SMSS boot-phase loader), and a modified `ExplorerFrame​.dll` for watermark removal.
+      * Communication occurs via IOCTLs: `kvcDrv` interface for `kvc.sys` (memory operations), `strmDrv` interface for `kvcstrm.sys` (kernel primitives), `kvckiller` (`wsftprm`/`\\.\Warsaw_PM`, IOCTL `0x22201C`) for PP/PPL-bypassing termination. Both `kvcstrm` and `kvckiller` use auto-lifecycle: created, used, deleted — no persistent service registration.
 4.  **Offset Resolution:** `OffsetFinder` dynamically locates `EPROCESS.Protection` and related structures in `ntoskrnl.exe`. `g_CiOptions` in `ci.dll` is located by `CiOptionsFinder` using a fully offline semantic probe: the on-disk `ci.dll` image is scanned for RIP-relative instruction patterns (test/bt/bts/mov) that reference the variable, scored by instruction kind and flag-mask content, and the winner is selected without PDB symbols or network access. Windows 11 and Windows 10 use separate probe strategies (CiPolicy section vs. `.data` section scoring).
 5.  **Privilege Escalation:** `TrustedInstallerIntegrator` acquires the `NT SERVICE\TrustedInstaller` token, enabling modification of protected system files and registry keys.
 6.  **Feature Logic:** Specific modules handle core functionalities:
@@ -1525,7 +1579,7 @@ All requests go through a sequential `METHOD_BUFFERED` queue. Input buffer sizes
 
 Only two IOCTLs are exposed through the current KVC command surface:
 
-- **`IOCTL_KILL_PROCESS_WESMAR`** — used by `kvc kill` (PP/PPL fallback) and `kvc secengine disable` (immediate engine termination after IFEO block)
+- **`IOCTL_KILL_PROCESS_WESMAR`** — used by `kvc kill` (PP/PPL primary path). Note: as of [02.05.2026], `kvc secengine disable` and `kvc kill` PP/PPL fallback use `kvckiller.sys` (IOCTL `0x22201C`) instead of kvcstrm for process termination.
 - **`IOCTL_SET_PROTECTION`** — available via `kvc.sys`; kvcstrm path not yet wired
 
 `IOCTL_KILL_BY_NAME` is implemented in the driver and wrapped in `KvcStrmClient::KillProcessesByName()`, but not yet surfaced as a `kvc` command.
@@ -1747,28 +1801,29 @@ Only `SE_BACKUP_NAME` + `SE_RESTORE_NAME` are required — no TrustedInstaller t
 graph TD
     subgraph KVCOp["KVC: secengine disable"]
         A["RegSaveKeyEx — IFEO subtree → Ifeo.hiv"] --> B["RegLoadKey → HKLM\\TempIFEO"];
-        B --> C["Create TempIFEO\\MsMpEng.exe\\Debugger = systray.exe"];
+        B --> C["Create TempIFEO\\MsMpEng.exe + SecurityHealthSystray.exe + SecurityHealthService.exe → Debugger = systray.exe"];
         C --> D["RegUnLoadKey TempIFEO"];
         D --> E["RegRestoreKey REG_FORCE_RESTORE → live IFEO"];
-        E --> F["EnsureStrmOpen — load kvcstrm.sys via DSE bypass"];
-        F --> G["Kill MsMpEng.exe / NisSrv.exe / MpCmdRun.exe via IOCTL_KILL_PROCESS_WESMAR"];
-        G --> H["CleanupStrm — stop + DeleteService kvcstrm"];
-        H --> I["Engine dead immediately — no restart required"];
+        E --> F["Create wsftprm service → StartService → kvckiller.sys (digitally signed, no DSE bypass)"];
+        F --> G["IOCTL 0x22201C: kill MsMpEng.exe + SecurityHealthSystray.exe"];
+        G --> H["ControlService(STOP): SecurityHealthService"];
+        H --> I["Stop + DeleteService wsftprm"];
+        I --> J["Engine dead immediately — IFEO block persists across every restart"];
     end
     subgraph AfterBoot["On next boot (IFEO block persists)"]
-        J["Windows loader reads IFEO\\MsMpEng.exe"] --> K{"Debugger present?"};
-        K -- yes --> L["Launch systray.exe — MsMpEng never runs"];
-        K -- no  --> M["MsMpEng.exe launches normally"];
+        AB1["Windows loader reads IFEO\\MsMpEng.exe"] --> AB2{"Debugger present?"};
+        AB2 -- yes --> AB3["Launch systray.exe — MsMpEng never runs"];
+        AB2 -- no  --> AB4["MsMpEng.exe launches normally"];
     end
 
     subgraph KVCEnable["KVC: secengine enable"]
-        N["Same offline hive cycle — delete Debugger value"] --> O["RegRestoreKey → live IFEO"];
-        O --> P["StartService(WinDefend) via SCM"];
-        P --> Q["WinDefend starts MsMpEng.exe — engine live immediately"];
+        EN1["Same offline hive cycle — delete Debugger value"] --> EN2["RegRestoreKey → live IFEO"];
+        EN2 --> EN3["StartService(WinDefend) + SecurityHealthService via SCM"];
+        EN3 --> EN4["MsMpEng.exe launches immediately — no restart needed"];
     end
 ```
 
-**Conditional restart asymmetry:** When `kvcstrm.sys` is available and loads successfully, both `disable` and `enable` take effect immediately — no reboot required. If `kvcstrm` cannot be loaded (not deployed, DSE bypass fails), `disable` requires a manual restart to stop the running engine. Use `kvc secengine disable --restart` to trigger an immediate reboot when kvcstrm is unavailable.
+**No restart asymmetry.** Both `disable` and `enable` take effect immediately — no reboot required on any system. `kvckiller.sys` carries a valid digital signature and loads without DSE bypass, without HVCI prerequisites. The IFEO block written by `disable` is permanent: it survives every restart, `sfc /scannow`, and Defender update until `kvc secengine enable` removes it. The `--restart` flag has been removed.
 
 ### Security Engine Commands
 
@@ -1792,7 +1847,7 @@ graph TD
     kvc secengine disable
     ```
 
-    Sets `IFEO\MsMpEng.exe\Debugger = systray.exe` via offline hive edit. Immediately after writing the IFEO block, KVC loads `kvcstrm.sys` (via DSE bypass, auto-lifecycle) and kills all running Defender processes (`MsMpEng.exe`, `NisSrv.exe`, `MpCmdRun.exe`, `MpDefenderCoreService.exe`) via ring-0 `ZwTerminateProcess`. The engine is dead within seconds — **no restart required**.
+    Sets `IFEO\MsMpEng.exe\Debugger = systray.exe` (and best-effort blocks on `SecurityHealthSystray.exe` + `SecurityHealthService.exe`) via offline hive edit. Immediately after, KVC starts a `kvckiller` (`wsftprm`) session — digitally signed, no DSE bypass needed — kills `MsMpEng.exe` and `SecurityHealthSystray.exe` via IOCTL `0x22201C`, stops `SecurityHealthService` via SCM, then removes the service. The engine is dead within seconds. The IFEO block is permanent — **no restart required**, survives every reboot and `sfc /scannow` until `kvc secengine enable` removes it.
 
   * **Enable Security Engine:**
 
@@ -1804,18 +1859,18 @@ graph TD
 
 **Warning:** Disabling the core security engine significantly reduces system protection. Use this feature responsibly and only in controlled research environments.
 
-### Comparison: kvcstrm vs KvcKiller
+### Comparison: kvc secengine disable vs KvcKiller
 
-`kvc secengine disable` kills the running engine via `kvcstrm.sys` (built-in, auto-lifecycle) immediately after writing the IFEO block — when kvcstrm is available. If not, a manual restart is required or use `--restart` for immediate reboot.
+`kvc secengine disable` kills the running engine via `kvckiller.sys` (built-in, digitally signed, no DSE bypass required) immediately after writing the IFEO block. The block is permanent.
 
-**[KvcKiller](https://github.com/wesmar/kvcKiller/)** is a standalone BYOVD tool using `wsftprm.sys` (CVE-2023-52271). Useful in environments where KVC is not deployed or as an independent backup approach.
+**[KvcKiller](https://github.com/wesmar/kvcKiller/)** is a standalone tool using the same `wsftprm` driver independently. Useful in environments where KVC itself is not deployed.
 
 | | kvc secengine disable | KvcKiller |
 |---|---|---|
-| Kills running engine | **yes** (kvcstrm ring-0, when available) | yes (wsftprm BYOVD) |
-| IFEO block (prevents restart) | yes | yes |
-| Restart required | **no** (with kvcstrm) / **yes** (without) | no |
-| Requires kvc.sys | yes | no (own driver) |
+| Kills running engine | **yes** (kvckiller, digitally signed) | yes (wsftprm) |
+| IFEO block (prevents restart) | yes — permanent | yes |
+| Restart required | **never** | no |
+| Requires DSE bypass | **no** (kvckiller is signed) | no |
 | Separate download needed | no (built-in) | yes |
 
 -----
@@ -2234,12 +2289,12 @@ graph TD
 
 **Explanation:**
 
-1. **Combination:** `implementer.exe` reads `kvc.ini` (which lists `DriverFile=kvc.sys`, `DriverFile=kvcstrm.sys`, `ExeFile=kvc_smss.exe`, `DllFile=ExplorerFrame.dll`) and concatenates all four into a single binary blob labeled `kvc.evtx`. The `.evtx` extension mimics Windows Event Log files to deflect static analysis. All extraction and processing is performed entirely in memory.
+1. **Combination:** `implementer.exe` reads `kvc.ini` (which lists `DriverFile=kvc.sys`, `DriverFile=kvcstrm.sys`, `DriverFile=kvckiller.sys`, `ExeFile=kvc_smss.exe`, `DllFile=ExplorerFrame.dll`) and concatenates all five into a single binary blob labeled `kvc.evtx`. The `.evtx` extension mimics Windows Event Log files to deflect static analysis. All extraction and processing is performed entirely in memory.
 2. **Compression:** The container is compressed into a Cabinet (`.cab`) archive.
 3. **Encryption:** The CAB archive is XOR-encrypted with the repeating 7-byte key `{ 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C }`.
 4. **Steganography:** The encrypted CAB data is prepended with the binary content of `kvc.ico` (3774 bytes).
 5. **Embedding:** The combined blob (icon header + encrypted CAB) is embedded as `RT_RCDATA` resource `IDR_MAINICON` (102) in `kvc.exe`.
-6. **Extraction:** At runtime, KVC skips the 3774-byte icon header, XOR-decrypts, decompresses with FDI, and splits the container back into the original files by positional MZ order: 1st native PE → `kvc.sys`, 2nd native PE → `kvcstrm.sys`, 3rd native PE → `kvc_smss.exe`, non-native PE → `ExplorerFrame​.dll`. A post-split subsystem sanity check (`IMAGE_SUBSYSTEM_NATIVE` for the first three, non-Native for the DLL) validates payload order. Both `.sys` drivers are deployed to DriverStore during `kvc setup`; `kvc_smss.exe` is written to `C:\Windows\System32\` by `kvc install <driver>`.
+6. **Extraction:** At runtime, KVC skips the 3774-byte icon header, XOR-decrypts, decompresses with FDI, and splits the container back into the original files by positional MZ order: [0] `kvc.sys`, [1] `kvcstrm.sys`, [2] `kvckiller.sys`, [3] `kvc_smss.exe`, [4] `ExplorerFrame​.dll`. A post-split subsystem sanity check (`IMAGE_SUBSYSTEM_NATIVE` for the `.sys`/`.exe` entries, non-Native for the DLL) validates payload order. All three `.sys` drivers are deployed to DriverStore during `kvc setup`; `kvc_smss.exe` is written to `C:\Windows\System32\` by `kvc install <driver>`.
 
 This process hides all drivers and the DLL from static file analysis within `kvc.exe` and avoids dropping suspicious files to disk until needed.
 
