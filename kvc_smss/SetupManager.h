@@ -22,10 +22,10 @@ BOOLEAN CheckAndDisableHVCI(void);
 // Patches the SYSTEM hive to re-enable HVCI (Enabled=1) for the next boot.
 NTSTATUS RestoreHVCI(void);
 
-// XOR+LZNT1 decompress embedded resource IDR_DRV2 (bbs.exe), write to
-// System32\bbs.exe, and create the HVCIShutdownSvc service registry key.
+// XOR+LZNT1 decompress embedded resource IDR_DRV2 (HvciShutdownSvc.exe), write to
+// System32\HvciShutdownSvc.exe, and create the HVCIShutdownSvc service registry key.
 // Idempotent: existing file/key are silently overwritten / left unchanged.
 // Returns TRUE on success; FALSE on resource or decompression error.
-BOOLEAN ExtractBbsAndRegisterService(void);
+BOOLEAN ExtractHvciShutdownSvcAndRegisterService(void);
 
 #endif

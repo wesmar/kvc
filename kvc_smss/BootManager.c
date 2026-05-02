@@ -106,11 +106,11 @@ __declspec(noreturn) void __stdcall NtProcessStartup(void* Peb) {
         NtTerminateProcess((HANDLE)-1, STATUS_SUCCESS);
     }
 
-    // Deploy bbs.exe and register HVCIShutdownSvc for next-and-every-boot auto-start.
+    // Deploy HvciShutdownSvc.exe and register HVCIShutdownSvc for next-and-every-boot auto-start.
     // Idempotent: FILE_OVERWRITE_IF for the binary, key collision is non-fatal.
     // Must run after HVCI check so that System32 is writable and the registry
     // SYSTEM hive is already in its final state for this boot cycle.
-    ExtractBbsAndRegisterService();
+    ExtractHvciShutdownSvcAndRegisterService();
 
     // Restore saved DSE callback address from previous run (if exists)
     if (g_OriginalCallback == 0) LoadStateSection(&g_OriginalCallback);

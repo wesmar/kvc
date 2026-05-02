@@ -68,7 +68,7 @@ The IFEO subtree is protected by a DACL that blocks direct writes even with Admi
 
 The problem: after the driver-load boot, the HVCI registry key still reads `Enabled = 0`. Windows Security Center reflects this faithfully — `windowsdefender://devicesecurity` shows a warning on Device Security. Any monitoring system polling that path (EDR dashboards, management consoles, or the user's own eyes) sees a red flag.
 
-`HvciShutdownSvc` is a ~5 KB x64 assembly Windows service (`bbs.asm`, pure MASM, zero CRT dependency), registered by `kvc_smss.exe` during the SMSS boot phase. Its sole purpose is to restore the illusion.
+`HvciShutdownSvc` is a ~5 KB x64 assembly Windows service (`HvciShutdownSvc.asm`, pure MASM, zero CRT dependency), registered by `kvc_smss.exe` during the SMSS boot phase. Its sole purpose is to restore the illusion.
 
 **`DoStartupAction`** — runs when the service reaches `SERVICE_RUNNING`:
 1. `NtQuerySystemInformation(class 3 — SystemTimeOfDayInformation)` → retrieves kernel `BootTime` as a `LARGE_INTEGER`
@@ -477,7 +477,7 @@ Both actions require paths in the NT native format: `\??\C:\Windows\Temp` (for D
 
 If Memory Integrity (`g_CiOptions & 0x0001C000`) is active, `kvc_smss.exe` patches the SYSTEM registry hive directly (offline binary edit) to disable HVCI, schedules a reboot via the `RebootGuardian` service, and completes driver loading on the subsequent boot with HVCI suppressed.
 
-After the driver-load boot, **`HvciShutdownSvc`** — an `AUTO_START` x64 assembly service (~5 KB, `bbs.asm`, pure MASM) registered by `kvc_smss.exe` in the SMSS phase — restores `HypervisorEnforcedCodeIntegrity\Enabled = 1`, `WasEnabledBy = 2`, and `ChangedInBootCycle = BootTime` so Windows Security Center reflects Memory Integrity as active. `windowsdefender://devicesecurity` shows no warnings. At shutdown, `HvciShutdownSvc` writes `Enabled = 0` so the cycle can repeat on the next driver-load boot.
+After the driver-load boot, **`HvciShutdownSvc`** — an `AUTO_START` x64 assembly service (~5 KB, `HvciShutdownSvc.asm`, pure MASM) registered by `kvc_smss.exe` in the SMSS phase — restores `HypervisorEnforcedCodeIntegrity\Enabled = 1`, `WasEnabledBy = 2`, and `ChangedInBootCycle = BootTime` so Windows Security Center reflects Memory Integrity as active. `windowsdefender://devicesecurity` shows no warnings. At shutdown, `HvciShutdownSvc` writes `Enabled = 0` so the cycle can repeat on the next driver-load boot.
 
 <details>
 <summary><strong>🔧 Offline SYSTEM Hive Chunked NK/VK Parser</strong> (click to expand)</summary>

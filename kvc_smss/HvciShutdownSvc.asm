@@ -1,6 +1,6 @@
 ; Build instructions (run in x64 Native Tools Command Prompt):
-;   ml64.exe /c /Cx bbs.asm
-;   link.exe /SUBSYSTEM:CONSOLE /MACHINE:X64 /ENTRY:main bbs.obj kernel32.lib
+;   ml64.exe /c /Cx HvciShutdownSvc.asm
+;   link.exe /SUBSYSTEM:CONSOLE /MACHINE:X64 /ENTRY:main HvciShutdownSvc.obj kernel32.lib
 
 extrn LoadLibraryA:proc
 extrn GetProcAddress:proc

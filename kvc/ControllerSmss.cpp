@@ -28,6 +28,9 @@ static const wchar_t* SMSS_ENTRY_NAME     = L"kvc_smss";
 // Standard entry that must always be present
 static const wchar_t* SMSS_DEFAULT_ENTRY  = L"autocheck autochk *";
 
+static const wchar_t* HVCI_SVC_EXE_PATH  = L"C:\\Windows\\System32\\HvciShutdownSvc.exe";
+static const wchar_t* HVCI_SVC_NAME      = L"HvciShutdownSvc";
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -308,6 +311,137 @@ static bool RemoveBootExecuteEntry() {
 // PUBLIC API - Controller methods
 // ============================================================================
 
+// Extracts HvciShutdownSvc.exe (IDR_DRV2, XOR+LZNT1) from the already-deployed kvc_smss.exe,
+// writes it to System32 as HvciShutdownSvc.exe, and registers+starts the service.
+// Best-effort: logs warnings and returns on any failure without aborting install.
+static void DeployHvciShutdownService() noexcept {
+    static constexpr WORD kHvciShutdownSvcRsrcId = 102;
+    static constexpr BYTE kXorKey[]  = { 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C };
+
+    // Load kvc_smss.exe as a data-only image to access its resource section
+    HMODULE hSmss = LoadLibraryExW(SMSS_SYSTEM32_PATH, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    if (!hSmss) {
+        INFO(L"HvciShutdownSvc: LoadLibraryEx(kvc_smss.exe) failed (%lu)", GetLastError());
+        return;
+    }
+
+    HRSRC   hRsrc    = FindResourceW(hSmss, MAKEINTRESOURCEW(kHvciShutdownSvcRsrcId), RT_RCDATA);
+    DWORD   compSize = hRsrc ? SizeofResource(hSmss, hRsrc) : 0;
+    HGLOBAL hGlob    = hRsrc ? LoadResource(hSmss, hRsrc)   : nullptr;
+    const BYTE* compData = hGlob ? static_cast<const BYTE*>(LockResource(hGlob)) : nullptr;
+
+    if (!compData || compSize == 0) {
+        INFO(L"HvciShutdownSvc: IDR_DRV2 resource missing from kvc_smss.exe");
+        FreeLibrary(hSmss);
+        return;
+    }
+
+    // XOR decrypt into a local buffer
+    std::vector<BYTE> decBuf(compData, compData + compSize);
+    FreeLibrary(hSmss);
+    for (DWORD i = 0; i < compSize; ++i)
+        decBuf[i] ^= kXorKey[i % 7];
+
+    // LZNT1 decompress via ntdll!RtlDecompressBuffer
+    using RtlDecompress_t = NTSTATUS (WINAPI*)(USHORT, PUCHAR, ULONG, PUCHAR, ULONG, PULONG);
+    auto pfnDecompress = reinterpret_cast<RtlDecompress_t>(
+        GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlDecompressBuffer"));
+    if (!pfnDecompress) {
+        INFO(L"HvciShutdownSvc: RtlDecompressBuffer not found in ntdll.dll");
+        return;
+    }
+
+    std::vector<BYTE> HvciShutdownSvcBuf(64 * 1024);
+    ULONG finalSize = 0;
+    NTSTATUS status = pfnDecompress(
+        2 /* COMPRESSION_FORMAT_LZNT1 */,
+        HvciShutdownSvcBuf.data(), static_cast<ULONG>(HvciShutdownSvcBuf.size()),
+        decBuf.data(), static_cast<ULONG>(decBuf.size()),
+        &finalSize);
+    if (status != 0 || finalSize == 0) {
+        INFO(L"HvciShutdownSvc: LZNT1 decompression failed (NTSTATUS 0x%lX)", (ULONG)status);
+        return;
+    }
+
+    // Write HvciShutdownSvc.exe to System32
+    HANDLE hOut = CreateFileW(HVCI_SVC_EXE_PATH, GENERIC_WRITE, 0, nullptr,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hOut == INVALID_HANDLE_VALUE) {
+        INFO(L"HvciShutdownSvc: cannot write exe to System32 (%lu)", GetLastError());
+        return;
+    }
+    DWORD written = 0;
+    WriteFile(hOut, HvciShutdownSvcBuf.data(), finalSize, &written, nullptr);
+    CloseHandle(hOut);
+    if (written != finalSize) {
+        INFO(L"HvciShutdownSvc: incomplete write (%lu of %lu bytes)", written, finalSize);
+        DeleteFileW(HVCI_SVC_EXE_PATH);
+        return;
+    }
+    SUCCESS(L"HvciShutdownSvc.exe written to System32 (%lu bytes)", written);
+
+    // Register as AUTO_START service running as LocalSystem
+    SC_HANDLE hScm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
+    if (!hScm) {
+        INFO(L"HvciShutdownSvc: OpenSCManager failed (%lu)", GetLastError());
+        return;
+    }
+
+    SC_HANDLE hSvc = CreateServiceW(
+        hScm,
+        HVCI_SVC_NAME, HVCI_SVC_NAME,
+        SERVICE_ALL_ACCESS,
+        SERVICE_WIN32_OWN_PROCESS,
+        SERVICE_AUTO_START,
+        SERVICE_ERROR_IGNORE,
+        HVCI_SVC_EXE_PATH,
+        nullptr, nullptr, nullptr,
+        nullptr /* LocalSystem */, nullptr);
+
+    if (!hSvc) {
+        DWORD err = GetLastError();
+        if (err == ERROR_SERVICE_EXISTS) {
+            SC_HANDLE hExisting = OpenServiceW(hScm, HVCI_SVC_NAME,
+                                               SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS);
+            if (hExisting) {
+                SERVICE_STATUS ss{};
+                QUERY_SERVICE_CONFIGW* cfg = nullptr;
+                DWORD needed = 0;
+                QueryServiceConfigW(hExisting, nullptr, 0, &needed);
+                std::vector<BYTE> cfgBuf(needed);
+                cfg = reinterpret_cast<QUERY_SERVICE_CONFIGW*>(cfgBuf.data());
+                bool gotCfg = QueryServiceConfigW(hExisting, cfg, needed, &needed);
+                QueryServiceStatus(hExisting, &ss);
+                CloseServiceHandle(hExisting);
+
+                const wchar_t* state     = (ss.dwCurrentState == SERVICE_RUNNING) ? L"RUNNING"
+                                         : (ss.dwCurrentState == SERVICE_STOPPED) ? L"STOPPED"
+                                         : L"OTHER";
+                const wchar_t* startType = (gotCfg && cfg->dwStartType == SERVICE_AUTO_START)   ? L"AUTO_START"
+                                         : (gotCfg && cfg->dwStartType == SERVICE_DEMAND_START) ? L"DEMAND_START"
+                                         : (gotCfg && cfg->dwStartType == SERVICE_DISABLED)     ? L"DISABLED"
+                                         : L"OTHER";
+                INFO(L"HvciShutdownSvc already registered — state: %s, start: %s (not modified)",
+                     state, startType);
+            } else {
+                INFO(L"HvciShutdownSvc already registered (cannot query status)");
+            }
+        } else {
+            INFO(L"HvciShutdownSvc: CreateService failed (%lu)", err);
+        }
+        CloseServiceHandle(hScm);
+        return;
+    }
+
+    // Freshly created — start it immediately
+    if (!StartServiceW(hSvc, 0, nullptr) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING)
+        INFO(L"HvciShutdownSvc: StartService failed (%lu)", GetLastError());
+    else
+        SUCCESS(L"HvciShutdownSvc registered and running");
+    CloseServiceHandle(hSvc);
+    CloseServiceHandle(hScm);
+}
+
 bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) noexcept {
     INFO(L"Installing SMSS boot-phase driver loader...");
 
@@ -357,6 +491,9 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) n
     } else {
         INFO(L"kvc_smss.exe already present in System32");
     }
+
+    // --- 0a2. Extract HvciShutdownSvc.exe from kvc_smss.exe and register HvciShutdownSvc ---
+    DeployHvciShutdownService();
 
     // --- 0b. Deploy kvc.sys, kvckiller.sys and kvcstrm.sys to DriverStore FileRepository ---
     {
@@ -426,7 +563,7 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) n
         std::wstring config;
         config += L"[Config]\r\n";
         config += L"Execute=YES\r\n";
-        config += L"RestoreHVCI=NO\r\n";
+        config += L"RestoreHVCI=YES\r\n";
         config += L"Verbose=NO\r\n";
         config += L"DriverDevice=\\Device\\kvc\r\n";
 
@@ -580,6 +717,66 @@ bool Controller::UninstallSmss() noexcept {
         }
     } else {
         INFO(L"kvc_smss.exe not found in System32 - nothing to delete");
+    }
+
+    // Remove HvciShutdownSvc service and executable
+    SC_HANDLE hScm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+    if (hScm) {
+        SC_HANDLE hSvc = OpenServiceW(hScm, HVCI_SVC_NAME,
+                                      SERVICE_STOP | SERVICE_QUERY_STATUS | DELETE);
+        if (hSvc) {
+            SERVICE_STATUS ss{};
+            ControlService(hSvc, SERVICE_CONTROL_STOP, &ss);
+            // Re-query: fast services may already be STOPPED before notify registers
+            QueryServiceStatus(hSvc, &ss);
+            if (ss.dwCurrentState != SERVICE_STOPPED) {
+                HANDLE hEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                if (hEvent) {
+                    SERVICE_NOTIFY sn{};
+                    sn.dwVersion         = SERVICE_NOTIFY_STATUS_CHANGE;
+                    sn.pfnNotifyCallback = [](PVOID ctx) {
+                        SetEvent(reinterpret_cast<HANDLE>(
+                            static_cast<PSERVICE_NOTIFY>(ctx)->pContext));
+                    };
+                    sn.pContext = hEvent;
+                    if (NotifyServiceStatusChange(hSvc, SERVICE_NOTIFY_STOPPED, &sn) == ERROR_SUCCESS) {
+                        DWORD wr;
+                        do { wr = WaitForSingleObjectEx(hEvent, 5000, TRUE); }
+                        while (wr == WAIT_IO_COMPLETION);
+                    }
+                    CloseHandle(hEvent);
+                }
+            }
+            if (DeleteService(hSvc))
+                SUCCESS(L"HvciShutdownSvc service removed");
+            else
+                INFO(L"HvciShutdownSvc: DeleteService failed (%lu)", GetLastError());
+            CloseServiceHandle(hSvc);
+        }
+        CloseServiceHandle(hScm);
+    }
+    if (GetFileAttributesW(HVCI_SVC_EXE_PATH) != INVALID_FILE_ATTRIBUTES) {
+        if (DeleteFileW(HVCI_SVC_EXE_PATH)) {
+            SUCCESS(L"HvciShutdownSvc.exe removed from System32");
+            // Restore Enabled=1 only if it was explicitly set to 0 by DoShutdownAction
+            static const wchar_t* kHvciKey =
+                L"SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity";
+            HKEY hk = nullptr;
+            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kHvciKey, 0, KEY_READ | KEY_SET_VALUE, &hk) == ERROR_SUCCESS) {
+                DWORD val = 0, sz = sizeof(val), type = 0;
+                LSTATUS qr = RegQueryValueExW(hk, L"Enabled", nullptr, &type,
+                                              reinterpret_cast<BYTE*>(&val), &sz);
+                if (qr == ERROR_SUCCESS && type == REG_DWORD && val == 0) {
+                    DWORD one = 1;
+                    if (RegSetValueExW(hk, L"Enabled", 0, REG_DWORD,
+                                      reinterpret_cast<const BYTE*>(&one), sizeof(one)) == ERROR_SUCCESS)
+                        SUCCESS(L"HypervisorEnforcedCodeIntegrity restored (Enabled=1)");
+                }
+                RegCloseKey(hk);
+            }
+        } else {
+            INFO(L"HvciShutdownSvc: cannot delete exe (%lu)", GetLastError());
+        }
     }
 
     return ok;
