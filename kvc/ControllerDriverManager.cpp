@@ -559,14 +559,15 @@ bool Controller::UninstallDriver() noexcept {
     return true;
 }
 
-// Removes kvc.sys and kvcstrm.sys from DriverStore using TrustedInstaller privileges.
+// Removes kvc.sys, kvcstrm.sys and kvckiller.sys from DriverStore using TrustedInstaller privileges.
 // Called from both UninstallDriver() and HandleUninstall() to ensure cleanup
 // even when the SCM entry is already gone.
 void Controller::DeleteDriverFiles() noexcept
 {
-    fs::path driverDir   = GetDriverStorePath();
-    fs::path driverPath  = driverDir / fs::path(GetDriverFileName());
-    fs::path kvcstrmPath = driverDir / fs::path(GetKvcstrmFileName());
+    fs::path driverDir    = GetDriverStorePath();
+    fs::path driverPath   = driverDir / fs::path(GetDriverFileName());
+    fs::path kvcstrmPath  = driverDir / fs::path(GetKvcstrmFileName());
+    fs::path kvckillerPath = driverDir / L"kvckiller.sys";
 
     // Before deleting kvcstrm.sys, stop and remove the kvcstrm service if it
     // is currently running as an externally loaded driver. Without this step
@@ -617,6 +618,7 @@ void Controller::DeleteDriverFiles() noexcept
 
     removeOne(driverPath);
     removeOne(kvcstrmPath);
+    removeOne(kvckillerPath);
 }
 
 // ============================================================================

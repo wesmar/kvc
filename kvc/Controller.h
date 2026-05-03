@@ -205,6 +205,7 @@ public:
     std::optional<ULONG_PTR> GetProcessKernelAddress(DWORD pid) noexcept;
     std::optional<UCHAR> GetProcessProtection(ULONG_PTR kernelAddress) noexcept;
     std::vector<ProcessEntry> GetProcessList() noexcept;
+    std::vector<ProcessMatch> FindProcessesByName(const std::wstring& pattern) noexcept;
 
     // Self-protection
     bool SelfProtect(const std::wstring& protectionLevel, const std::wstring& signerType) noexcept;
@@ -320,7 +321,6 @@ private:
 
     // Process management
     std::optional<ULONG_PTR> GetInitialSystemProcessAddress() noexcept;
-    std::vector<ProcessMatch> FindProcessesByName(const std::wstring& pattern) noexcept;
     bool IsPatternMatch(const std::wstring& processName, const std::wstring& pattern) noexcept;
 	
 	// Batch operation helpers
@@ -366,6 +366,9 @@ private:
     // Process name resolution
     std::optional<ProcessMatch> ResolveProcessName(const std::wstring& processName) noexcept;
     std::vector<ProcessMatch> FindProcessesByNameWithoutDriver(const std::wstring& pattern) noexcept;
+
+    // Process termination helpers
+    bool TryRelaunchKilledProcess(const std::wstring& name) noexcept;
 	
     // HVCI detection and handling (same logic as DisableDSESafe)
     bool CheckAndHandleHVCI(const std::wstring& operation, const std::wstring& targetPath) noexcept;

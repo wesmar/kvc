@@ -85,6 +85,20 @@ bool DefenderManager::EnableSecurityEngine() noexcept
         CloseServiceHandle(hSCM);
     }
 
+    {
+        STARTUPINFOW si{};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi{};
+        if (CreateProcessW(L"C:\\Windows\\System32\\SecurityHealthSystray.exe",
+                           nullptr, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+            std::wcout << L"[+] SecurityHealthSystray.exe launched\n";
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        } else {
+            std::wcout << L"[-] SecurityHealthSystray.exe could not be launched (err=" << GetLastError() << L")\n";
+        }
+    }
+
     return true;
 }
 

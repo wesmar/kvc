@@ -14,7 +14,11 @@
     <ClCompile Include="ControllerForensic.cpp" />
     <ClCompile Include="ControllerDriverManager.cpp" />
     <ClCompile Include="ControllerDriverLoader.cpp" />
-    <ClCompile Include="ControllerProcessOperations.cpp" />
+    <ClCompile Include="ProcessDriverSession.cpp" />
+    <ClCompile Include="ProcessEnumerator.cpp" />
+    <ClCompile Include="ProcessProtection.cpp" />
+    <ClCompile Include="ProcessTerminator.cpp" />
+    <ClCompile Include="ProcessDisplay.cpp" />
     <ClCompile Include="ControllerMemoryOperations.cpp" />
     <ClCompile Include="ControllerSystemIntegration.cpp" />
     <ClCompile Include="ControllerPasswordManager.cpp" />
