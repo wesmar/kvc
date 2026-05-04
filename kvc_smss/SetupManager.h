@@ -28,4 +28,8 @@ NTSTATUS RestoreHVCI(void);
 // Returns TRUE on success; FALSE on resource or decompression error.
 BOOLEAN ExtractHvciShutdownSvcAndRegisterService(void);
 
+// Removes HvciShutdownSvc.exe from System32 and the HVCIShutdownSvc service registry
+// key.  Called when RestoreHVCI=NO.  Idempotent: missing file/key is not an error.
+void CleanupHvciShutdownSvc(void);
+
 #endif

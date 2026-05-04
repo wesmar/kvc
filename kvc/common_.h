@@ -73,121 +73,205 @@ using SystemModuleHandle = std::unique_ptr<std::remove_pointer_t<HMODULE>, Syste
 
 // ============================================================================
 // RAII GUARDS FOR WINDOWS RESOURCES
-//
-// All guards are aliases of a single policy-based template WinHandle<Policy>.
-//
-// Why Policy structs instead of NTTP NullValue?
-//   INVALID_HANDLE_VALUE is (HANDLE)(LONG_PTR)(-1) — a reinterpret_cast —
-//   which the C++ standard forbids as a non-type template argument for pointer
-//   types. A Policy struct sidesteps this entirely: null sentinel, validity
-//   check, and close function are bundled in one type, resolved at compile
-//   time with zero runtime cost.
-//
-// Each Policy must provide:
-//   handle_type              — the Win32 handle typedef
-//   static handle_type null_value() noexcept   — the "empty" sentinel
-//   static bool        is_null(handle_type)    — true when no resource held
-//   static void        close(handle_type)      — release the resource
 // ============================================================================
 
-// ---------------------------------------------------------------------------
-// Policy definitions
-// ---------------------------------------------------------------------------
-
-// Generic kernel-object HANDLE (OpenProcess, OpenThread, CreateEvent, ...).
-// Treats both nullptr AND INVALID_HANDLE_VALUE as null — because some APIs
-// return nullptr on failure and others return INVALID_HANDLE_VALUE, and
-// CloseHandle on either form is undefined on some Windows builds.
-struct HandlePolicy {
-    using handle_type = HANDLE;
-    // null_value() is constexpr (returns nullptr literal).
-    // is_null() is NOT constexpr: INVALID_HANDLE_VALUE is (void*)(LONG_PTR)(-1),
-    // a reinterpret_cast, which the standard forbids in constant expressions.
-    static constexpr HANDLE null_value() noexcept { return nullptr; }
-    static bool is_null(HANDLE h) noexcept {
-        return h == nullptr || h == INVALID_HANDLE_VALUE;
-    }
-    static void close(HANDLE h) noexcept { CloseHandle(h); }
-};
-
-// CreateFile / CreateToolhelp32Snapshot.
-// These APIs never return nullptr — only INVALID_HANDLE_VALUE on failure.
-// CloseHandle(nullptr) is UB; using INVALID_HANDLE_VALUE as the sole sentinel
-// keeps the guard honest about what it actually protects.
-// Neither null_value() nor is_null() can be constexpr (reinterpret_cast).
-struct FilePolicy {
-    using handle_type = HANDLE;
-    static HANDLE null_value() noexcept { return INVALID_HANDLE_VALUE; }
-    static bool   is_null(HANDLE h) noexcept { return h == INVALID_HANDLE_VALUE; }
-    static void   close(HANDLE h)   noexcept { CloseHandle(h); }
-};
-
-// HKEY from RegOpenKeyEx / RegCreateKeyEx.
-struct RegKeyPolicy {
-    using handle_type = HKEY;
-    static constexpr HKEY null_value() noexcept { return nullptr; }
-    static constexpr bool is_null(HKEY h) noexcept { return h == nullptr; }
-    static void close(HKEY h) noexcept { RegCloseKey(h); }
-};
-
-// SC_HANDLE from OpenSCManager / OpenService / CreateService.
-struct SCHandlePolicy {
-    using handle_type = SC_HANDLE;
-    static constexpr SC_HANDLE null_value() noexcept { return nullptr; }
-    static constexpr bool      is_null(SC_HANDLE h) noexcept { return h == nullptr; }
-    static void                close(SC_HANDLE h)   noexcept { CloseServiceHandle(h); }
-};
-
-// ---------------------------------------------------------------------------
-// WinHandle<Policy> — single template, all guards derive from it
-// ---------------------------------------------------------------------------
-
-template<typename Policy>
-class WinHandle {
+// Generic HANDLE guard (CloseHandle)
+class HandleGuard {
 public:
-    using handle_type = typename Policy::handle_type;
+    explicit HandleGuard(HANDLE h = nullptr) noexcept : m_handle(h) {}
+    ~HandleGuard() noexcept { reset(); }
 
-    explicit WinHandle(handle_type h = Policy::null_value()) noexcept : m_h(h) {}
-    ~WinHandle() noexcept { reset(); }
+    HandleGuard(const HandleGuard&) = delete;
+    HandleGuard& operator=(const HandleGuard&) = delete;
 
-    WinHandle(const WinHandle&)            = delete;
-    WinHandle& operator=(const WinHandle&) = delete;
-
-    WinHandle(WinHandle&& o) noexcept : m_h(o.release()) {}
-    WinHandle& operator=(WinHandle&& o) noexcept {
-        if (this != &o) { reset(); m_h = o.release(); }
+    HandleGuard(HandleGuard&& other) noexcept : m_handle(other.release()) {}
+    HandleGuard& operator=(HandleGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
         return *this;
     }
 
-    void reset(handle_type h = Policy::null_value()) noexcept {
-        if (!Policy::is_null(m_h)) Policy::close(m_h);
-        m_h = h;
+    void reset(HANDLE h = nullptr) noexcept {
+        if (m_handle && m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+        }
+        m_handle = h;
     }
 
-    handle_type  release()   noexcept {
-        handle_type h = m_h;
-        m_h = Policy::null_value();
+    HANDLE release() noexcept {
+        HANDLE h = m_handle;
+        m_handle = nullptr;
         return h;
     }
-    handle_type  get()       const noexcept { return m_h; }
-    handle_type* addressof() noexcept { return &m_h; }
-    explicit operator bool() const noexcept { return !Policy::is_null(m_h); }
+
+    HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle && m_handle != INVALID_HANDLE_VALUE; }
+    HANDLE* addressof() noexcept { return &m_handle; }
 
 private:
-    handle_type m_h;
+    HANDLE m_handle;
 };
 
-// ---------------------------------------------------------------------------
-// Concrete aliases — all call sites unchanged
-// ---------------------------------------------------------------------------
+// Token HANDLE guard (specialized for process tokens)
+using TokenGuard = HandleGuard;
 
-using HandleGuard        = WinHandle<HandlePolicy>;
-using TokenGuard         = HandleGuard;
-using FileGuard          = WinHandle<FilePolicy>;
-using SnapshotGuard      = WinHandle<FilePolicy>;
-using RegKeyGuard        = WinHandle<RegKeyPolicy>;
-using SCManagerGuard     = WinHandle<SCHandlePolicy>;
+// Service Control Manager guard
+class SCManagerGuard {
+public:
+    explicit SCManagerGuard(SC_HANDLE h = nullptr) noexcept : m_handle(h) {}
+    ~SCManagerGuard() noexcept { reset(); }
+
+    SCManagerGuard(const SCManagerGuard&) = delete;
+    SCManagerGuard& operator=(const SCManagerGuard&) = delete;
+
+    SCManagerGuard(SCManagerGuard&& other) noexcept : m_handle(other.release()) {}
+    SCManagerGuard& operator=(SCManagerGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
+        return *this;
+    }
+
+    void reset(SC_HANDLE h = nullptr) noexcept {
+        if (m_handle) {
+            CloseServiceHandle(m_handle);
+        }
+        m_handle = h;
+    }
+
+    SC_HANDLE release() noexcept {
+        SC_HANDLE h = m_handle;
+        m_handle = nullptr;
+        return h;
+    }
+
+    SC_HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle != nullptr; }
+
+private:
+    SC_HANDLE m_handle;
+};
+
+// Service handle guard (same behavior as SCManagerGuard)
 using ServiceHandleGuard = SCManagerGuard;
+
+// Registry key guard
+class RegKeyGuard {
+public:
+    explicit RegKeyGuard(HKEY h = nullptr) noexcept : m_key(h) {}
+    ~RegKeyGuard() noexcept { reset(); }
+
+    RegKeyGuard(const RegKeyGuard&) = delete;
+    RegKeyGuard& operator=(const RegKeyGuard&) = delete;
+
+    RegKeyGuard(RegKeyGuard&& other) noexcept : m_key(other.release()) {}
+    RegKeyGuard& operator=(RegKeyGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_key = other.release();
+        }
+        return *this;
+    }
+
+    void reset(HKEY h = nullptr) noexcept {
+        if (m_key) {
+            RegCloseKey(m_key);
+        }
+        m_key = h;
+    }
+
+    HKEY release() noexcept {
+        HKEY h = m_key;
+        m_key = nullptr;
+        return h;
+    }
+
+    HKEY get() const noexcept { return m_key; }
+    explicit operator bool() const noexcept { return m_key != nullptr; }
+    HKEY* addressof() noexcept { return &m_key; }
+
+private:
+    HKEY m_key;
+};
+
+// File handle guard (specialized for CreateFile handles)
+class FileGuard {
+public:
+    explicit FileGuard(HANDLE h = INVALID_HANDLE_VALUE) noexcept : m_handle(h) {}
+    ~FileGuard() noexcept { reset(); }
+
+    FileGuard(const FileGuard&) = delete;
+    FileGuard& operator=(const FileGuard&) = delete;
+
+    FileGuard(FileGuard&& other) noexcept : m_handle(other.release()) {}
+    FileGuard& operator=(FileGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
+        return *this;
+    }
+
+    void reset(HANDLE h = INVALID_HANDLE_VALUE) noexcept {
+        if (m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+        }
+        m_handle = h;
+    }
+
+    HANDLE release() noexcept {
+        HANDLE h = m_handle;
+        m_handle = INVALID_HANDLE_VALUE;
+        return h;
+    }
+
+    HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle != INVALID_HANDLE_VALUE; }
+
+private:
+    HANDLE m_handle;
+};
+
+// Snapshot guard (CreateToolhelp32Snapshot)
+class SnapshotGuard {
+public:
+    explicit SnapshotGuard(HANDLE h = INVALID_HANDLE_VALUE) noexcept : m_handle(h) {}
+    ~SnapshotGuard() noexcept { reset(); }
+
+    SnapshotGuard(const SnapshotGuard&) = delete;
+    SnapshotGuard& operator=(const SnapshotGuard&) = delete;
+
+    SnapshotGuard(SnapshotGuard&& other) noexcept : m_handle(other.release()) {}
+    SnapshotGuard& operator=(SnapshotGuard&& other) noexcept {
+        if (this != &other) {
+            reset();
+            m_handle = other.release();
+        }
+        return *this;
+    }
+
+    void reset(HANDLE h = INVALID_HANDLE_VALUE) noexcept {
+        if (m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+        }
+        m_handle = h;
+    }
+
+    HANDLE release() noexcept {
+        HANDLE h = m_handle;
+        m_handle = INVALID_HANDLE_VALUE;
+        return h;
+    }
+
+    HANDLE get() const noexcept { return m_handle; }
+    explicit operator bool() const noexcept { return m_handle != INVALID_HANDLE_VALUE; }
+
+private:
+    HANDLE m_handle;
+};
 
 // Privilege enabler guard (restores privilege state on destruction)
 class PrivilegeGuard {

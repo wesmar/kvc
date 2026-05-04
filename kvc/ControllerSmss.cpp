@@ -492,8 +492,15 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) n
         INFO(L"kvc_smss.exe already present in System32");
     }
 
-    // --- 0a2. Extract HvciShutdownSvc.exe from kvc_smss.exe and register HvciShutdownSvc ---
-    DeployHvciShutdownService();
+    // --- 0a2. Extract HvciShutdownSvc.exe and register HvciShutdownSvc ---
+    // Skip when existing drivers.ini has RestoreHVCI=NO; kvc_smss will clean up on boot.
+    {
+        std::wstring existingIni;
+        bool skipHvci = ReadUtf16File(SMSS_INI_PATH, existingIni) &&
+                        existingIni.find(L"RestoreHVCI=NO") != std::wstring::npos;
+        if (!skipHvci)
+            DeployHvciShutdownService();
+    }
 
     // --- 0b. Deploy kvc.sys, kvckiller.sys and kvcstrm.sys to DriverStore FileRepository ---
     {

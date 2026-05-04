@@ -422,6 +422,52 @@ BOOLEAN ExtractHvciShutdownSvcAndRegisterService(void) {
 }
 
 // ============================================================================
+// HVCI SHUTDOWN SVC CLEANUP
+// Removes HvciShutdownSvc.exe from System32 and the HVCIShutdownSvc service
+// registry key.  Called when RestoreHVCI=NO to undo any previous deployment.
+// Idempotent: missing file or key is not an error.
+// ============================================================================
+
+void CleanupHvciShutdownSvc(void) {
+    UNICODE_STRING usPath;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK iosb;
+    HANDLE h;
+    FILE_DISPOSITION_INFORMATION disp;
+    NTSTATUS status;
+    WCHAR svcKeyPath[MAX_PATH_LEN];
+    UNICODE_STRING usKeyPath;
+    OBJECT_ATTRIBUTES oaKey;
+
+    // Delete HvciShutdownSvc.exe from System32
+    RtlInitUnicodeString(&usPath, HvciShutdownSvc_DestPath);
+    InitializeObjectAttributes(&oa, &usPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    status = NtOpenFile(&h, DELETE | SYNCHRONIZE, &oa, &iosb,
+                        FILE_SHARE_DELETE, FILE_SYNCHRONOUS_IO_NONALERT);
+    if (NT_SUCCESS(status)) {
+        disp.DeleteFile = TRUE;
+        NtSetInformationFile(h, &iosb, &disp, sizeof(disp), 13);
+        NtClose(h);
+        DEBUG_LOG(L"INFO: HvciShutdownSvc.exe removed (RestoreHVCI=NO)\r\n");
+    }
+
+    // Delete HVCIShutdownSvc service registry key
+    if (wcscpy_safe(svcKeyPath, MAX_PATH_LEN,
+                    L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\")
+        < MAX_PATH_LEN - 1) {
+        wcscat_safe(svcKeyPath, MAX_PATH_LEN, HvciShutdownSvc_ServiceName);
+        RtlInitUnicodeString(&usKeyPath, svcKeyPath);
+        InitializeObjectAttributes(&oaKey, &usKeyPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+        status = NtOpenKey(&h, DELETE, &oaKey);
+        if (NT_SUCCESS(status)) {
+            NtDeleteKey(h);
+            NtClose(h);
+            DEBUG_LOG(L"INFO: HVCIShutdownSvc service key removed (RestoreHVCI=NO)\r\n");
+        }
+    }
+}
+
+// ============================================================================
 // POST-LOAD CLEANUP
 // Removes both the temporary driver file (kvc_Log / Sam.evtx) AND the SCM
 // registry key created by LoadDriver.  Both must be deleted to leave no trace.

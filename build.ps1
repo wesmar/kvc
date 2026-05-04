@@ -135,6 +135,14 @@ try {
             continue
         }
 
+        # Clean project-local obj\ before build — avoids stale incremental state
+        # for projects whose IntDir lives inside the project directory (e.g. kvc_smss).
+        $projectObjDir = Join-Path (Split-Path $projectPath -Parent) "obj"
+        if (Test-Path -LiteralPath $projectObjDir) {
+            Remove-Item -LiteralPath $projectObjDir -Recurse -Force
+            Write-Step "Cleaned $($project.Name)\obj\"
+        }
+
         Write-Info "Building $($project.Name)..."
         & $msbuild $projectPath `
             /p:Configuration=$Configuration `
@@ -146,6 +154,12 @@ try {
             throw "Failed to build $($project.Name) (exit code $LASTEXITCODE)"
         }
         Write-Success "Built $($project.Name)"
+
+        # Remove project-local obj\ after build so it does not persist between runs.
+        if (Test-Path -LiteralPath $projectObjDir) {
+            Remove-Item -LiteralPath $projectObjDir -Recurse -Force
+            Write-Step "Removed $($project.Name)\obj\"
+        }
     }
 
     # ── kvcstrm kernel driver ────────────────────────────────────────────────
