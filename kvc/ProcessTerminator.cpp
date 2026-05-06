@@ -362,6 +362,7 @@ bool Controller::KillMultipleTargets(
     // ── Tier 3: kvckiller.sys fallback ──────────────────────────────────────
     if (!failedPids.empty()) {
         PrivilegeUtils::EnablePrivilege(SE_LOAD_DRIVER_NAME);
+        EnsureDriverAvailable();
         const std::wstring killerPath = GetDriverStorePath() + L"\\kvckiller.sys";
 
         if (GetFileAttributesW(killerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
