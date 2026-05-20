@@ -1,0 +1,5 @@
+LIBRARY ExplorerFrame
+
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE

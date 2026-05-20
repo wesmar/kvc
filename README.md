@@ -20,6 +20,67 @@ Set `RestoreHVCI=YES` in `C:\Windows\drivers.ini` to have `kvc_smss` automatical
 ---
 ## 📋 Changelog
 
+**[20.05.2026]**
+
+<details>
+<summary><strong>🖥️ kvc wm remove — Build 28000+ support; DrawTextWithGlow delay-IAT ordinal hook; five-hook defense-in-depth.</strong> (click to expand)</summary>
+
+#### Rendering path migration in Build 28000+
+
+`shell32!CDesktopWatermark::s_DesktopBuildPaint` is the single root painter for all desktop watermark strings — Test Mode, build number, edition, activation text. Prior to Build 28000, the rendering leaf was `ExtTextOutW` (GDI) with `DrawTextW` (USER32) as an alternate path on some Win10 builds. Starting with Build 28000, Microsoft migrated the final draw call to `UxTheme!DrawTextWithGlow` (ordinal 126), which applies a glow compositing pass before painting. The previous `ExpIorerFrame.dll` hooks suppressed `ExtTextOutW` and `DrawTextW` but had no slot for `DrawTextWithGlow` — watermarks on Build 28000+ were fully visible even with the patch applied.
+
+---
+
+#### Discovery path
+
+The initial hypothesis after disassembling `s_DesktopBuildPaint` on Build 28000 was that zeroing the output of `BrandingLoadStringForEdition` (the first call in the function) would trigger an early exit at `je +0x9ED` and bypass all rendering. This was wrong: that jump skips only the edition string buffer; execution falls through to `s_GetProductBuildString` at `+0x102`, which assembles the build number and branch string and proceeds unconditionally to `DrawTextWithGlow`. Patching `BrandingLoadStringForEdition` alone removed "Windows 11 Pro" from the watermark while leaving "Test Mode" and "Build 28000…" intact.
+
+WinDbg was used to resolve the actual render leaf:
+dq SHELL32+753AB0 L1
+ln poi(SHELL32+753AB0)   → UxTheme!DrawTextWithGlow
+
+Every watermark string on Build 28000 passes through this single call; `ExtTextOutW` and `DrawTextW` are no longer reachable from `s_DesktopBuildPaint` on this build.
+
+---
+
+#### Delay-load by ordinal — the wrinkle
+
+`DrawTextWithGlow` is **delay-loaded** from `UxTheme` — its IAT slot holds a thunk stub at `DllMain` time. A standard value-scan against the IAT would fail because UxTheme may not yet be resolved when the proxy DLL attaches. The INT (Import Name Table, `DataDirectory[13]`) must be scanned directly.
+
+Scanning the INT for the UxTheme delay descriptor revealed that the entry for `DrawTextWithGlow` has **bit 63 set** — it is an ordinal-only import with no name string; ordinal is in bits 15:0:
+INT entry: 0x800000000000007E   →   ordinal = 0x7E = 126
+
+`BrandingLoadStringForEdition` (from `winbrand.dll`) is also delay-loaded but imported by name (bit 63 clear). Two separate INT-scan paths were therefore required: `ReplaceDelayImportedFunctionByName` for the named import, `ReplaceDelayImportedFunctionByOrdinal` for the ordinal-only entry. Both functions walk `rvaINT` and patch the corresponding slot in `rvaIAT` at the same index — the mechanism works regardless of whether the target DLL has been loaded at the time of patching.
+
+---
+
+#### Fifth hook — InterceptedDrawTextWithGlow
+
+`InterceptedDrawTextWithGlow` is a leaf function (no frame, no sub rsp) that returns `S_OK` (0) immediately, suppressing all glow-rendered watermark text:
+
+```asm
+InterceptedDrawTextWithGlow proc
+    xor     eax, eax    ; S_OK — suppress
+    ret
+InterceptedDrawTextWithGlow endp
+```
+
+The full hook table is now:
+
+| Hook | DLL | Import type | Active on |
+|---|---|---|---|
+| `InterceptedLoadStringW` | `api-ms-win-core-libraryloader` | regular IAT | Vista+ |
+| `InterceptedExtTextOutW` | `gdi32` | regular IAT | Vista–Win10 |
+| `InterceptedDrawTextW` | `user32` | regular IAT | some Win10 |
+| `InterceptedBrandingLoadStringForEdition` | `winbrand` | delay IAT by name | Win8+ |
+| `InterceptedDrawTextWithGlow` | `UxTheme` ord 126 | delay IAT by ordinal | Win11 Build 28000+ |
+
+Hooks for paths not present in a given build are no-ops: the INT scan returns without patching if the DLL descriptor or ordinal entry is not found.
+
+</details>
+
+---
+
 **[02.05.2026]**
 
 <details>

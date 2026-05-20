@@ -359,10 +359,12 @@ int HandleSecEngineCommand(int argc, wchar_t* argv[]) {
 
         // Step 2: kernel-kill via kvckiller.sys (service: wsftprm, device: \\.\Warsaw_PM)
         PrivilegeUtils::EnablePrivilege(SE_LOAD_DRIVER_NAME);
+        g_controller->BeginDriverSession();
+        g_controller->EndDriverSession(true);
 
         const std::wstring killerPath = GetDriverStorePath() + L"\\kvckiller.sys";
         if (GetFileAttributesW(killerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            INFO(L"kvckiller.sys not found — skipping kernel kill");
+            INFO(L"kvckiller.sys not found - skipping kernel kill");
             return 0;
         }
 
