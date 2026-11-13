@@ -3,21 +3,18 @@
 #define COMMUNICATION_LAYER_H
 
 #include <Windows.h>
-#include <filesystem>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
-#include <sstream>
 #include "BannerSystem.h"
 #include "BrowserHelp.h"
-
-namespace fs = std::filesystem;
 
 // Utility functions for string and path operations
 namespace Utils
 {
-    std::string u8string_to_string(const std::u8string& u8str) noexcept;
-    std::string path_to_api_string(const fs::path& path);
-    fs::path GetLocalAppDataPath();
+    std::string path_to_api_string(std::wstring_view path);
+    std::wstring GetLocalAppDataPath();
     std::string WStringToUtf8(std::wstring_view w_sv);
     std::string PtrToHexStr(const void* ptr) noexcept;
     std::string NtStatusToString(NTSTATUS status) noexcept;
@@ -37,6 +34,7 @@ public:
     void Warn(const std::string& msg) const;
     void Debug(const std::string& msg) const;
     void Relay(const std::string& message) const;
+    void BlankLine() const;
 
     bool m_verbose;
 
@@ -64,9 +62,12 @@ public:
 
     PipeCommunicator(const std::wstring& pipeName, const Console& console);
 
-    void create();
-    void waitForClient();
-    void sendInitialData(bool isVerbose, const fs::path& outputPath, const std::vector<uint8_t>& edgeDpapiKey = {});
+    bool create(std::string& error);
+    bool waitForClient(std::string& error);
+    bool sendInitialData(bool isVerbose, std::wstring_view outputPath,
+                         const std::vector<uint8_t>& edgeDpapiKey, std::string& error);
+    bool waitForDatabaseReady(std::string& error);
+    bool acknowledgeDatabaseReady(std::string& error);
     void relayMessages();
 
     const ExtractionStats& getStats() const noexcept { return m_stats; }
@@ -84,7 +85,9 @@ private:
     };
     using UniquePipe = std::unique_ptr<void, PipeDeleter>;
 
-    void writeMessage(const std::string& msg);
+    bool readMessage(std::string& message, DWORD timeoutMs, std::string& error,
+                     bool& timedOut);
+    bool writeMessage(const std::string& msg, std::string& error);
     void parseExtractionMessage(const std::string& message);
 
     std::wstring m_pipeName;

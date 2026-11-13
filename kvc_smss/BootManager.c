@@ -33,6 +33,7 @@ __declspec(noreturn) void __stdcall NtProcessStartup(void* Peb) {
     NTSTATUS status;
     BOOLEAN bOld;
     BOOLEAN skipPatch;
+    (void)Peb;
 
     // Enable required privileges for driver/file operations
     RtlAdjustPrivilege(SE_LOAD_DRIVER_PRIVILEGE, TRUE, FALSE, &bOld);

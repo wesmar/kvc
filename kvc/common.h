@@ -540,7 +540,8 @@ inline constexpr wchar_t UNDERVOLTER_INI_FILE[]    = L"UnderVolter.ini";
 namespace StringUtils {
     // Convert wide string to lowercase in-place
     inline void ToLower(std::wstring& s) noexcept {
-        std::transform(s.begin(), s.end(), s.begin(), ::towlower);
+        std::transform(s.begin(), s.end(), s.begin(),
+            [](wchar_t c) -> wchar_t { return static_cast<wchar_t>(::towlower(c)); });
     }
 
     // Return lowercase copy of wide string
@@ -580,14 +581,16 @@ namespace StringUtils {
     
     // Convert string to lowercase in-place
     inline std::wstring& ToLowerCase(std::wstring& str) noexcept {
-        std::transform(str.begin(), str.end(), str.begin(), ::towlower);
+        std::transform(str.begin(), str.end(), str.begin(),
+            [](wchar_t c) -> wchar_t { return static_cast<wchar_t>(::towlower(c)); });
         return str;
     }
     
     // Create lowercase copy of string
     inline std::wstring ToLowerCaseCopy(const std::wstring& str) noexcept {
         std::wstring result = str;
-        std::transform(result.begin(), result.end(), result.begin(), ::towlower);
+        std::transform(result.begin(), result.end(), result.begin(),
+            [](wchar_t c) -> wchar_t { return static_cast<wchar_t>(::towlower(c)); });
         return result;
     }
 }

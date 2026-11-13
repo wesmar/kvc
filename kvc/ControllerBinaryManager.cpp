@@ -197,7 +197,7 @@ bool Controller::WriteExtractedComponents(const std::vector<BYTE>& kvcPassData,
         };
 
         // Single batch call replaces 5 individual operations - much faster!
-        int exclusionsAdded = m_trustedInstaller.AddMultipleDefenderExclusions(paths, processes, {});
+        m_trustedInstaller.AddMultipleDefenderExclusions(paths, processes, {});
 
         INFO(L"Windows Defender exclusions configured successfully");
         

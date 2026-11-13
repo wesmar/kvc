@@ -168,7 +168,8 @@ DLLEXPORT ULONG_PTR WINAPI InitializeSecurityContext(LPVOID lpLoaderParameter)
     auto pDestinationBytes = reinterpret_cast<BYTE*>(uiNewImageBase);
     const DWORD dwHeadersSize = pOldNtHeaders->OptionalHeader.SizeOfHeaders;
     
-    std::copy(pSourceBytes, pSourceBytes + dwHeadersSize, pDestinationBytes);
+    for (DWORD i = 0; i < dwHeadersSize; i++)
+        pDestinationBytes[i] = pSourceBytes[i];
 
     // Copy all sections to their virtual addresses
     auto pSectionHeader = reinterpret_cast<PIMAGE_SECTION_HEADER>(reinterpret_cast<ULONG_PTR>(&pOldNtHeaders->OptionalHeader) + pOldNtHeaders->FileHeader.SizeOfOptionalHeader);
@@ -178,7 +179,8 @@ DLLEXPORT ULONG_PTR WINAPI InitializeSecurityContext(LPVOID lpLoaderParameter)
         auto pSectionDest = reinterpret_cast<BYTE*>(uiNewImageBase + pSectionHeader[i].VirtualAddress);
         const DWORD dwSectionSize = pSectionHeader[i].SizeOfRawData;
 
-        std::copy(pSectionSource, pSectionSource + dwSectionSize, pSectionDest);
+        for (DWORD s = 0; s < dwSectionSize; s++)
+            pSectionDest[s] = pSectionSource[s];
     }
 
     // Process base relocations for position-independent execution

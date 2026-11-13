@@ -60,7 +60,7 @@ public:
 private:
     // HTML generation
     std::string GenerateHTMLContent(const ReportData& data) noexcept;
-    std::string BuildHTMLHeader(const ReportData& data) noexcept;
+    std::string BuildHTMLHeader() noexcept;
     std::string BuildSummarySection(const ReportData& data) noexcept;
     std::string BuildMasterKeysTable(const ReportData& data) noexcept;
     std::string BuildPasswordsTable(const ReportData& data) noexcept;

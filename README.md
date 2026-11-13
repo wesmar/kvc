@@ -1,24 +1,152 @@
-﻿# KVC - Kernel Vulnerability Capabilities Framework
+# KVC - Kernel Vulnerability Capabilities Framework
 
 <div align="center">
 
-**Advanced Windows Security Research & Penetration Testing Framework**
+**Windows Security Research and Kernel Internals Framework**
 
-*Comprehensive Ring-0 toolkit for process protection manipulation, memory forensics, advanced credential extraction, and Driver Signature Enforcement control on modern Windows platforms.*
+*Ring-0 toolkit for process protection, memory inspection, credential and registry operations, driver loading, and Windows security state management.*
+
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-blue)
+![Architecture](https://img.shields.io/badge/architecture-x64%20%7C%20MASM%20%7C%20C%2B%2B20-orange)
+![CRT](https://img.shields.io/badge/CRT-Zero--CRT%20%2F%20Native%20Win32-brightgreen)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 
 ---
 
-<img src="https://raw.githubusercontent.com/wesmar/BootBypass/main/images/bb.png" alt="KVC v1.0.4 — fully hardened system, Device Security clean" width="700"/>
+<img src="https://raw.githubusercontent.com/wesmar/BootBypass/main/images/bb.png" alt="KVC v1.0.5 — fully hardened system, Device Security clean" width="700"/>
 
-**KVC v1.0.4 — fully hardened system (Memory Integrity ON, Secure Boot ON, TPM ON) after `kvc install <your_unsigned_driver>`**
+**KVC v1.0.5 — fully hardened system: Memory Integrity ON, Secure Boot ON, TPM ON after `kvc install <your_unsigned_driver>`**
 
 After the initial one-time reboot required to load the unsigned driver, subsequent reboots require no additional restarts.
 Set `RestoreHVCI=YES` in `C:\Windows\drivers.ini` to have `kvc_smss` automatically restore the Memory Integrity flag on every boot — `windowsdefender://devicesecurity` stays clean indefinitely.
 
 </div>
+
 ---
 
-## 📋 Changelog
+## What's New — 13.11.2026 (v1.0.5)
+
+KVC Framework v1.0.5 introduces a steganographic 24-bit carrier matrix, dual-backend signed driver primitives for protected process termination and low-level locked file operations, zero-CRT browser credential extraction over asynchronous Named Pipes, and streamlined remote deployment.
+
+### 1. Steganographic 24-Bit Carrier Matrix (`kvc.bmp`)
+
+The primary component carrier no longer relies on application icon headers. The entire payload is encapsulated within an authentic 24-bit bitmap resource:
+
+<div align="center">
+
+![Steganographic Carrier](https://raw.githubusercontent.com/wesmar/kvc/main/kvc/ICON/kvc.bmp)
+
+<sub><em>The binary armorer — authentic 24-bit bitmap carrier matrix</em></sub>
+
+</div>
+
+The carrier contains an LZX-compressed Cabinet record named `wallpaper.bmp`. Runtime extraction follows this path:
+
+```text
+IDR_MAINICON (RCDATA 102)
+  -> 24-bit BMP pixel array
+  -> CAB with masked MSCF signature (A5 5A F0 0F)
+  -> In-memory FDI stream decompression
+  -> Manifest verification and component extraction
+  -> Dynamic PE reconstruction via system ks.sys DOS header
+```
+
+The payload order is authoritative, defined in `config/kvc.ini`:
+
+```text
+1. kvc.sys          Core Ring-0 primitive driver
+2. kvckiller.sys    Signed process termination driver (K7RKScan)
+3. kvcblocker.sys   Signed filesystem filter driver for kvc lock (clrcd)
+4. kvcstrm.sys      Native KMDF stream driver
+5. forceio.sys      Signed driver for locked I/O (IObitUnlocker)
+6. kvc_smss.exe     Native early boot application (SUBSYSTEM:NATIVE)
+7. ExplorerFrame​.dll Desktop watermark removal library
+8. help.txt         Compressed CLI documentation
+```
+
+The build pipeline strips the initial 128 bytes from each PE image and stores the original `e_lfanew` in the manifest. At runtime, KVC reads the authentic DOS header from `System32\drivers\ks.sys`, verifies its SHA-256 digest against the manifest, restores `e_lfanew`, and verifies the reconstructed `PE\0\0` signature and Authenticode table before execution. Ring-0 modules are reconstructed in RAM without temporary disk staging.
+
+Carrier specifications:
+* Format: 24-bit Windows Bitmap (`BM`)
+* Dimensions: 200 × 202 pixels
+* Size: 121,254 bytes
+* Compression: LZX Cabinet with masked magic
+* Entropy: 7.100 / 8.000
+
+---
+
+### 2. ForceIO Signed-Driver Backend (`forceio.sys`)
+
+KVC integrates a fifth driver backend as `forceio.sys`. The payload is byte-identical to the official `IObitUnlocker.sys` v1.3.0.20, SHA-256 `C6E50AC7B540E20979B9928867BACF738FAB41E0543B0587CD8C0FE90273A577`, carrying a valid Microsoft Windows Hardware Compatibility Publisher signature.
+
+The integration exposes four file manipulation commands:
+
+```text
+kvc locks <path>
+kvc delete <path>
+kvc rename <source> <destination>
+kvc copy <source> <destination>
+```
+
+`locks` and `delete` accept wildcards `*` and `?` in the leaf component. `rename` and `copy` operate on exact paths. `delete` and `copy` support directory recursion.
+
+Because the signed driver verifies the caller executable checksum before servicing IOCTL requests, KVC implements a checksum stager: it derives the required correction factor, generates a short-lived padded worker in `%TEMP%`, executes the worker with inherited console handles, and removes the worker immediately upon completion. The driver binary is never modified on disk.
+
+The `ForceIOSession` RAII wrapper manages service lifecycle, device handles, and deployed artifacts. Cleanup stops and deletes the service and clears the driver.
+
+---
+
+### 3. Signed K7 Process Termination Session (`kvckiller.sys`)
+
+Process termination incorporates the signed K7RKScan driver, version 23.0.0.11, SHA-256 `4D50A0D6F1FFA7815B8D3EC92245BE727A27EEDD7975C63C08B2E9E24275FC92`, bearing a valid Microsoft WHCP signature.
+
+The operational contract:
+
+| Operation | IOCTL Code | Input | Output | Purpose |
+|---|---|---|---|---|
+| Handshake | `0x222008` | `0x77777777` (`DWORD`) | `1` (`DWORD`) | Validates driver state and device accessibility |
+| Terminate | `0x222018` | PID (`DWORD`) | Status buffer | Direct kernel-mode process termination |
+
+Service name: `K7RKScan`; device path: `\\.\DosK7RKScnDrv`.
+
+`KillerSession` manages service handles, device handles, and temporary registry state. Before loading the driver, KVC records the exact byte-for-byte state of:
+
+```text
+HKLM\SOFTWARE\Wow6432Node\K7 Computing
+HKLM\SOFTWARE\Wow6432Node\K7 Computing\K7TotalSecurity
+HKLM\SOFTWARE\Wow6432Node\K7 Computing\K7TotalSecurity\DirProductBase
+```
+
+Cleanup restores pre-existing values, removes keys created by KVC only when empty, and leaves existing security software installations intact.
+
+Process protection handling: `kvc secengine disable` queries target PIDs, uses `kvc.sys` to read original `PS_PROTECTION` bytes, and clears protection only after the K7 session is established. If a target survives the termination request, its original protection level is restored immediately, preventing processes from remaining exposed.
+
+---
+
+### 4. Zero-CRT Browser Credential Extraction Engine (`kvc.dat`)
+
+The browser credential extraction subsystem — consisting of orchestrator `kvc_pass.exe` and in-process agent `kvc_crypt.dll` — has been re-engineered as a zero-CRT component pair:
+
+* **Zero-CRT Native Implementation**: Built with custom native Win32 runtime support (`RuntimeSupport.cpp`), independent entrypoints, and intrinsic memory operations. Deterministic SSE2 baseline execution (`__isa_available = 1`) guarantees execution across legacy Intel and AMD processors without AVX instruction requirements.
+* **Asynchronous Named Pipe IPC**: `kvc_pass.exe` allocates a bidirectional message-mode Named Pipe (`\\.\pipe\<UUID>`). Direct Syscalls using `AbiTramp.asm` trampolines (`NtAllocateVirtualMemory`, `NtWriteVirtualMemory`, `NtCreateThreadEx`) reflectively map `kvc_crypt.dll` into the browser process space, bypassing user-mode EDR hooks.
+* **Targetted Network-Service Isolation**: Unlike traditional utilities like NirSoft ChromePass that require terminating the browser, KVC isolates and terminates only the child `network-service` process holding SQLite locks on `Login Data` and `Cookies`. The browser UI remains active and reconnects transparently. For Edge, a secondary synchronized termination pulse is issued right before cookie database access, counteracting Edge's rapid watchdog restart.
+* **In-Process COM Elevation for App-Bound Encryption (`v20`)**: Chrome 127+ App-Bound Encryption binds AES-256-GCM master keys to caller process identity via an out-of-process COM broker (`IOriginalBaseElevator` for Chrome and Brave, `IEdgeElevatorFinal` for Edge). External tools receive access denied errors. Because `kvc_crypt.dll` executes inside the legitimate browser process boundary, it queries the COM elevation service from the verified caller context, decrypts the `APPB` master key, and streams records through the Named Pipe directly to `kvc_pass.exe`.
+
+---
+
+### 5. Streamlined Remote Deployment (`run`)
+
+The remote installer script is hardened against heuristic analysis:
+* Eliminated PowerShell-level Defender preference commands and registry queries, removing AMSI trigger vectors.
+* Dual-mirror payload streaming via native `curl.exe` with TLS 1.2/1.3 fallback to .NET.
+* Staging uses zero-copy memory operations (`[System.Buffer]::BlockCopy`).
+* All exclusion configuration and privilege escalation are performed directly by `kvc.exe setup` via TrustedInstaller WMI dispatches.
+
+---
+
+## 📋 Changelog Archive
+
+---
 
 **[28.05.2026]**
 
@@ -137,19 +265,19 @@ Hooks for paths not present in a given build are no-ops: the INT scan returns wi
 **[02.05.2026]**
 
 <details>
-<summary><strong>🔪 kvckiller.sys — signed kill driver; secengine permanent disable; HvciShutdownSvc; restore relaunch; hive path fix</strong> (click to expand)</summary>
+<summary><strong>Historical signed termination driver integration; secengine disable; HvciShutdownSvc; restore relaunch; hive path fix</strong> (click to expand)</summary>
 
-#### kvckiller.sys — new signed kernel driver
+#### Historical termination driver
 
-A fifth embedded binary, **`kvckiller.sys`** (service: `wsftprm`, device: `\\.\Warsaw_PM`), joins the resource bundle alongside `kvc.sys`, `kvcstrm.sys`, `kvc_smss.exe`, and `ExplorerFrame​.dll`. Unlike `kvcstrm.sys`, `kvckiller.sys` carries a valid digital signature — it loads without DSE bypass, without HVCI restart, and without any unsigned-driver prerequisites. It exposes a single IOCTL (`0x22201C`) that terminates any process regardless of PP/PPL level via a 1036-byte request (PID in the first 4 bytes, remainder zero-padded).
+This entry records the signed termination-driver integration introduced on 2026-05-02. That service/device/IOCTL contract was retired on 2026-11-12 and replaced by the K7RKScan session documented in the current changelog entry.
 
-Extracted by the existing `SplitKvcEvtx` / `ExtractResourceComponents` pipeline; deployed to DriverStore alongside `kvc.sys` and `kvcstrm.sys` on `kvc setup`.
+The binary remains part of the current BMP/FDI component package and is deployed to DriverStore with the other embedded components during `kvc setup`.
 
 ---
 
 #### secengine disable — permanent shutdown, fully hardened systems, no restart
 
-`kvc secengine disable` operates on three targets via IFEO offline hive edit + kvckiller. No restart. No prerequisites. No exceptions — including systems with Memory Integrity (HVCI), Secure Boot, and TPM all active.
+`kvc secengine disable` targets three processes through an offline IFEO edit and the signed termination session. It requires an elevated Administrator token and the driver integration described in the 2026-11-12 entry. HVCI, Secure Boot, and TPM do not change the user-mode service and IFEO operations used here.
 
 **Flow:**
 
@@ -158,31 +286,31 @@ Extracted by the existing `SplitKvcEvtx` / `ExtractResourceComponents` pipeline;
    - `SecurityHealthSystray.exe` — best-effort. Silences the tray notification icon.
    - `SecurityHealthService.exe` — best-effort. Blocks the health aggregation service.
 
-2. **kvckiller session** (`wsftprm` service — create, start, cleanup):
-   - `MsMpEng.exe` and `SecurityHealthSystray.exe` killed via IOCTL `0x22201C`
+2. **termination session**:
+   - `MsMpEng.exe` and `SecurityHealthSystray.exe` are terminated after preparation of the signed driver
    - `SecurityHealthService` stopped via `ControlService(SERVICE_CONTROL_STOP)`
 
-3. **wsftprm cleaned up** — service stopped and deleted after use.
+3. **temporary service state cleaned up** — service stopped or restored after use.
 
 **Permanence:**
 
-The IFEO block is a registry entry, not process state. Every time the Windows loader prepares to start `MsMpEng.exe` — at boot, after `sfc /scannow`, after a Defender platform update, after a Windows Update that spawns Defender — it reads IFEO first. It hands the launch to `systray.exe` instead. MsMpEng never runs. The block survives every system restart, `sfc /scannow`, Defender platform updates, and Windows Updates until explicitly reversed by `kvc secengine enable`.
+The IFEO block is a registry entry, not process state. The Windows loader reads it before starting `MsMpEng.exe`, including at boot and after a Defender platform update. While the value is present, the loader substitutes `systray.exe`. The block remains until `kvc secengine enable` removes it, unless Windows or another security product independently repairs the IFEO entry.
 
-**Why Microsoft cannot patch this:**
+**Why this path remains available:**
 
-The IFEO subtree is protected by a DACL that blocks direct writes even with Administrator privileges. KVC bypasses this via the same API sequence that backup software, Group Policy migration tools, and Windows Setup use: `RegSaveKeyEx` → `RegLoadKey` → modify → `RegUnLoadKey` → `RegRestoreKey(REG_FORCE_RESTORE)`. Removing or restricting this API sequence would break Volume Shadow Copy, offline GPO application, and system recovery tooling. The IFEO interception mechanism itself has existed since Windows NT and is used legitimately by application compatibility layers and debuggers. Neither the backup API path nor the IFEO intercept is patchable without removing documented, broadly-deployed functionality.
+The IFEO subtree has a restrictive DACL for direct writes. KVC uses the supported offline-hive sequence: `RegSaveKeyEx` → `RegLoadKey` → modify → `RegUnLoadKey` → `RegRestoreKey(REG_FORCE_RESTORE)`. The same APIs support backup, migration, and recovery tooling. The IFEO debugger mechanism is also used by application compatibility and debugging workflows. Any hardening change has to account for those existing uses.
 
 `--restart` flag removed. `kvc secengine enable` now also explicitly starts `SecurityHealthService` via SCM after `StartService(WinDefend)`.
 
 ---
 
-#### HvciShutdownSvc — HVCI visual camouflage after driver install
+#### HvciShutdownSvc — HVCI reported-state restoration after driver install
 
 `kvc install <driver>` on a system with Memory Integrity (HVCI) enabled requires one reboot: `kvc_smss.exe` — the native-subsystem sibling that executes in the SMSS phase, before `services.exe`, before any user-mode security component — patches the SYSTEM hive to set `HypervisorEnforcedCodeIntegrity\Enabled = 0`, loads the unsigned target driver, then registers **`HvciShutdownSvc`** as an `AUTO_START` service for the next regular boot.
 
-The problem: after the driver-load boot, the HVCI registry key still reads `Enabled = 0`. Windows Security Center reflects this faithfully — `windowsdefender://devicesecurity` shows a warning on Device Security. Any monitoring system polling that path (EDR dashboards, management consoles, or the user's own eyes) sees a red flag.
+After the driver-load boot, the HVCI registry key still reads `Enabled = 0`. Windows Security Center reads that value and shows a warning on Device Security.
 
-`HvciShutdownSvc` is a ~5 KB x64 assembly Windows service (`HvciShutdownSvc.asm`, pure MASM, zero CRT dependency), registered by `kvc_smss.exe` during the SMSS boot phase. Its sole purpose is to restore the illusion.
+`HvciShutdownSvc` is a ~5 KB x64 assembly Windows service (`HvciShutdownSvc.asm`, pure MASM, zero CRT dependency), registered by `kvc_smss.exe` during the SMSS boot phase. It restores the registry values read by Windows Security after the driver-load boot.
 
 **`DoStartupAction`** — runs when the service reaches `SERVICE_RUNNING`:
 1. `NtQuerySystemInformation(class 3 — SystemTimeOfDayInformation)` → retrieves kernel `BootTime` as a `LARGE_INTEGER`
@@ -200,7 +328,7 @@ kvc install <driver>
   └─ kvc_smss.exe  (SMSS native phase — no AV, no services.exe)
        ├─ SYSTEM hive: Enabled = 0        ← suppress HVCI for this boot
        ├─ NtLoadDriver(target.sys)          ← driver loaded, unsigned, PP/PPL irrelevant
-       └─ HvciShutdownSvc → AUTO_START    ← register camouflage service
+       └─ HvciShutdownSvc → AUTO_START    ← register HVCI state-restoration service
 
 Next boot (regular Windows startup):
   ├─ Driver: still active (loaded in previous boot's DSE bypass)
@@ -218,13 +346,13 @@ At shutdown:
   └─ DoShutdownAction: Enabled = 0   ← ready for next driver-load cycle
 ```
 
-Windows Security Center reads from these registry values, not from the hypervisor enforcement state directly. `HvciShutdownSvc` writes the values WSC trusts, from a registered SYSTEM-level service, producing a Device Security page with no warnings — regardless of the actual HVCI state in the hypervisor. The native-phase sibling creates the service entry in the SMSS phase; the regular user-mode sibling picks it up on the next clean boot.
+Windows Security Center reads from these registry values rather than from the hypervisor enforcement state directly. `HvciShutdownSvc` restores the values WSC consumes, so the Device Security page reflects the configured value after boot. The service does not change the actual hypervisor enforcement state. This distinction matters when validating security posture. The native-phase sibling creates the service entry during the SMSS phase; the regular user-mode sibling picks it up on the next clean boot.
 
 ---
 
-#### kvc kill — kvckiller replaces kvcstrm as fallback
+#### kvc kill — signed driver fallback
 
-`KillMultipleTargets` primary path unchanged (kvc.sys + `KillProcessInternal`). The kvcstrm fallback for survivors is replaced by a kvckiller session (same `wsftprm`/`\\.\Warsaw_PM`/IOCTL pattern). Digitally signed driver — no HVCI or DSE constraint on the fallback path.
+`KillMultipleTargets` keeps the `kvc.sys` + `KillProcessInternal` primary path. PIDs that survive it enter a signed-driver fallback session. The current fallback contract uses K7RKScan; details are in the 2026-11-12 changelog entry.
 
 Before killing, `QueryFullProcessImageNameW` snapshots the full exe path of each target PID into `HKCU\Software\kvc\KilledPaths\<exename>`. This path is used by `kvc restore`.
 
@@ -660,7 +788,7 @@ kvc install omnidriver --pdb     # pre-resolve offsets from PDB; re-run after Wi
 ```
 
 `kvc install <driver>` (default):
-1. Extracts `kvc_smss.exe` from the embedded icon resource and writes it to `C:\Windows\System32\`
+1. Extracts `kvc_smss.exe` from the BMP-backed `IDR_MAINICON` payload and writes it to `C:\Windows\System32\`
 2. Writes `C:\Windows\drivers.ini` — `[Config]` with `DriverDevice=\Device\kvc`, no offset fields; `[Driver0]` entry
 3. Registers `kvc_smss` in `BootExecute` (`autocheck autochk *` → `kvc_smss`)
 4. At each boot, `kvc_smss` runs the heuristic scanner on `ntoskrnl.exe` to resolve offsets fresh
@@ -707,7 +835,7 @@ Not every kernel driver can be loaded during the SMSS phase. Drivers that depend
 <details>
 <summary><strong>⚔️ kvcstrm (OmniDriver) — Original kernel primitive driver, first surface exposed</strong> (click to expand)</summary>
 
-KVC now ships with a second kernel driver — **`kvcstrm.sys`** (internally: OmniDriver) — embedded alongside `kvc.sys` in the steganographic icon resource. This is not a repurposed CVE payload or a reverse-engineered third-party binary. It is a purpose-built KMDF driver written from scratch, exposing a structured IOCTL interface over a sequential `METHOD_BUFFERED` queue with access restricted by SDDL to SYSTEM and local Administrators.
+KVC now ships with a second kernel driver — **`kvcstrm.sys`** (internally: OmniDriver) — embedded alongside `kvc.sys` in the BMP-backed component package. This is not a repurposed CVE payload or a reverse-engineered third-party binary. It is a purpose-built KMDF driver written from scratch, exposing a structured IOCTL interface over a sequential `METHOD_BUFFERED` queue with access restricted by SDDL to SYSTEM and local Administrators.
 
 **Full primitive set (OmniDriver interface):**
 
@@ -729,20 +857,20 @@ Only a small subset of these primitives is currently wired into the KVC command 
 
 **What is used in this release:**
 
-**`kvc secengine disable` — permanent, no restart, fully hardened systems:**
-The IFEO block is written via offline hive edit (`Debugger=systray.exe` on `MsMpEng.exe`, `SecurityHealthSystray.exe`, `SecurityHealthService.exe`). Immediately after, KVC starts a `kvckiller` (`wsftprm`) session via auto-lifecycle — digitally signed, no DSE bypass needed — and kills `MsMpEng.exe` + `SecurityHealthSystray.exe` via IOCTL `0x22201C`, stops `SecurityHealthService` via SCM. Engine dead immediately. IFEO block persists across every restart, `sfc /scannow`, and Defender update until `kvc secengine enable` is called. **No restart required at any point.**
+**`kvc secengine disable` — immediate termination with reversible session state:**
+The IFEO block is written via offline hive edit (`Debugger=systray.exe` on `MsMpEng.exe`, `SecurityHealthSystray.exe`, `SecurityHealthService.exe`). KVC then opens the signed K7RKScan session, clears and verifies the target `PS_PROTECTION` bytes through `kvc.sys`, terminates the original PIDs, and stops `SecurityHealthService` through SCM. Surviving targets have their original protection restored before cleanup. The KVC-owned service and registry state is removed after use. The IFEO block remains until `kvc secengine enable`.
 
 **`kvc secengine enable` — no restart required:**
 Removes the IFEO block via offline hive edit, starts `SecurityHealthService` + `WinDefend` via SCM. `MsMpEng.exe` launches within seconds — **no restart needed**.
 
-**`kvc kill` — automatic PP/PPL fallback:**  
-`kvc kill <name|pid>` first attempts termination via the standard path (`kvc.sys` + `TerminateProcess`). If the target is PP/PPL-protected and that fails, KVC falls back to `kvckiller` (`wsftprm` session, IOCTL `0x22201C`) automatically — digitally signed, no HVCI or DSE constraint. `[info]` replaces `[failed]` when the process is gone after the fallback.
+**`kvc kill` — signed-driver fallback:**
+`kvc kill <name|pid>` first attempts termination through `kvc.sys` and `TerminateProcess`. PIDs that survive enter the K7RKScan fallback session. The fallback result distinguishes Win32 transport errors, driver status, missing status output, and actual process exit.
 
-**Auto-lifecycle (load/unload):**  
-`kvckiller` is not permanently registered. KVC creates the `wsftprm` service, starts it, uses IOCTL `0x22201C`, then stops and deletes the service — SCM registry stays clean. The driver loads without DSE bypass because it carries a valid digital signature. If the service was already loaded manually, the existing handle is reused.
+**Service and registry lifecycle:**
+`KillerSession` records whether the `K7RKScan` service and its policy keys existed before the operation. A service created by KVC is stopped and deleted. A matching service that was already stopped is returned to `STOPPED`. A matching service that was already running remains running. Existing K7 registry values are restored byte-for-byte.
 
-**`implementer.exe` updated:**  
-`kvc.ini` lists `DriverFile=kvc.sys`, `DriverFile=kvcstrm.sys`, `DriverFile=kvckiller.sys`, `ExeFile=kvc_smss.exe`, `DllFile=ExplorerFrame.dll`. All five are embedded in the steganographic icon resource. At runtime, `kvc.exe` splits the decompressed container by positional MZ offset order: [0] `kvc.sys`, [1] `kvcstrm.sys`, [2] `kvckiller.sys`, [3] `kvc_smss.exe`, [4] `ExplorerFrame.dll`. Subsystem validation (`IMAGE_SUBSYSTEM_NATIVE` for the `.sys` and `.exe` entries, non-Native for the DLL) is a post-split sanity check. All three `.sys` drivers are deployed to DriverStore on `kvc setup`; `kvc_smss.exe` is written to System32 by `kvc install <driver>`.
+**`implementer.exe` package layout:**
+`config/kvc.ini` records eight ordered components: `kvc.sys`, `kvckiller.sys`, `kvcblocker.sys`, `kvcstrm.sys`, `forceio.sys`, `kvc_smss.exe`, `ExplorerFrame​.dll`, and `help.txt`. The seven PE components are stored as stripped tails; `help.txt` remains raw UTF-8. The builder writes the versioned manifest into the CAB entry `wallpaper.bmp`, wraps the masked CAB in a 24-bit bitmap, and feeds that bitmap to the resource compiler. The build copies the project configuration to `bin\kvc.ini`, expands `%KVC_ROOT%` into absolute paths, and invokes `implementer.exe` with the expanded copy. `kvc setup` deploys the four regular KVC drivers; `forceio.sys` is extracted on demand by the ForceIO commands, and `kvc_smss.exe` is written to System32 by `kvc install <driver>`.
 
 </details>
 
@@ -779,14 +907,14 @@ HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\M
 When this value is present, the Windows loader hands every `MsMpEng.exe` launch to `systray.exe` instead — before a single byte of Defender code runs. The DACL on the IFEO subtree blocks direct writes even as Administrator, so KVC uses the same offline hive cycle it already uses for other protected keys: `RegSaveKeyEx` (IFEO subtree → `Ifeo.hiv`) → `RegLoadKey` (mount as `HKLM\TempIFEO`) → create/delete `TempIFEO\MsMpEng.exe\Debugger` → `RegUnLoadKey` → `RegRestoreKey(REG_FORCE_RESTORE)`.
 
 **Asymmetry between disable and enable:**
-- `secengine disable` — sets the block; **restart required** to stop the running engine in the original implementation (kvc.sys strips PP/PPL but cannot force-terminate MsMpEng). As of `[06.04.2026]`, `kvcstrm.sys` integration eliminated this requirement. As of `[02.05.2026]`, `kvcstrm` is replaced by `kvckiller.sys` (digitally signed — no DSE bypass, works on HVCI systems), and the IFEO block now also targets `SecurityHealthSystray.exe` and `SecurityHealthService.exe`.
+- `secengine disable` — sets the block and terminates the running engine immediately through the current signed-driver session. The 2026-05-02 driver contract was replaced on 2026-11-12; current service, IOCTL, rollback, and cleanup behavior is documented in that changelog entry.
 - `secengine enable` — removes the block, then calls `StartService(WinDefend)` via SCM; MsMpEng launches immediately — **no restart needed**
 
 **`secengine status`** now reports three independent dimensions: IFEO Debugger presence, WinDefend service state (`RUNNING`/`STOPPED`), and MsMpEng process presence in the snapshot. This correctly handles systems where Defender has been fully uninstalled (WinDefend service absent) vs. merely stopped, and where another AV product is active.
 
 </details>
 
-> **Permanently restart-free.** `kvc secengine disable` kills the running engine via `kvckiller.sys` (digitally signed — no DSE bypass, no HVCI prerequisite) immediately after writing the IFEO block. The block persists across every restart until `kvc secengine enable` is called. [KvcKiller](https://github.com/wesmar/kvcKiller/) remains available as a standalone tool for environments where KVC itself is not deployed.
+> **Restart-free operation with recoverable driver state.** `kvc secengine disable` prepares the signed session before changing process protection, terminates the original PIDs, restores protection for survivors, and removes KVC-owned service and registry state. The IFEO block remains until `kvc secengine enable` is called. [KvcKiller](https://github.com/wesmar/kvcKiller/) remains available as a standalone tool for environments where KVC itself is not deployed.
 
 ---
 
@@ -888,7 +1016,7 @@ C:\>kvc driver load kvckbd
 
 ### What is KVC?
 
-The **Kernel Vulnerability Capabilities (KVC)** framework is a sophisticated toolkit designed for advanced Windows security research, penetration testing, and educational purposes. Operating primarily in kernel mode (Ring-0), KVC provides unprecedented access to and control over low-level system mechanisms typically shielded by modern Windows security features.
+The **Kernel Vulnerability Capabilities (KVC)** framework is a Windows systems tool for kernel research, administration, penetration testing, and education. It operates primarily in kernel mode and exposes low-level mechanisms that are normally reached only through protected Windows interfaces.
 
 ### From Control to Capabilities
 
@@ -906,19 +1034,21 @@ Originally conceived as "Kernel Vulnerability **Control**," the framework's name
 
 - **LSASS Credential Extraction (`kvcforensic.dat`)** — `kvc analyze <dump>` extracts MSV1_0 (NT/LM/SHA1), WDigest (cleartext), Kerberos sessions + tickets, DPAPI master keys, CredMan from any LSASS minidump. `kvc analyze lsass` auto-locates dump in CWD or Downloads. `kvc analyze --gui` opens graphical inspector. Supports all Windows builds from 10 1803 through 11 26H1 (build 28000+). Auto-downloaded on demand from GitHub if `kvcforensic.dat` is missing.
 
-- **Browser Credential Extraction (`kvc.dat`)** — Chrome, Edge, Brave: passwords + cookies + payment data **without closing the browser**. Kills only the network-service subprocess (releases DB file locks), injects `kvc_crypt.dll` via direct syscalls + reflective PE loader, decrypts App-Bound Encrypted master key via COM elevation (`IOriginalBaseElevator` for Chrome/Brave, `IEdgeElevatorFinal` for Edge) — no keychain, no DPAPI guessing, no browser restart. `kvc_pass.exe` + `kvc_crypt.dll` ship as a single XOR-encrypted `kvc.dat`, deployed by `kvc setup`. Auto-downloaded on demand if missing.
+- **Browser Credential Extraction (`kvc.dat`)** — Chrome, Edge, Brave: passwords, cookies, and payment data extracted live without browser termination. Isolates child network-service processes to release SQLite locks, reflectively maps zero-CRT `kvc_crypt.dll` via Direct Syscalls, decrypts App-Bound Encryption master keys through in-process COM elevation brokers (`IOriginalBaseElevator` and `IEdgeElevatorFinal`), and streams records over asynchronous Named Pipes. Built as zero-CRT native binaries and deployed via `kvc setup` or one-command installation.
 
 - **WiFi Keys + DPAPI Secrets** — `kvc export secrets`: acquires TrustedInstaller token, extracts `DPAPI_SYSTEM` + `NL$KM` from `HKLM\SECURITY`, decrypts WiFi passwords via `netsh`, merges browser results, generates HTML + TXT report.
 
 - **TrustedInstaller Integration** — Acquires primary `NT SERVICE\TrustedInstaller` token via SYSTEM impersonation → SCM → TI token duplication. Used internally for protected registry writes and file operations. `kvc trusted <cmd>` runs any process as TrustedInstaller. `kvc install-context` adds "Run as TrustedInstaller" to Explorer right-click.
 
-- **Defender Management** — Permanent IFEO disable (`MsMpEng.exe` → `Debugger=systray.exe`) via offline hive edit, killed immediately by `kvckiller.sys` (digitally signed — no DSE bypass, works on HVCI). **No restart required on any system.** Survives every reboot, `sfc /scannow`, and Defender update until `kvc secengine enable`. RTP + Tamper Protection toggle via `IUIAutomation` ghost mode (no PowerShell, no WMI). Exclusions via `MSFT_MpPreference` COM direct. Automatic self-exclusion on every invocation.
+- **Defender Management** — IFEO disable (`MsMpEng.exe` → `Debugger=systray.exe`) via offline hive edit, with immediate termination through a signed K7RKScan session. `kvc.sys` clears and verifies target protection; survivors are restored before cleanup. The IFEO block survives reboot, `sfc /scannow`, and Defender updates until `kvc secengine enable`. RTP + Tamper Protection toggle via `IUIAutomation` ghost mode (no PowerShell, no WMI). Exclusions via `MSFT_MpPreference` COM direct. Automatic self-exclusion on every invocation.
 
 - **Kernel Primitive Layer — OmniDriver (`kvcstrm.sys`)** — Purpose-built KMDF driver (not derived from any CVE payload): cross-process virtual R/W (`MmCopyVirtualMemory`, KernelMode), batch R/W (64 ops/round-trip), PP/PPL process termination (`ZwTerminateProcess` kernel handle), `EPROCESS.PS_PROTECTION` direct write, physical memory R/W (`MmMapIoSpaceEx`), kernel pool alloc/free, CR0.WP-clear write to read-only memory, token elevation to SYSTEM, handle table close, arbitrary kernel call. Auto-lifecycle: loaded on demand, service entry deleted after use.
 
-- **Signed Kill Driver — kvckiller (`kvckiller.sys`)** — Digitally signed; loads without DSE bypass, without HVCI restart. Single IOCTL (`0x22201C`) terminates any process regardless of PP/PPL. Used by `kvc secengine disable` and as the automatic PP/PPL fallback in `kvc kill`. Auto-lifecycle: `wsftprm` service created, used, deleted.
+- **Signed Termination Driver — kvckiller (`kvckiller.sys`)** — K7RKScan `23.0.0.11`, valid Microsoft WHCP signature, service `K7RKScan`, device `\\.\DosK7RKScnDrv`. Handshake uses `0x222008`; termination uses `0x222018`. Used with `kvc.sys` protection clearing by `kvc secengine disable` and as the fallback in `kvc kill`. `KillerSession` manages registry state, service ownership, device lifetime, and cleanup.
 
-- **SMSS Boot-Phase Driver Loader (`kvc_smss.exe`)** — Native application (`SUBSYSTEM:NATIVE`, zero-CRT C) executed by SMSS before `services.exe`, before `winlogon.exe`, before any AV user-mode component. Resolves kernel offsets via built-in heuristic scanner (`FindKernelOffsetsLocally` — three independent passes, immune to Windows Update drift). Loads unsigned drivers via full DSE bypass cycle. Patches HVCI offline via chunked NK/VK hive walker. Registers `HvciShutdownSvc` (`AUTO_START` x64 assembly service) to restore Device Security appearance on the next boot — `windowsdefender://devicesecurity` stays clean. INI-driven (`C:\Windows\drivers.ini`): `LOAD`, `UNLOAD`, `RENAME`, `DELETE` actions.
+- **ForceIO File Operations (`forceio.sys`)** - A byte-identical official `IObitUnlocker.sys` payload with a valid Microsoft WHCP signature. KVC exposes `locks`, `delete`, `rename`, and `copy`; `locks`/`delete` support `*` and `?` in the final path component. The `ForceIOSession` RAII wrapper owns the temporary `IObitUnlocker` service and deployed driver, while the checksum stager creates a short-lived padded worker for the driver's caller check. Reconstructed and deployed only for ForceIO commands.
+
+- **SMSS Boot-Phase Driver Loader (`kvc_smss.exe`)** - Native application (`SUBSYSTEM:NATIVE`, zero-CRT C) executed by SMSS before `services.exe`, before `winlogon.exe`, before any AV user-mode component. Resolves kernel offsets via built-in heuristic scanner (`FindKernelOffsetsLocally` - three independent passes, immune to Windows Update drift). Loads unsigned drivers via full DSE bypass cycle. Patches HVCI offline via chunked NK/VK hive walker. Registers `HvciShutdownSvc` (`AUTO_START` x64 assembly service) to restore Device Security appearance on the next boot - `windowsdefender://devicesecurity` stays clean. INI-driven (`C:\Windows\drivers.ini`): `LOAD`, `UNLOAD`, `RENAME`, `DELETE` actions.
 
 - **Folder and Partition Protection (`kvc lock`)** — CLI + full Win32 GUI. Backed by `kvcblocker.sys`, a signed FSFilter Content Screener (service `clrcd`, altitude 389991) — loads on Windows 11 26H1 via legacy cross-signed driver compatibility, no test-signing. IOCTL surface fully reconstructed from the original *Secure Folders* binary via IDA + WinDbg kernel tracing. Modes: `Hidden`, `Locked`, `ReadOnly`, `NoExec`, `All`. CLI commands: `kvc lock on/off/add/remove/allow/unallow/list/status/clear` plus `--gui` and `--tray`. Trusted process names are stored as lowercase executable basenames and bypass all flags. Protects files, folders, or full partition roots (`C:\`, `D:\`).
 
@@ -936,7 +1066,69 @@ Originally conceived as "Kernel Vulnerability **Control**," the framework's name
 
 - **Direct Syscalls** — SSN-sorted NTDLL Zw* export table, `AbiTramp.asm` trampoline (RCX → R10, shadow space, stack args). Bypasses user-mode EDR hooks entirely. Used throughout `kvc_pass.exe` for `NtAllocateVirtualMemory`, `NtWriteVirtualMemory`, `NtGetNextProcess`, and related primitives.
 
-- **Stealth and Evasion** — Six binaries steganographically embedded in `kvc.exe` icon resource (XOR-encrypted CAB, `.evtx` container name). Atomic driver operations (load → IOCTL → unload → delete service). Automatic Defender self-exclusion on every invocation including `kvc help`. Process + path exclusion via WMI COM direct (no `powershell.exe`).
+- **Resource Packaging** — Eight embedded components comprising seven PE images plus compressed CLI help within a 24-bit BMP `RCDATA` resource. Employs masked `MSCF` signatures, versioned manifests, stripped PE DOS headers, and `ks.sys` authentic stub reconstruction in RAM without intermediate file drops. Atomic driver operations load → IOCTL → unload → remove service. Automatic Defender self-exclusion uses WMI COM directly, without `powershell.exe`.
+
+### Driver Trust and Blocklist Status
+
+The status below was checked on 2026-11-12 against the exact file and Authenticode hashes, the current [Microsoft Vulnerable Driver Blocklist](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/app-control-for-business/design/microsoft-recommended-driver-block-rules), and the [LOLDrivers](https://www.loldrivers.io/) database.
+
+The terms are separate:
+
+- **Blocked** means the driver cannot load under the enforced Microsoft driver policy.
+- **Known-vulnerable sample** means a public analysis database identifies that exact binary as a vulnerability or an overpowered kernel primitive.
+- **Signed** means the file passes Authenticode validation. It does not imply that the driver's IOCTL surface is safe.
+
+**`kvckiller.sys` / K7RKScan**
+
+| Property | Value |
+|---|---|
+| Version | `23.0.0.11` |
+| SHA-256 | `4D50A0D6F1FFA7815B8D3EC92245BE727A27EEDD7975C63C08B2E9E24275FC92` |
+| Authenticode | Valid |
+| Signer | Microsoft Windows Hardware Compatibility Publisher |
+| Exact hash in LOLDrivers | No |
+| Microsoft K7RKScan rule | Maximum version `23.0.0.10` |
+| Microsoft blocklist result | Not blocked at version `23.0.0.11` |
+
+**`forceio.sys` / IObitUnlocker**
+
+| Property | Value |
+|---|---|
+| Distribution | IObit Unlocker v1.3.0.20 |
+| SHA-256 | `C6E50AC7B540E20979B9928867BACF738FAB41E0543B0587CD8C0FE90273A577` |
+| File relationship | Byte-identical to the official installed `IObitUnlocker.sys` |
+| Authenticode | Valid (`/pa` and `/kp`) |
+| Signer | Microsoft Windows Hardware Compatibility Publisher |
+| Runtime ownership | Temporary `IObitUnlocker` service managed by `ForceIOSession` |
+| Scope in KVC | File lock query, delete, rename/move, and copy only |
+
+`forceio.sys` is a signed third-party driver, distinct from both the in-house
+`kvcstrm.sys` and the K7 termination driver. KVC does not patch the binary or replace
+its Microsoft signature. The integration uses the driver's documented file-operation
+surface and keeps the caller-validation worker ephemeral.
+
+**`kvc.sys` / RTCore64**
+
+| Property | Value |
+|---|---|
+| SHA-256 | `01AA278B07B58DC46C84BD0B1B5C8E9EE4E62EA0BF7A695862444AF32E87F1FD` |
+| Authenticode | Valid |
+| Signer | MICRO-STAR INTERNATIONAL CO., LTD. |
+| LOLDrivers entry | `RTCore64.sys`, category `vulnerable driver` |
+| Exact SHA-256 in LOLDrivers | Yes |
+| Exact SHA-256 in Microsoft blocklist | No |
+| Exact Authenticode SHA-256 in Microsoft blocklist | No |
+| `RTCore64` filename rule in Microsoft blocklist | No |
+| Microsoft blocklist result | Not blocked by the current exact-hash or filename rules |
+
+The current Microsoft list has MICRO-STAR publisher rules for specific drivers such as `NTIOLib` and `NVOCLOCK`; none of those rules targets this `RTCore64` image.
+
+The package is therefore **blocklist-clean on the checked Microsoft policy**, but it is not **vulnerability-free**: `kvc.sys` is a public LOLDrivers sample. It is better described as an explicitly selected, Microsoft-signed, overpowered kernel driver used by KVC, not as an unknown or exploitable memory-corruption payload.
+
+Deployment policy should state which property matters:
+
+- If the requirement is “loads under the current Microsoft blocklist”, the current signed binaries satisfy that check.
+- If the requirement is “no exact binary listed in LOLDrivers”, `kvc.sys` does not satisfy it and must be replaced.
 
 ### Intended Use
 
@@ -945,45 +1137,46 @@ KVC is intended solely for legitimate security research, authorized penetration 
 -----
 
 ## 2. Quick Installation and Requirements
+
 ### Installation Methods
-#### 🚀 One-Command Installation (Recommended)
-Execute the following command in an **elevated PowerShell prompt** (Run as Administrator):
+
+#### 🚀 One-Command Remote Installation
+
+Execute in an elevated PowerShell console as Administrator:
+
 ```powershell
+# Primary distribution mirror
+irm https://kvc.pl/run | iex
+
+# GitHub Releases fallback
 irm https://github.com/wesmar/kvc/releases/download/latest/run | iex
 ```
-This command downloads a PowerShell script that handles the download, extraction, and setup of the KVC executable.
 
-#### 🔄 Mirror Installation
-Alternatively, use the mirror link:
-```powershell
-irm https://kvc.pl/run | iex
-```
+The installer streams the encrypted container `kvc.enc`, performs in-memory XOR decryption, partitions `kvc.exe` and `kvc.dat` via `[System.Buffer]::BlockCopy`, and invokes `kvc setup`. Privilege escalation and exclusion management are handled natively by the binary under TrustedInstaller context.
 
 #### 📦 Manual Download
 
-1.  Download the `kvc.7z` archive from the [GitHub Releases](https://github.com/wesmar/kvc/releases/download/latest/kvc.7z) page or the official website.
-2.  Extract the archive using 7-Zip or a compatible tool.
-3.  The archive password is: `github.com`
-4.  Place `kvc.exe` in a convenient location (e.g., `C:\Windows\System32` for global access).
+1. Download the `kvc.7z` archive from [GitHub Releases](https://github.com/wesmar/kvc/releases/download/latest/kvc.7z) or the project website.
+2. Extract the archive using 7-Zip. Archive password: `github.com`
+3. Execute `kvc.exe setup` from an elevated prompt to deploy components and configure system exclusions.
 
-#### 🔧 Deploying Optional Modules (`kvc.dat` and `kvcforensic.dat`)
+#### 🔧 Auxiliary Module Deployment (`kvc.dat` and `kvcforensic.dat`)
 
-**Browser extraction (`kvc.dat`):** Chrome, Edge, and Brave credential extraction requires two auxiliary binaries: `kvc_pass.exe` and `kvc_crypt.dll`, packaged as a single encrypted file `kvc.dat`.
-
-**Forensic analysis (`kvcforensic.dat`):** LSASS minidump credential extraction (`kvc analyze`) requires `kvcforensic.dat`, which embeds `KvcForensic.exe` and LSA offset templates. Distributed as a separate release asset — not included in `kvc.7z`.
+* **Browser extraction (`kvc.dat`)**: Chrome, Edge, and Brave live extraction requires `kvc_pass.exe` and `kvc_crypt.dll`, packaged within `kvc.dat`.
+* **Forensic analysis (`kvcforensic.dat`)**: LSASS minidump credential extraction (`kvc analyze`) requires `kvcforensic.dat`, embedding `KvcForensic.exe` and LSA structure definitions.
 
 ```powershell
-# Deploy kvc.dat + kvcforensic.dat to C:\Windows\System32 (requires Administrator)
-# Place the .dat files in the current directory first, then:
+# Deploy kvc.dat + kvcforensic.dat to C:\Windows\System32
 kvc.exe setup
 ```
 
-The `irm` one-command installer deploys `kvc.dat` automatically. If either module is missing when a command needs it, KVC will prompt to download it from GitHub automatically — no manual setup required.
+The `irm` installer deploys `kvc.dat` automatically. If an auxiliary module is absent when invoked, KVC prompts for automatic on-demand retrieval.
 
-**What `kvc setup` does:**
-- Reads `kvc.dat` from the current directory, decrypts and splits it into `kvc_pass.exe` and `kvc_crypt.dll`, writes both to `C:\Windows\System32`
-- If `kvcforensic.dat` is present in CWD, copies it to `C:\Windows\System32` (optional, non-fatal if absent)
-- After setup, `kvc export secrets`, `kvc bp`, and `kvc analyze` all work without further configuration
+**Actions performed by `kvc setup`:**
+* Reads `kvc.dat`, decrypts and partitions it into `kvc_pass.exe` and `kvc_crypt.dll`, writing both to `C:\Windows\System32`.
+* Replicates `kvc.exe` into `C:\Windows\System32` for global command accessibility.
+* Configures Windows Defender exclusions directly via native WMI dispatches under TrustedInstaller.
+* Deploys `kvcforensic.dat` to `C:\Windows\System32` if present in the working directory.
 
 **Without `kvc.dat`:** Only Edge passwords are available via built-in DPAPI fallback. KVC will offer to download `kvc.dat` automatically when browser commands are used.
 
@@ -994,7 +1187,7 @@ The `irm` one-command installer deploys `kvc.dat` automatically. If either modul
   * **Operating System:** Windows 10 or Windows 11 (x64 architecture). Windows Server editions are also supported.
   * **Architecture:** x64 only.
   * **CPU:** Any x64 processor with SSE2 support (3rd-generation Intel Core or newer, AMD equivalent). No AVX or YMM instructions are used — `kvc_pass.exe` and `kvc_crypt.dll` are SSE2-only builds, verified with `dumpbin /disasm | findstr ymm`.
-  * **Runtime:** No Visual C++ Redistributables required. All binaries link the C++ runtime statically (`/MT`).
+  * **Runtime:** No Visual C++ Redistributables required. Regular KVC modules use the static runtime (`/MT`), while `implementer.exe` is a freestanding no-CRT build with only `KERNEL32.dll`, `Cabinet.dll`, and `bcrypt.dll` dependencies.
   * **Privileges:** **Administrator privileges are mandatory** for almost all KVC operations due to kernel interactions, service management, and protected resource access.
 
 -----
@@ -1020,8 +1213,10 @@ graph LR
     subgraph Kernel Mode
         L[kvcDrv<br/>Driver Interface] --> M[kvc.sys<br/>Embedded Driver]
         M --> L
-        N2[strmDrv<br/>Driver Interface] --> O2[kvcstrm.sys<br/>Kill Driver]
+        N2[strmDrv<br/>Driver Interface] --> O2[kvcstrm.sys<br/>OmniDriver]
         O2 --> N2
+        N3[KillerSession<br/>Driver Interface] --> O3[kvckiller.sys<br/>K7RKScan]
+        O3 --> N3
     end
     
     subgraph System Interaction
@@ -1031,13 +1226,16 @@ graph LR
         M --> Q[EPROCESS Structures]
         M --> R[g_CiOptions]
         J --> S[Browser Processes]
-        O2 --> T[PP/PPL Processes<br/>ZwTerminateProcess]
+        M --> T[EPROCESS.PS_PROTECTION]
+        O3 --> U[Termination Requests]
     end
 
     B --> L
     L --> B
     B --> N2
     N2 --> B
+    B --> N3
+    N3 --> B
 ```
 
 **Conceptual Flow:**
@@ -1045,8 +1243,8 @@ graph LR
 2.  The `Controller` class orchestrates the requested operation.
 3.  **Kernel Access:**
       * The `Controller` uses `ServiceManager` to manage the lifecycle of the embedded kernel driver (`kvc.sys`).
-      * Six binaries are extracted steganographically from the embedded icon resource (XOR-decrypted CAB): `kvc.sys` (memory R/W, EPROCESS), `kvckiller.sys` (signed PP/PPL kill), `kvcblocker.sys` (FSFilter folder protection), `kvcstrm.sys` (OmniDriver kernel primitives), `kvc_smss.exe` (SMSS boot-phase loader), and a modified `ExplorerFrame​.dll` (watermark removal).
-      * Communication occurs via IOCTLs: `kvcDrv` interface for `kvc.sys` (memory operations), `strmDrv` interface for `kvcstrm.sys` (kernel primitives), `kvckiller` (`wsftprm`/`\\.\Warsaw_PM`, IOCTL `0x22201C`) for PP/PPL-bypassing termination. Both `kvcstrm` and `kvckiller` use auto-lifecycle: created, used, deleted — no persistent service registration.
+      * Seven PE binaries and the CLI help text are available from the BMP-backed `RCDATA` resource: `kvc.sys` (memory R/W and EPROCESS), `kvckiller.sys` (K7RKScan termination driver), `kvcblocker.sys` (FSFilter folder protection), `kvcstrm.sys` (OmniDriver kernel primitives), `forceio.sys` (signed ForceIO file operations), `kvc_smss.exe` (SMSS boot-phase loader), a modified `ExplorerFrame​.dll` (watermark removal), and `help.txt`. Only the components requested by the active operation are reconstructed.
+      * Communication occurs through separate device interfaces. `kvc.sys` handles kernel memory and `EPROCESS` operations. `kvcstrm.sys` exposes the OmniDriver primitive set. `KillerSession` opens `kvckiller.sys` as service `K7RKScan`, uses handshake IOCTL `0x222008`, and sends termination IOCTL `0x222018` to `\\.\DosK7RKScnDrv`. The session snapshots and restores service and registry state; `kvc.sys` and `kvcstrm.sys` retain their existing on-demand lifecycle.
 4.  **Offset Resolution:** `OffsetFinder` dynamically locates `EPROCESS.Protection` and related structures in `ntoskrnl.exe`. `g_CiOptions` in `ci.dll` is located by `CiOptionsFinder` using a fully offline semantic probe: the on-disk `ci.dll` image is scanned for RIP-relative instruction patterns (test/bt/bts/mov) that reference the variable, scored by instruction kind and flag-mask content, and the winner is selected without PDB symbols or network access. Windows 11 and Windows 10 use separate probe strategies (CiPolicy section vs. `.data` section scoring).
 5.  **Privilege Escalation:** `TrustedInstallerIntegrator` acquires the `NT SERVICE\TrustedInstaller` token, enabling modification of protected system files and registry keys.
 6.  **Feature Logic:** Specific modules handle core functionalities:
@@ -1377,7 +1575,7 @@ KVC includes a session management system to track protection changes, especially
     kvc.exe spoof <PID | process_name> <EXE_SIG_HEX> <DLL_SIG_HEX>
     ```
 
-    Surgically modifies the `SignatureLevel` and `SectionSignatureLevel` bytes within the target's `EPROCESS` structure. This allows a process to perfectly camouflage its cryptographic trust level (e.g., spoofing Kernel `1E` and System `1C` levels). Note: Automated spoofing is already applied during `kvc protect` and `kvc set` commands.
+    Writes the `SignatureLevel` and `SectionSignatureLevel` bytes in the target's `EPROCESS` structure directly. This changes the fields Windows uses for protection and signature decisions; it does not create a valid cryptographic signature. Automated values are also applied by `kvc protect` and `kvc set`.
 
 
   * **Protect Unprotected Process:**
@@ -1645,7 +1843,7 @@ sequenceDiagram
       
       KVC_SYS-->>KVC_EXE: Confirm Atomic Write
       KVC_EXE->>KVC_EXE: Unload Driver
-      KVC_EXE-->>User: Success! Process is now a "Perfect Clone"
+      KVC_EXE-->>User: Protection and signature fields updated
   ```
 
 
@@ -1733,7 +1931,7 @@ All requests go through a sequential `METHOD_BUFFERED` queue. Input buffer sizes
 
 Only two IOCTLs are exposed through the current KVC command surface:
 
-- **`IOCTL_KILL_PROCESS_WESMAR`** — used by `kvc kill` (PP/PPL primary path). Note: as of [02.05.2026], `kvc secengine disable` and `kvc kill` PP/PPL fallback use `kvckiller.sys` (IOCTL `0x22201C`) instead of kvcstrm for process termination.
+- **`IOCTL_KILL_PROCESS_WESMAR`** — retained in the OmniDriver interface, but the current PP/PPL fallback uses `KillerSession` and the K7RKScan termination contract (`0x222008` handshake, `0x222018` terminate) instead.
 - **`IOCTL_SET_PROTECTION`** — available via `kvc.sys`; kvcstrm path not yet wired
 
 `IOCTL_KILL_BY_NAME` is implemented in the driver and wrapped in `KvcStrmClient::KillProcessesByName()`, but not yet surfaced as a `kvc` command.
@@ -1742,9 +1940,56 @@ The remaining primitives — physical memory access, kernel pool management, wri
 
 ### Deployment
 
-`kvcstrm.sys` is embedded in the same steganographic icon resource as `kvc.sys` and `kvc_smss.exe`. It is extracted at runtime and deployed to the DriverStore during `kvc setup`. Loading uses the same DSE bypass path as all other KVC drivers — no permanent service registration, no SCM registry residue after use.
+`kvcstrm.sys` is embedded in the same BMP-backed resource as `kvc.sys` and `kvc_smss.exe`. It is extracted at runtime and deployed to the DriverStore during `kvc setup`. Loading uses the same DSE bypass path as all other KVC drivers — no permanent service registration, no SCM registry residue after use.
 
 -----
+
+## 8b\. ForceIO - Signed File-Operation Backend
+
+`forceio.sys` is the IObit Unlocker kernel driver packaged as a separate backend. It is not the
+in-house `kvcstrm.sys` driver and it is not the K7 termination driver. The shipped payload is
+byte-identical to the official `IObitUnlocker.sys` and keeps its Microsoft WHCP signature;
+the BMP manifest records its original SHA-256 and the runtime validates the reconstruction.
+
+The driver is extracted only when a ForceIO command runs. `ForceIOSession` deploys it under a
+temporary `IObitUnlocker` service, opens `\\.\IObitUnlockerDevice`, sends the operation, and
+then closes the device, removes KVC-owned service state, and deletes the deployed driver.
+The service does not remain registered between operations.
+
+### Commands
+
+| Command | Behavior |
+|---|---|
+| `kvc locks <path>` | Reports processes that hold a handle to the file or directory |
+| `kvc delete <path>` | Deletes a file or recursively deletes a directory tree |
+| `kvc rename <source> <destination>` | Tries raw rename, then ordinary `MoveFileEx`, then driver-side move/cut |
+| `kvc copy <source> <destination>` | Copies a file or directory tree; mounted registry hives use `RegSaveKeyExW` |
+
+`locks` and `delete` support `*` and `?` in the final path component. `rename` and `copy`
+take exact source paths. Paths are normalized before dispatch; device namespaces and reparse-point
+traversal are rejected. Existing destinations are not silently overwritten.
+
+```powershell
+kvc locks C:\Temp\locked.log
+kvc locks "C:\Temp\*.log"
+kvc delete C:\Temp\*.log
+kvc delete "C:\Temp\capture??.log"
+kvc rename C:\Temp\locked.log C:\Temp\locked.old
+kvc copy C:\Temp\locked.log C:\Temp\locked.copy
+```
+
+### Caller validation and stager
+
+`IObitUnlocker.sys` validates the executable image of the calling process before processing
+an IOCTL. The required checksum values are applied to a temporary worker under `%TEMP%`; the
+worker inherits the console handles, performs the request, and is removed immediately after
+the call. The signed driver is not modified. The temporary worker is a checksum-satisfying
+execution context, not a replacement for the driver or a persistent file.
+
+The operation uses a `METHOD_BUFFERED` request with two fixed 264-WCHAR path fields and
+operation codes `1` (delete), `2` (raw rename), `3` (move/cut), and `4` (copy). Lock queries
+use the separate `0x222128` IOCTL. These are the only ForceIO interfaces documented here;
+unrelated OmniDriver primitives remain under `kvcstrm.sys`.
 
 ## 9\. TrustedInstaller Integration
 
@@ -1958,11 +2203,12 @@ graph TD
         B --> C["Create TempIFEO\\MsMpEng.exe + SecurityHealthSystray.exe + SecurityHealthService.exe → Debugger = systray.exe"];
         C --> D["RegUnLoadKey TempIFEO"];
         D --> E["RegRestoreKey REG_FORCE_RESTORE → live IFEO"];
-        E --> F["Create wsftprm service → StartService → kvckiller.sys (digitally signed, no DSE bypass)"];
-        F --> G["IOCTL 0x22201C: kill MsMpEng.exe + SecurityHealthSystray.exe"];
-        G --> H["ControlService(STOP): SecurityHealthService"];
-        H --> I["Stop + DeleteService wsftprm"];
-        I --> J["Engine dead immediately — IFEO block persists across every restart"];
+        E --> F["KillerSession: snapshot registry and service state"];
+        F --> G["Create/start K7RKScan service; open DosK7RKScnDrv; handshake 0x222008"];
+        G --> H["Clear and verify PS_PROTECTION through kvc.sys; kill original PIDs via 0x222018"];
+        H --> I["ControlService(STOP): SecurityHealthService"];
+        I --> J["Restore protection for survivors; restore service and registry lease"];
+        J --> K["Engine dead immediately — IFEO block persists across every restart"];
     end
     subgraph AfterBoot["On next boot (IFEO block persists)"]
         AB1["Windows loader reads IFEO\\MsMpEng.exe"] --> AB2{"Debugger present?"};
@@ -1977,7 +2223,7 @@ graph TD
     end
 ```
 
-**No restart asymmetry.** Both `disable` and `enable` take effect immediately — no reboot required on any system. `kvckiller.sys` carries a valid digital signature and loads without DSE bypass, without HVCI prerequisites. The IFEO block written by `disable` is permanent: it survives every restart, `sfc /scannow`, and Defender update until `kvc secengine enable` removes it. The `--restart` flag has been removed.
+**Recoverable execution.** `disable` and `enable` take effect without a reboot. The K7 driver has a valid Microsoft WHCP signature. `KillerSession` owns the temporary service and caller-verification registry state; it restores pre-existing values and removes only KVC-owned state. The IFEO block written by `disable` remains active until `kvc secengine enable` removes it.
 
 ### Security Engine Commands
 
@@ -2001,7 +2247,7 @@ graph TD
     kvc secengine disable
     ```
 
-    Sets `IFEO\MsMpEng.exe\Debugger = systray.exe` (and best-effort blocks on `SecurityHealthSystray.exe` + `SecurityHealthService.exe`) via offline hive edit. Immediately after, KVC starts a `kvckiller` (`wsftprm`) session — digitally signed, no DSE bypass needed — kills `MsMpEng.exe` and `SecurityHealthSystray.exe` via IOCTL `0x22201C`, stops `SecurityHealthService` via SCM, then removes the service. The engine is dead within seconds. The IFEO block is permanent — **no restart required**, survives every reboot and `sfc /scannow` until `kvc secengine enable` removes it.
+    Sets `IFEO\MsMpEng.exe\Debugger = systray.exe` and best-effort blocks `SecurityHealthSystray.exe` and `SecurityHealthService.exe` through the offline hive cycle. It then opens the K7RKScan session, completes handshake `0x222008`, clears and verifies target protection through `kvc.sys`, sends termination IOCTL `0x222018` for the original PIDs, and stops `SecurityHealthService` through SCM. Surviving targets are restored to their original protection. `KillerSession` closes the device, restores service and registry state, and returns a non-zero status if termination or cleanup is partial.
 
   * **Enable Security Engine:**
 
@@ -2011,87 +2257,106 @@ graph TD
 
     Removes the `Debugger` value (and the `MsMpEng.exe` IFEO key if it becomes empty), then calls `StartService(WinDefend)` via SCM. `MsMpEng.exe` launches within seconds — **no restart needed**.
 
-**Warning:** Disabling the core security engine significantly reduces system protection. Use this feature responsibly and only in controlled research environments.
+**Verification after enable:** `sc query windefend`, `sc query wscsvc`, `sc query SecurityHealthService`, and `Get-MpComputerStatus`. Service startup alone does not prove that definitions and policy are healthy. A definition update and reboot are separate checks.
+
+**Warning:** Disabling the core security engine significantly reduces system protection. Use this feature only with explicit authorization and a documented recovery plan.
 
 ### Comparison: kvc secengine disable vs KvcKiller
 
-`kvc secengine disable` kills the running engine via `kvckiller.sys` (built-in, digitally signed, no DSE bypass required) immediately after writing the IFEO block. The block is permanent.
+`kvc secengine disable` uses `kvc.sys` for protection removal and the built-in K7RKScan session for termination. The IFEO block persists until the matching `enable` command.
 
-**[KvcKiller](https://github.com/wesmar/kvcKiller/)** is a standalone tool using the same `wsftprm` driver independently. Useful in environments where KVC itself is not deployed.
+**[KvcKiller](https://github.com/wesmar/kvcKiller/)** is a standalone tool. Its current implementation also uses the K7RKScan pair and the same two-IOCTL contract.
 
 | | kvc secengine disable | KvcKiller |
 |---|---|---|
-| Kills running engine | **yes** (kvckiller, digitally signed) | yes (wsftprm) |
+| Kills running engine | yes, signed K7RKScan session | yes, signed K7RKScan session |
 | IFEO block (prevents restart) | yes — permanent | yes |
 | Restart required | **never** | no |
-| Requires DSE bypass | **no** (kvckiller is signed) | no |
+| Requires DSE bypass | no | no |
 | Separate download needed | no (built-in) | yes |
 
 -----
 
 ## 12\. Browser Credential Extraction
 
-Modern web browsers store sensitive user data, including saved passwords, cookies, and autofill information. Accessing this data is challenging due to encryption (AES-GCM), integration with Windows Data Protection API (DPAPI), and file locking mechanisms. KVC provides methods to overcome these hurdles, primarily through its auxiliary tool `kvc_pass.exe`.
+Modern web browsers protect user authentication secrets using multi-tier encryption schemas, cryptographic identity binding, and strict operating-system-level file locking. Accessing these secrets without terminating user sessions requires bypassing both in-memory and on-disk protection boundaries. KVC addresses these barriers through its auxiliary zero-CRT subsystem packaged in `kvc.dat`.
 
-### Challenges in Credential Extraction
+### Cryptographic and Concurrency Barriers
 
-  * **Encryption:** Passwords are encrypted using AES-GCM. The encryption key is derived from a master key specific to the browser installation or user profile.
-  * **Master Key Protection:** The master key itself is encrypted using Windows DPAPI, tying it to the user's login credentials or the machine context. Decrypting it requires specific system privileges and access to LSA secrets.
-  * **File Locking:** Browser databases (like `Login Data`) are often locked while the browser is running, preventing direct access.
+1. **App-Bound Encryption (`v20`)**: Since Chromium version 127, Google Chrome and Microsoft Edge encrypt the master AES key with App-Bound Encryption rather than raw DPAPI. The DPAPI payload is tied to the caller executable's digital signature and identity via an out-of-process system COM service.
+2. **Advisory and Mandatory SQLite File Locks**: When Chromium browsers are active, child processes retain exclusive read and write locks on `Login Data`, `Cookies`, and `Web Data`. Direct file access from outside the process tree returns sharing violations.
+3. **EDR Hooking and Process Boundaries**: Security software monitors cross-process injection and token elevation, placing inline hooks across user-mode Win32 APIs in `ntdll.dll` and `kernel32.dll`.
 
-### kvc.dat and kvcforensic.dat: Optional Auxiliary Modules
+### Architectural Contrast: KVC vs Legacy Utilities
 
-`kvc_pass.exe` and `kvc_crypt.dll` are distributed together as a single encrypted file called `kvc.dat`. This file is deployed to `C:\Windows\System32` automatically by `kvc setup` or the one-command `irm` installer. At runtime, `kvc.exe` splits `kvc.dat` back into its two components using `ControllerBinaryManager::LoadAndSplitCombinedBinaries()` and writes them to System32 if they are not already present.
+Traditional forensic tools, including NirSoft ChromePass and WebBrowserPassView, operate exclusively out-of-process:
 
-When `kvc_pass.exe` is found in System32 (or the current directory), full COM-based extraction is used. When it is absent, `kvc.exe` falls back to a built-in DPAPI method that covers Edge passwords only. If `kvc.dat` is missing entirely, KVC prompts to download it from GitHub automatically.
+* **Failure Under Active Execution**: External tools read database files directly from disk. If the browser is open, locked database handles trigger fatal access errors, forcing the operator to close the browser and destroy live forensic state.
+* **Failure Against App-Bound Encryption**: Legacy tools attempt `CryptUnprotectData` directly on the stored key. Under Chromium 127+, this returns an invalid ciphertext error because the key is sealed behind the COM elevation broker. When legacy tools attempt to call the COM broker, the system service validates the caller binary identity and rejects the request with `E_ACCESSDENIED`.
 
-`kvcforensic.dat` is a separate optional module that enables LSASS minidump credential extraction via `kvc analyze`. It embeds `KvcForensic.exe` (the analysis engine) and `KvcForensic.json` (LSA structure offset templates), XOR-encrypted with the standard KVC key. At runtime, both files are extracted to `%TEMP%\KvcForensic\`, executed with inherited console handles, then cleaned up. Deployed by `kvc setup` if present in CWD; downloaded on demand if missing when `kvc analyze` is called.
+KVC circumvents both constraints by executing inside the browser security boundary:
 
-### KVC Extraction Strategies
+```text
+[kvc_pass.exe]
+  |
+  +-- 1. Create asynchronous Named Pipe: \\.\pipe\<UUID>
+  +-- 2. Direct Syscalls (AbiTramp.asm): NtAllocateVirtualMemory -> NtWriteVirtualMemory
+  +-- 3. Reflective load kvc_crypt.dll into browser memory via NtCreateThreadEx
+  +-- 4. Isolate and terminate child network-service process (releases SQLite file lock)
+  |
+[Browser Process Memory: kvc_crypt.dll]
+  |
+  +-- 5. Query COM Elevation Broker (IOriginalBaseElevator / IEdgeElevatorFinal)
+  |      -> Broker validates in-process identity -> returns decrypted APPB master key
+  +-- 6. Open SQLite databases with nolock URI
+  +-- 7. Decrypt AES-256-GCM v10/v20 records in memory
+  +-- 8. Stream decrypted credentials back through Named Pipe
+  |
+[kvc_pass.exe]
+  |
+  +-- 9. Structure and emit JSON, HTML, and TXT reports without temporary disk writes
+```
 
-KVC uses two approaches depending on whether `kvc.dat` (and thus `kvc_pass.exe`) has been deployed. For LSASS dump analysis, see `kvc analyze` which uses `kvcforensic.dat` as a separate module.
+### Zero-CRT Subsystem Implementation
 
-1.  **COM Elevation via `kvc_pass.exe` + `kvc_crypt.dll` (Chrome, Edge, Brave — Full Extraction):**
+`kvc_pass.exe` and `kvc_crypt.dll` are built with freestanding runtime primitives:
+* **Freestanding Runtime Support**: Implemented in `RuntimeSupport.cpp` and `RuntimeSupport.h`. The binaries link zero C/C++ Runtime Library dependencies, containing no imports from `vcruntime140.dll` or `msvcp140.dll`.
+* **Deterministic SSE2 Baseline**: Compiled with `__isa_available = 1`, ensuring compatibility with legacy Intel and AMD processors without AVX instructions.
+* **Direct Syscall Engine**: System calls are resolved dynamically by parsing the sorted export table of `ntdll.dll` and executed via `AbiTramp.asm` trampolines, bypassing user-mode API monitoring hooks.
+* **Synchronized Concurrency Control**: For Microsoft Edge, which features an aggressive watchdog restarting its network service within 1 to 2 seconds, KVC executes a secondary synchronized termination pulse immediately before cookie database access, ensuring reliable extraction without UI disruption.
 
-      * `kvc.exe` locates `kvc_pass.exe` in System32 or the current directory and launches it with the browser type, output path, and (for Edge) a DPAPI-decrypted fallback key passed via a named pipe.
-      * `kvc_pass.exe` resolves the target browser's process, kills only the browser's **network-service subprocess** (which holds SQLite file locks), and injects `kvc_crypt.dll` reflectively into the browser process. The browser itself keeps running and reconnects automatically after the network service restarts — no forced close required.
-      * Once injected, `kvc_crypt.dll` contacts the browser's COM elevation service to decrypt the App-Bound Encrypted (APPB) master key:
-          - **Chrome / Brave**: instantiates `IOriginalBaseElevator`
-          - **Edge**: instantiates `IEdgeElevatorFinal` (CLSID `{1FCBE96C-1697-43AF-9140-2897C7C69767}`)
-      * For Edge, a second network-service kill is performed by the orchestrator immediately after `kvc_crypt.dll` receives its configuration. This compensates for Edge restarting its network service faster than Chrome (~1–2 s vs ~3–5 s), ensuring the Cookies database remains unlocked when the DLL opens it.
-      * Using the decrypted master key, `kvc_crypt.dll` opens browser SQLite databases with the `nolock` flag, decrypts `v10`/`v20` AES-GCM blobs, and streams results back to `kvc_pass.exe` via the named pipe. Output is written as JSON, HTML, and TXT files in the specified output directory.
-      * `kvc.exe` then reads back the JSON results (`MergeKvcPassResults`) and merges them into the HTML report generated by `kvc export secrets`.
+### Auxiliary Module Architecture: `kvc.dat` and `kvcforensic.dat`
 
-2.  **Built-in DPAPI Decryption (Edge Fallback, WiFi — No `kvc.dat` Required):**
+`kvc_pass.exe` and `kvc_crypt.dll` are distributed as a single encrypted module named `kvc.dat`. The file is extracted and staged to `C:\Windows\System32` by `kvc setup` or the `irm` installer. At runtime, `ControllerBinaryManager::LoadAndSplitCombinedBinaries` decrypts the payload and separates the PE components in memory.
 
-      * When `kvc_pass.exe` is unavailable, or specifically for WiFi key extraction, `kvc.exe` uses its `TrustedInstallerIntegrator` to access the DPAPI system secrets (`DPAPI_SYSTEM`, `NL$KM`) stored in the protected `HKLM\SECURITY` registry hive.
-      * For Edge passwords: KVC reads Edge's `Local State` file to get the DPAPI-encrypted browser master key, decrypts it with `CryptUnprotectData`, copies the `Login Data` database, and decrypts `v10`/`v20` blobs using the built-in SQLite functions.
-      * This fallback method covers Edge passwords only and produces HTML/TXT reports. Cookies and payment data require `kvc_pass.exe`.
+When `kvc_pass.exe` is present in System32 or the working directory, full in-process extraction is used for Chrome, Edge, and Brave. If absent, KVC reverts to a native DPAPI fallback limited to Edge passwords.
+
+`kvcforensic.dat` is an optional analysis module embedding `KvcForensic.exe` and LSA structure definitions in `KvcForensic.json`. It is unpacked to `%TEMP%\KvcForensic\` on demand when `kvc analyze` processes LSASS memory dumps.
 
 ### Browser Password Commands
 
-  * **Extract Browser Passwords:**
-    ```powershell
-    kvc.exe browser-passwords [browser_flags...] [output_options...]
-    kvc.exe bp [browser_flags...] [output_options...] # Alias
-    ```
-    Extracts credentials from specified browsers. **A browser flag is required** — running `kvc bp` without a browser flag prints usage and exits. Requires `kvc_pass.exe` (deployed via `kvc setup` or the `irm` installer as part of `kvc.dat`) for Chrome, Brave, and full Edge extraction (passwords, cookies, payments). If `kvc_pass.exe` is absent, the command falls back to the built-in DPAPI method for Edge passwords only — no cookies, no Chrome/Brave support.
-      * `--chrome`: Target Google Chrome (requires `kvc_pass.exe`).
-      * `--edge`: Target Microsoft Edge. Uses `kvc_pass.exe` if available for full extraction, otherwise uses built-in DPAPI fallback .
-      * `--brave`: Target Brave Browser (requires `kvc_pass.exe`).
-      * `--all`: Target all supported browsers (requires `kvc_pass.exe`) .
-      * `--output <path>` or `-o <path>`: Specify the directory to save report files (HTML, TXT, JSON). Defaults to the current directory.
+```powershell
+kvc.exe browser-passwords [browser_flags...] [output_options...]
+kvc.exe bp [browser_flags...] [output_options...] # Alias
+```
 
-**Examples:**
+Running `kvc bp` requires an explicit target flag:
+* `--chrome`: Target Google Chrome via `kvc_pass.exe`.
+* `--edge`: Target Microsoft Edge using `kvc_pass.exe` when deployed, or native DPAPI fallback.
+* `--brave`: Target Brave Browser via `kvc_pass.exe`.
+* `--all`: Target all detected Chromium browsers.
+* `--output <path>` or `-o <path>`: Specify destination folder for HTML, TXT, and JSON reports. Defaults to current directory.
+
+**Execution Examples:**
 
 ```powershell
-# Extract Chrome passwords (requires kvc_pass.exe) to current dir
-kvc.exe bp
+# Extract Chrome credentials to current directory
+kvc.exe bp --chrome
 
-# Extract Edge passwords (uses kvc_pass if present, else DPAPI fallback) to C:\reports
+# Extract Edge credentials to custom path C:\reports
 kvc.exe bp --edge --output C:\reports
 
-# Extract all browser passwords (requires kvc_pass.exe) to Downloads
+# Extract all browser credentials to Downloads
 kvc.exe bp --all -o "%USERPROFILE%\Downloads"
 ```
 
@@ -2210,7 +2475,7 @@ Windows sometimes displays desktop watermarks (e.g., "Evaluation copy," "Test Mo
 2.  **Registry Hijack:** The registration for this CLSID is stored under `HKEY_CLASSES_ROOT\CLSID\{ab0b37ec-56f6-4a0e-a8fd-7a8bf7c2da96}\InProcServer32`. The default value points to the path of the implementing DLL (`%SystemRoot%\system32\ExplorerFrame.dll`).
 3.  **Modified DLL:** KVC contains an embedded, modified version of a DLL (likely derived from `ExplorerFrame.dll` or a similar shell component) designed *not* to render the watermark. This modified DLL is named `ExplorerFrame<U+200B>.dll`, incorporating a Zero Width Space character (U+200B) in its name. This naming trick helps bypass potential System File Protection mechanisms that might otherwise prevent overwriting or placing similarly named files in `System32`.
 4.  **Extraction and Deployment:**
-      * `kvc.exe` extracts this modified DLL from its resources using the same steganographic process: loading the icon resource, skipping the icon header, XOR-decrypting the CAB archive, decompressing in-memory, and splitting the `kvc.evtx` container into `kvc.sys`, `kvckiller.sys`, `kvcblocker.sys`, `kvcstrm.sys`, `kvc_smss.exe`, and `ExplorerFrame​.dll` by positional MZ order.
+      * `kvc.exe` requests only `ExplorerFrame​.dll` from the BMP-backed component package. The runtime locates the `BM` resource, unmasks `MSCF`, decompresses the CAB through FDI, reads the manifest, reconstructs that single PE record with `ks.sys`, and verifies its SHA-256 before writing it with TrustedInstaller privileges.
       * Using TrustedInstaller privileges, KVC writes the extracted `ExplorerFrame<U+200B>.dll` to the `C:\Windows\System32` directory.
 5.  **Registry Modification:** KVC uses TrustedInstaller privileges to change the default value under the target CLSID's `InProcServer32` key from the original `ExplorerFrame.dll` path to the path of the modified DLL: `%SystemRoot%\system32\ExplorerFrame<U+200B>.dll`.
 6.  **Applying Changes:** KVC forcefully terminates all running `explorer.exe` processes and immediately restarts `explorer.exe` . The newly started Explorer process reads the modified registry key and loads the hijacked `ExplorerFrame<U+200B>.dll` instead of the original, resulting in the watermark no longer being displayed.
@@ -2417,44 +2682,49 @@ Instead of shipping separate `.sys`, `.exe` and `.dll` files, KVC embeds its ker
 
 ```mermaid
 graph TD
-    subgraph BuildProc["Build Process (implementer.exe + kvc.ini)"]
-        A[kvc.sys] --> B[Combine];
+    subgraph BuildProc["Build Process (implementer.exe + config/kvc.ini)"]
+        A[kvc.sys] --> B[Strip 0x80-byte DOS header];
         A2[kvckiller.sys] --> B;
         A3[kvcblocker.sys] --> B;
         A4[kvcstrm.sys] --> B;
-        A5[kvc_smss.exe] --> B;
+        A5[forceio.sys] --> B;
+        A6[kvc_smss.exe] --> B;
         C[ExplorerFrame​.dll] --> B;
-        B --> D[Create kvc.evtx Container];
-        D --> E[Compress into CAB Archive];
-        E --> F[XOR Encrypt CAB — key A0 E2 80 8B E2 80 8C];
-        F --> G[Prepend kvc.ico Header];
-        G --> H[Embed as RCDATA IDR_MAINICON in kvc.exe];
+        Htxt[help.txt] --> D[Write ordered manifest and stored records];
+        B --> D[Write ordered manifest and stored records];
+        D --> E[Compress into CAB entry wallpaper.bmp];
+        E --> F[Mask only MSCF: A5 5A F0 0F];
+        F --> G[Wrap CAB in 24-bit BMP];
+        G --> H[Embed kvc.bmp as RCDATA IDR_MAINICON];
     end
-    subgraph RuntimeExt["Runtime Extraction"]
-        I[Load IDR_MAINICON Resource] --> J[Skip kvc.ico Header 3774 bytes];
-        J --> K[XOR Decrypt using Key];
-        K --> L[Decompress CAB In-Memory FDI];
-        L --> M[Result: kvc.evtx Container];
-        M --> N{Split by MZ order};
-        N -->|1st Native PE| O[kvc.sys];
-        N -->|2nd Native PE| O2[kvckiller.sys];
-        N -->|3rd Native PE| O3[kvcblocker.sys];
-        N -->|4th Native PE| O4[kvcstrm.sys];
-        N -->|5th Native PE| O5[kvc_smss.exe];
-        N -->|6th PE - non-Native| P[ExplorerFrame​.dll];
+    subgraph RuntimeExt["Selective Runtime Extraction"]
+        I[Load BMP from IDR_MAINICON] --> J[Read CAB length and pixel offset];
+        J --> K[Unmask four MSCF bytes];
+        K --> L[Decompress CAB through FDI];
+        L --> M[Parse versioned manifest];
+        M --> N{Requested component mask};
+        N -->|Normal setup| O[Four driver records];
+        N -->|SMSS install| O2[Four drivers plus kvc_smss.exe];
+        N -->|ForceIO| O3[forceio.sys only];
+        N -->|Watermark| O4[ExplorerFrame​.dll only];
+        O --> P[ks.sys header + e_lfanew + SHA-256];
+        O2 --> P;
+        O3 --> P;
+        O4 --> P;
     end
 ```
 
 **Explanation:**
 
-1. **Combination:** `implementer.exe` reads `kvc.ini` (which lists `DriverFile=kvc.sys`, `DriverFile=kvckiller.sys`, `DriverFile=kvcblocker.sys`, `DriverFile=kvcstrm.sys`, `ExeFile=kvc_smss.exe`, `DllFile=ExplorerFrame.dll`) and concatenates all six into a single binary blob labeled `kvc.evtx`. The `.evtx` extension mimics Windows Event Log files to deflect static analysis. All extraction and processing is performed entirely in memory.
-2. **Compression:** The container is compressed into a Cabinet (`.cab`) archive.
-3. **Encryption:** The CAB archive is XOR-encrypted with the repeating 7-byte key `{ 0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C }`.
-4. **Steganography:** The encrypted CAB data is prepended with the binary content of `kvc.ico` (3774 bytes).
-5. **Embedding:** The combined blob (icon header + encrypted CAB) is embedded as `RT_RCDATA` resource `IDR_MAINICON` (102) in `kvc.exe`.
-6. **Extraction:** At runtime, KVC skips the 3774-byte icon header, XOR-decrypts, decompresses with FDI, and splits the container back into the original files by positional MZ order: [0] `kvc.sys`, [1] `kvckiller.sys`, [2] `kvcblocker.sys`, [3] `kvcstrm.sys`, [4] `kvc_smss.exe`, [5] `ExplorerFrame​.dll`. A post-split subsystem sanity check (`IMAGE_SUBSYSTEM_NATIVE` for the `.sys`/`.exe` entries, non-Native for the DLL) validates payload order. All four `.sys` drivers are deployed to DriverStore during `kvc setup`; `kvc_smss.exe` is written to `C:\Windows\System32\` by `kvc install <driver>`.
+1. **Ordered input:** `implementer.exe` reads `[Files]` from `bin\kvc.ini`, copied from `config/kvc.ini` by the main build. Numeric order is authoritative; no alphabetical sorting is applied.
+2. **PE transformation:** The first `0x80` bytes are removed from each PE. The manifest records the original `e_lfanew`, original length, stored length, and both SHA-256 values.
+3. **Compression:** The manifest and concatenated stored records are compressed with LZX into a CAB entry named `wallpaper.bmp`.
+   `help.txt` is stored as a raw UTF-8 record inside the same payload and is compressed automatically with the rest of the CAB. No separate ZIP, GZIP, or manual compression step is used.
+4. **CAB transformation:** Only the four `MSCF` bytes are masked with `A5 5A F0 0F`. There is no full-CAB XOR.
+5. **Carrier:** The CAB is embedded in a valid 24-bit BMP pixel array. `kvc.bmp`, not `kvc.ico`, is embedded as `RT_RCDATA` resource `IDR_MAINICON` (102).
+6. **Extraction:** KVC reads the BMP fields, unmasks `MSCF`, decompresses through in-memory FDI, and parses the manifest. It reconstructs only the components requested by the current operation, prepending the first 128 bytes of the local `ks.sys` and restoring the recorded `e_lfanew`. The runtime verifies the template SHA-256, stored-record SHA-256, reconstructed-file SHA-256, and `PE\0\0`.
 
-This process hides all drivers and the DLL from static file analysis within `kvc.exe` and avoids dropping suspicious files to disk until needed.
+`kvc.ico` remains a normal 48x48 application icon and contains no appended payload. Full-file XOR remains in use only for separate module formats such as `kvc.dat` and `kvcforensic.dat`.
 
 ---
 

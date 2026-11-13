@@ -452,11 +452,14 @@ static ULONG FindExportRva(PE_CONTEXT* ctx, const char* name) {
     ULONG nameTableRva = ReadLeU32(exportBase + 32);
     ULONG ordTableRva  = ReadLeU32(exportBase + 36);
 
-    PULONG functions = (PULONG)(ctx->Base + RvaToOffset(ctx, funcTableRva));
-    PULONG names = (PULONG)(ctx->Base + RvaToOffset(ctx, nameTableRva));
-    PUSHORT ordinals = (PUSHORT)(ctx->Base + RvaToOffset(ctx, ordTableRva));
+    ULONG funcTableOff = RvaToOffset(ctx, funcTableRva);
+    ULONG nameTableOff = RvaToOffset(ctx, nameTableRva);
+    ULONG ordTableOff  = RvaToOffset(ctx, ordTableRva);
+    if (!funcTableOff || !nameTableOff || !ordTableOff) return 0;
 
-    if (!functions || !names || !ordinals) return 0;
+    PULONG functions = (PULONG)(ctx->Base + funcTableOff);
+    PULONG names = (PULONG)(ctx->Base + nameTableOff);
+    PUSHORT ordinals = (PUSHORT)(ctx->Base + ordTableOff);
 
     for (ULONG i = 0; i < count; i++) {
         ULONG nameOff = RvaToOffset(ctx, names[i]);
@@ -524,7 +527,8 @@ BOOLEAN FindKernelOffsetsLocally(PCONFIG_SETTINGS config) {
 
     memset_impl(&ctx, 0, sizeof(ctx));
 
-    RtlInitUnicodeString(&usPath, L"\\SystemRoot\\System32\\ntoskrnl.exe");
+    WCHAR ntoskrnlPath[] = L"\\SystemRoot\\System32\\ntoskrnl.exe";
+    RtlInitUnicodeString(&usPath, ntoskrnlPath);
     InitializeObjectAttributes(&oa, &usPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
 
     status = NtOpenFile(&hFile, FILE_READ_DATA | SYNCHRONIZE, &oa, &iosb, FILE_SHARE_READ, FILE_SYNCHRONOUS_IO_NONALERT);
@@ -551,7 +555,8 @@ BOOLEAN FindKernelOffsetsLocally(PCONFIG_SETTINGS config) {
 
     DisplayMessage(L"INFO: Scanning ntoskrnl.exe (Fast IDA)...\r\n");
 
-    ULONG safeRva = FindExportRva(&ctx, "ZwFlushInstructionCache");
+    char zwFlushName[] = "ZwFlushInstructionCache";
+    ULONG safeRva = FindExportRva(&ctx, zwFlushName);
     if (safeRva) {
         config->Offset_SafeFunction = safeRva;
         foundSafe = TRUE;

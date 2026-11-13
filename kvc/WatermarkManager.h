@@ -41,6 +41,5 @@ private:
         L"%SystemRoot%\\system32\\ExplorerFrame.dll";
     
     // Resource constants
-    static constexpr size_t ICON_SKIP_SIZE = 3774;  // Skip icon data in resource
     static constexpr int RESOURCE_ID = 102;          // New resource for watermark
 };

@@ -3,7 +3,6 @@
     <BuildType Name="Release" />
     <Platform Name="x64" />
   </Configurations>
-  <Project Path="Implementer/implementer.vcxproj" Id="00000000-0000-0000-0000-000000000001" />
   <Project Path="kvc/kvc.vcxproj" Id="00000000-0000-0000-0000-000000000002" />
   <Project Path="kvcXor/KvcXor.vcxproj" Id="00000000-0000-0000-0000-000000000005" />
   <Project Path="kvc_pass/kvc_crypt.vcxproj" Id="00000000-0000-0000-0000-000000000003" />

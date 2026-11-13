@@ -4,14 +4,13 @@
 
 #include <Windows.h>
 #include <vector>
-#include <filesystem>
+#include <string>
 #include "CommunicationLayer.h"
-
-namespace fs = std::filesystem;
 
 // Extracts and decrypts Edge password encryption key using Windows DPAPI
 // This function runs in the orchestrator's context, avoiding the need for
 // COM elevation specifically for Edge password decryption
-std::vector<uint8_t> DecryptEdgePasswordKeyWithDPAPI(const fs::path& localStatePath, const Console& console);
+std::vector<uint8_t> DecryptEdgePasswordKeyWithDPAPI(std::wstring_view localStatePath,
+                                                     const Console& console);
 
 #endif // EDGE_DPAPI_H

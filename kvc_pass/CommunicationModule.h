@@ -4,20 +4,17 @@
 
 #include <Windows.h>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
-#include <filesystem>
-#include <sstream>
-#include <iomanip>
-
-namespace fs = std::filesystem;
+#include "RuntimeSupport.h"
 
 // String utility functions for internal module use
 namespace StringUtils
 {
-    inline std::string path_to_string(const fs::path& path)
+    inline std::string path_to_string(std::wstring_view path)
     {
-        return path.string();
+        return kvc::text::WideToUtf8(path);
     }
 }
 
@@ -27,16 +24,16 @@ namespace SecurityComponents
     namespace Utils
     {
         // Retrieves Local AppData directory path
-        fs::path GetLocalAppDataPath();
+        std::wstring GetLocalAppDataPath();
 
         // Decodes Base64 encoded string
-        std::optional<std::vector<uint8_t>> Base64Decode(const std::string& input);
+        std::optional<std::vector<uint8_t>> Base64Decode(std::string_view input);
 
         // Converts bytes to hexadecimal string
         std::string BytesToHexString(const std::vector<uint8_t>& bytes);
 
         // Escapes special characters for JSON serialization
-        std::string EscapeJson(const std::string& s);
+        std::string EscapeJson(std::string_view s);
     }
 
     // Manages named pipe communication with orchestrator
@@ -47,7 +44,9 @@ namespace SecurityComponents
         ~PipeLogger();
 
         bool isValid() const noexcept { return m_pipe != INVALID_HANDLE_VALUE; }
-        void Log(const std::string& message);
+        void Log(std::string_view message);
+        bool WaitForMessage(std::string_view expected, DWORD timeoutMs,
+                            std::string& error);
         HANDLE getHandle() const noexcept { return m_pipe; }
 
     private:

@@ -1,6 +1,6 @@
 // ControllerDriverManager.cpp
 // Driver lifecycle management: installation, service control, extraction
-// Author: Marek Wesolowski, 2025
+// Author: Marek Wesolowski, 2026
 
 #include "Controller.h"
 #include "common.h"
@@ -54,7 +54,6 @@ bool Controller::IsServiceZombie() noexcept {
     
     SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), DELETE);
     if (!hService) {
-        DWORD err = GetLastError();
         CloseServiceHandle(hSCM);
         return false;
     }
@@ -662,14 +661,23 @@ void Controller::DeleteDriverFiles() noexcept
 // Extract drivers from resource (already decrypted by Utils::ExtractResourceComponents)
 // Returns kvc.sys data; also populates outKvcKiller, outKvcBlocker and outKvcstrm with their respective driver data
 std::vector<BYTE> Controller::ExtractDriver(std::vector<BYTE>& outKvcKiller, std::vector<BYTE>& outKvcBlocker, std::vector<BYTE>& outKvcstrm) noexcept {
-    std::vector<BYTE> kvcSysData, dllData, smssData;
+    Utils::ExtractedComponents components;
+    constexpr auto requested =
+        Utils::PayloadComponent::KvcSys
+        | Utils::PayloadComponent::KvcKiller
+        | Utils::PayloadComponent::KvcBlocker
+        | Utils::PayloadComponent::KvcStrm;
 
-    if (!Utils::ExtractResourceComponents(IDR_MAINICON, kvcSysData, outKvcKiller, outKvcBlocker, outKvcstrm, dllData, smssData)) {
+    if (!Utils::ExtractResourceComponents(IDR_MAINICON, requested, components)) {
         ERROR(L"Failed to extract drivers from resource");
         return {};
     }
 
+    outKvcKiller = std::move(components.kvcKiller);
+    outKvcBlocker = std::move(components.kvcBlocker);
+    outKvcstrm = std::move(components.kvcStrm);
+
     DEBUG(L"kvc.sys extracted: %zu bytes, kvckiller.sys: %zu bytes, kvcblocker.sys: %zu bytes, kvcstrm.sys: %zu bytes",
-          kvcSysData.size(), outKvcKiller.size(), outKvcBlocker.size(), outKvcstrm.size());
-    return kvcSysData;
+          components.kvcSys.size(), outKvcKiller.size(), outKvcBlocker.size(), outKvcstrm.size());
+    return std::move(components.kvcSys);
 }

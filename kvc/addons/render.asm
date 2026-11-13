@@ -55,6 +55,8 @@ InitRenderer PROC pRenderer:QWORD, hwnd:QWORD
     mov rbp, rsp
     and rsp, -16                     ; TRAP: 16-byte stack alignment before call
     sub rsp, 0A0h                    ; Large shadow space for CreateFont calls
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG hwnd
 
     ; Save non-volatile registers (x64 calling convention)
     mov [rsp+80h], rsi
@@ -184,6 +186,7 @@ CleanupRenderer PROC pRenderer:QWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 40h
+    REFERENCE_ARG pRenderer
 
     mov [rsp+30h], rsi
     mov rsi, rcx
@@ -260,6 +263,7 @@ CreateBackBuffer PROC pRenderer:QWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 40h
+    REFERENCE_ARG pRenderer
 
     mov [rsp+30h], rsi
     mov rsi, rcx
@@ -321,6 +325,9 @@ ResizeRenderer PROC pRenderer:QWORD, wWidth:DWORD, wHeight:DWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 40h
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG wWidth
+    REFERENCE_ARG wHeight
 
     mov [rsp+30h], rsi
     mov rsi, rcx
@@ -344,6 +351,9 @@ RenderGame PROC pRenderer:QWORD, pGame:QWORD, hdc:QWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 80h
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG pGame
+    REFERENCE_ARG hdc
 
     mov [rsp+50h], rsi
     mov [rsp+58h], rdi
@@ -445,6 +455,8 @@ DrawBoard PROC pRenderer:QWORD, pGame:QWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 80h
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG pGame
 
     mov [rsp+60h], rsi
     mov [rsp+68h], rdi
@@ -720,6 +732,8 @@ DrawGhostPiece PROC pRenderer:QWORD, pGame:QWORD
     mov rbp, rsp
     and rsp, -16                     ; 16-byte alignment
     sub rsp, 0B0h                    ; Shadow space + 48-byte local PIECE copy
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG pGame
 
     ; Save non-volatile registers
     mov [rsp+90h], rsi
@@ -873,6 +887,8 @@ DrawPiece PROC pRenderer:QWORD, pPiece:QWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 60h
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG pPiece
 
     mov [rsp+40h], rsi
     mov [rsp+48h], rdi
@@ -953,6 +969,8 @@ DrawNextPiece PROC pRenderer:QWORD, pPiece:QWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 60h
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG pPiece
 
     mov [rsp+40h], rsi
     mov [rsp+48h], rdi
@@ -1054,6 +1072,8 @@ DrawInfo PROC pRenderer:QWORD, pGame:QWORD
     mov rbp, rsp
     and rsp, -16
     sub rsp, 220h
+    REFERENCE_ARG pRenderer
+    REFERENCE_ARG pGame
 
     mov [rsp+210h], rsi
     mov [rsp+218h], rdi

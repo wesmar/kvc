@@ -446,11 +446,23 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) n
     INFO(L"Installing SMSS boot-phase driver loader...");
 
     // --- 0. Extract all embedded components ---
-    std::vector<BYTE> kvcSysData, kvckillerData, kvcblockerData, kvcstrmData, dllData, smssData;
-    if (!Utils::ExtractResourceComponents(IDR_MAINICON, kvcSysData, kvckillerData, kvcblockerData, kvcstrmData, dllData, smssData) || smssData.empty()) {
+    Utils::ExtractedComponents components;
+    constexpr auto requested =
+        Utils::PayloadComponent::KvcSys
+        | Utils::PayloadComponent::KvcKiller
+        | Utils::PayloadComponent::KvcBlocker
+        | Utils::PayloadComponent::KvcStrm
+        | Utils::PayloadComponent::Smss;
+    if (!Utils::ExtractResourceComponents(IDR_MAINICON, requested, components)
+        || components.smss.empty()) {
         ERROR(L"Failed to extract components from resource");
         return false;
     }
+    auto& kvcSysData = components.kvcSys;
+    auto& kvckillerData = components.kvcKiller;
+    auto& kvcblockerData = components.kvcBlocker;
+    auto& kvcstrmData = components.kvcStrm;
+    auto& smssData = components.smss;
 
     // Helper: returns true if the file at path exists and its bytes match expected.
     auto FileBytesMatch = [](const std::wstring& path, const std::vector<BYTE>& expected) -> bool {

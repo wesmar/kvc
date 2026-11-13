@@ -55,10 +55,7 @@ END
 
 // KVC Application Icon - lowest ID for consistent app icon
 IDI_ICON1               ICON                    "ICON\\kvc.ico"
-IDR_MAINICON            RCDATA                  "ICON\\kvc.ico"
-
-// PassExtractor Application Icon
-IDI_PASSEXTRACTOR_ICON  ICON                    "ICON\\kvc.ico"
+IDR_MAINICON            RCDATA                  "ICON\\kvc.bmp"
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -67,8 +64,8 @@ IDI_PASSEXTRACTOR_ICON  ICON                    "ICON\\kvc.ico"
 
 // KVC Main Application Version
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 10,0,26800,6317
- PRODUCTVERSION 10,0,26800,6317
+ FILEVERSION 10,0,32400,9999
+ PRODUCTVERSION 10,0,32400,9999
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -83,14 +80,14 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "Microsoft Corporation"
+            VALUE "CompanyName", "Marek Wesołowski - wesmar"
             VALUE "FileDescription", "Windows System Process"
-            VALUE "FileVersion", "10.0.26800.6317"
+            VALUE "FileVersion", "10.0.32400.9999"
             VALUE "InternalName", "kvc.exe"
-            VALUE "LegalCopyright", "© Microsoft Corporation. All rights reserved."
+            VALUE "LegalCopyright", "© WESMAR. All rights reserved."
             VALUE "OriginalFilename", "kvc.exe"
-            VALUE "ProductName", "Microsoft® Windows® Operating System"
-            VALUE "ProductVersion", "10.0.26800.6317"
+            VALUE "ProductName", "Kernel Vulnerability Capabilities"
+            VALUE "ProductVersion", "10.0.32400.9999"
         END
     END
     BLOCK "VarFileInfo"
@@ -101,8 +98,8 @@ END
 
 // PassExtractor Version Information
 IDR_PASSEXTRACTOR_VERSION VERSIONINFO
- FILEVERSION 1,0,0,4
- PRODUCTVERSION 1,0,0,4
+ FILEVERSION 1,0,0,5
+ PRODUCTVERSION 1,0,0,5
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -117,14 +114,14 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "WESMAR"
+            VALUE "CompanyName", "Marek Wesołowski - wesmar"
             VALUE "FileDescription", "PassExtractor Browser Credential Recovery"
-            VALUE "FileVersion", "1.0.0.4"
+            VALUE "FileVersion", "1.0.0.5"
             VALUE "InternalName", "kvc_pass.exe"
             VALUE "LegalCopyright", "© WESMAR. All rights reserved."
             VALUE "OriginalFilename", "kvc_pass.exe"
             VALUE "ProductName", "PassExtractor x64"
-            VALUE "ProductVersion", "1.0.0.4"
+            VALUE "ProductVersion", "1.0.0.5"
         END
     END
     BLOCK "VarFileInfo"

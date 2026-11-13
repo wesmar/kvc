@@ -52,8 +52,7 @@ bool KvcStrmClient::Open() noexcept
     );
 
     if (m_handle == INVALID_HANDLE_VALUE) {
-        DWORD err = GetLastError();
-        DEBUG(L"[KvcStrmClient] CreateFile(%s) failed: %lu", DEVICE_PATH, err);
+        DEBUG(L"[KvcStrmClient] CreateFile(%s) failed: %lu", DEVICE_PATH, GetLastError());
         return false;
     }
 

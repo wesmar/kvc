@@ -53,7 +53,7 @@ The MIT License is one of the most permissive and widely-adopted open source lic
 
 ### Repository Details
 - **Project Name:** KVC - Kernel Vulnerability Capabilities Framework
-- **Version:** 1.0.1
+- **Version:** 1.0.5
 - **Author:** Marek Wesołowski (WESMAR)
 - **Website:** [https://kvc.pl](https://kvc.pl)
 - **Contact:** [marek@wesolowski.eu.org](mailto:marek@wesolowski.eu.org)
@@ -159,7 +159,7 @@ When distributing KVC or derivative works:
 
 ## Version History and Updates
 
-### Current Version: 1.0.1
+### Current Version: 1.0.5
 - Initial open source release under MIT License
 - Complete framework with kernel driver, user-mode tools, and browser extraction
 - Comprehensive documentation and usage examples

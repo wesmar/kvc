@@ -537,7 +537,7 @@ int Controller::ProcessLoginDatabase(const std::wstring& loginDataPath,
                                    const std::wstring& profileName,
                                    const std::vector<BYTE>& masterKey,
                                    std::vector<PasswordResult>& results,
-                                   const std::wstring& outputPath) noexcept 
+                                   const std::wstring& /*outputPath*/) noexcept
 {
     std::wstring systemTempPath = GetSystemTempPath();
     auto tempDbPath = systemTempPath + L"\\" + DPAPIConstants::GetTempLoginDB();
@@ -744,7 +744,7 @@ void Controller::UnloadSQLiteLibrary() noexcept
 
 // DPAPI decryption for browser master keys
 std::vector<BYTE> Controller::DecryptWithDPAPI(const std::vector<BYTE>& encryptedData,
-                                              const std::vector<RegistryMasterKey>& masterKeys) noexcept 
+                                              const std::vector<RegistryMasterKey>& /*masterKeys*/) noexcept
 {
     DATA_BLOB in = { static_cast<DWORD>(encryptedData.size()), const_cast<BYTE*>(encryptedData.data()) };
     DATA_BLOB out = {};

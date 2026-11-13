@@ -42,6 +42,7 @@ StrLenW ENDP
 SavePlayerName PROC pName:QWORD
     push rsi
     sub rsp, 60h                     ; Shadow space + locals
+    REFERENCE_ARG pName
 
     mov rsi, rcx                     ; Save pName pointer
 
@@ -107,6 +108,7 @@ LoadPlayerName PROC pGame:QWORD
     push rsi
     push rdi
     sub rsp, 258h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 
@@ -184,6 +186,7 @@ SaveHighScore PROC pGame:QWORD
     push rdi
     push rbx
     sub rsp, 60h                     ; Shadow space + locals
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 
@@ -300,6 +303,7 @@ LoadHighScore PROC pGame:QWORD
     push rsi
     push rdi
     sub rsp, 258h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 

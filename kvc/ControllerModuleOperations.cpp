@@ -135,7 +135,6 @@ bool Controller::ReadModuleMemory(DWORD pid, const std::wstring& moduleName, ULO
                 auto targetProtection = GetProcessProtection(kernelAddr.value());
                 if (targetProtection && targetProtection.value() > 0) {
                     UCHAR level = Utils::GetProtectionLevel(targetProtection.value());
-                    UCHAR signer = Utils::GetSignerType(targetProtection.value());
                     
                     // Temporarily elevate our own process to matching level to see the modules
                     // Note: This helps Toolhelp32 snapshot succeed

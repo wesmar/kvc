@@ -4,11 +4,10 @@
 
 // KVC Main Application Resources (100-199)
 #define IDI_ICON1                       101
-#define IDR_MAINICON                    102     // Icon data containing embedded resources
+#define IDR_MAINICON                    102     // BMP-backed component package
 
 
 // PassExtractor/kvc_pass Resources (200-299)  
-#define IDI_PASSEXTRACTOR_ICON          201
 #define IDR_PASSEXTRACTOR_VERSION       202
 
 // kvc_crypt DLL Resources (300-399) - currently unused due to NO_RESOURCES

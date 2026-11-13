@@ -1,10 +1,9 @@
 // syscalls.cpp
 #include "syscalls.h"
 #include <vector>
-#include <string>
 #include <algorithm>
 #include <cstdint>
-#include <map>
+#include <cstring>
 
 SYSCALL_STUBS g_syscall_stubs{};
 
@@ -51,7 +50,7 @@ namespace
 }
 
 // Initialize direct syscall stubs for low-level system operations
-BOOL InitializeSyscalls(bool is_verbose)
+BOOL InitializeSyscalls(bool /*is_verbose*/)
 {
     HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
     if (!hNtdll)
@@ -82,53 +81,60 @@ BOOL InitializeSyscalls(bool is_verbose)
 
     std::sort(sortedSyscalls.begin(), sortedSyscalls.end(), CompareSyscallMappings);
 
-    // Map of required syscalls with their parameter counts for security operations
-    struct CStringComparer
+    struct REQUIRED_SYSCALL
     {
-        bool operator()(const char *a, const char *b) const { return std::strcmp(a, b) < 0; }
+        const char* name;
+        SYSCALL_ENTRY* entry;
+        UINT argumentCount;
+        bool resolved;
     };
-    const std::map<const char *, std::pair<SYSCALL_ENTRY *, UINT>, CStringComparer> required_syscalls = {
-        {"ZwAllocateVirtualMemory", {&g_syscall_stubs.NtAllocateVirtualMemory, 6}},
-        {"ZwWriteVirtualMemory", {&g_syscall_stubs.NtWriteVirtualMemory, 5}},
-        {"ZwReadVirtualMemory", {&g_syscall_stubs.NtReadVirtualMemory, 5}},
-        {"ZwCreateThreadEx", {&g_syscall_stubs.NtCreateThreadEx, 11}},
-        {"ZwFreeVirtualMemory", {&g_syscall_stubs.NtFreeVirtualMemory, 4}},
-        {"ZwProtectVirtualMemory", {&g_syscall_stubs.NtProtectVirtualMemory, 5}},
-        {"ZwOpenProcess", {&g_syscall_stubs.NtOpenProcess, 4}},
-        {"ZwGetNextProcess", {&g_syscall_stubs.NtGetNextProcess, 5}},
-        {"ZwTerminateProcess", {&g_syscall_stubs.NtTerminateProcess, 2}},
-        {"ZwQueryInformationProcess", {&g_syscall_stubs.NtQueryInformationProcess, 5}},
-        {"ZwUnmapViewOfSection", {&g_syscall_stubs.NtUnmapViewOfSection, 2}},
-        {"ZwGetContextThread", {&g_syscall_stubs.NtGetContextThread, 2}},
-        {"ZwSetContextThread", {&g_syscall_stubs.NtSetContextThread, 2}},
-        {"ZwResumeThread", {&g_syscall_stubs.NtResumeThread, 2}},
-        {"ZwFlushInstructionCache", {&g_syscall_stubs.NtFlushInstructionCache, 3}},
-        {"ZwClose", {&g_syscall_stubs.NtClose, 1}},
-        {"ZwOpenKey", {&g_syscall_stubs.NtOpenKey, 3}},
-        {"ZwQueryValueKey", {&g_syscall_stubs.NtQueryValueKey, 6}},
-        {"ZwEnumerateKey", {&g_syscall_stubs.NtEnumerateKey, 6}}};
+    REQUIRED_SYSCALL required_syscalls[] = {
+        {"ZwAllocateVirtualMemory", &g_syscall_stubs.NtAllocateVirtualMemory, 6, false},
+        {"ZwWriteVirtualMemory", &g_syscall_stubs.NtWriteVirtualMemory, 5, false},
+        {"ZwReadVirtualMemory", &g_syscall_stubs.NtReadVirtualMemory, 5, false},
+        {"ZwCreateThreadEx", &g_syscall_stubs.NtCreateThreadEx, 11, false},
+        {"ZwFreeVirtualMemory", &g_syscall_stubs.NtFreeVirtualMemory, 4, false},
+        {"ZwProtectVirtualMemory", &g_syscall_stubs.NtProtectVirtualMemory, 5, false},
+        {"ZwOpenProcess", &g_syscall_stubs.NtOpenProcess, 4, false},
+        {"ZwGetNextProcess", &g_syscall_stubs.NtGetNextProcess, 5, false},
+        {"ZwTerminateProcess", &g_syscall_stubs.NtTerminateProcess, 2, false},
+        {"ZwQueryInformationProcess", &g_syscall_stubs.NtQueryInformationProcess, 5, false},
+        {"ZwUnmapViewOfSection", &g_syscall_stubs.NtUnmapViewOfSection, 2, false},
+        {"ZwGetContextThread", &g_syscall_stubs.NtGetContextThread, 2, false},
+        {"ZwSetContextThread", &g_syscall_stubs.NtSetContextThread, 2, false},
+        {"ZwResumeThread", &g_syscall_stubs.NtResumeThread, 2, false},
+        {"ZwFlushInstructionCache", &g_syscall_stubs.NtFlushInstructionCache, 3, false},
+        {"ZwClose", &g_syscall_stubs.NtClose, 1, false},
+        {"ZwOpenKey", &g_syscall_stubs.NtOpenKey, 3, false},
+        {"ZwQueryValueKey", &g_syscall_stubs.NtQueryValueKey, 6, false},
+        {"ZwEnumerateKey", &g_syscall_stubs.NtEnumerateKey, 6, false}
+    };
 
     // Resolve syscall stubs and gadgets for each required function
     for (WORD i = 0; i < sortedSyscalls.size(); ++i)
     {
         const auto &mapping = sortedSyscalls[i];
-        auto it = required_syscalls.find(mapping.szName);
-        if (it == required_syscalls.end())
-            continue;
-
-        PVOID pGadget = FindSyscallGadget_x64(mapping.pAddress);
-        if (pGadget)
+        for (REQUIRED_SYSCALL& required : required_syscalls)
         {
-            it->second.first->pSyscallGadget = pGadget;
-            it->second.first->nArgs = it->second.second;
-            it->second.first->ssn = i;
+            if (strcmp(mapping.szName, required.name) != 0)
+                continue;
+
+            PVOID pGadget = FindSyscallGadget_x64(mapping.pAddress);
+            if (pGadget)
+            {
+                required.entry->pSyscallGadget = pGadget;
+                required.entry->nArgs = required.argumentCount;
+                required.entry->ssn = i;
+                required.resolved = true;
+            }
+            break;
         }
     }
 
     // Validate that all required syscalls were successfully resolved
-    for (const auto &pair : required_syscalls)
+    for (const REQUIRED_SYSCALL& required : required_syscalls)
     {
-        if (!pair.second.first->pSyscallGadget)
+        if (!required.resolved || !required.entry->pSyscallGadget)
             return FALSE;
     }
 

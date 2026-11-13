@@ -254,6 +254,7 @@ HANDLE TrustedInstallerIntegrator::GetCachedTrustedInstallerToken()
 
 BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstaller(DWORD pid, std::wstring_view commandLine)
 {
+    (void)pid;
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) return FALSE;
 
@@ -274,6 +275,7 @@ BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstaller(DWORD pid, std:
 
 BOOL TrustedInstallerIntegrator::CreateProcessAsTrustedInstallerSilent(DWORD pid, std::wstring_view commandLine)
 {
+    (void)pid;
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) return FALSE;
 

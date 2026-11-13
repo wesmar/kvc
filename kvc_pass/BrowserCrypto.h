@@ -7,10 +7,7 @@
 #include <Windows.h>
 #include <vector>
 #include <string>
-#include <filesystem>
-#include <unordered_map>
-
-namespace fs = std::filesystem;
+#include <string_view>
 
 namespace SecurityComponents
 {
@@ -29,14 +26,14 @@ namespace SecurityComponents
     {
         struct Config
         {
-            std::string name;
-            std::wstring processName;
+            const char* name;
+            const wchar_t* processName;
             CLSID clsid;
             IID iid;
-            fs::path userDataSubPath;
+            const wchar_t* userDataSubPath;
         };
         
-        const std::unordered_map<std::string, Config>& GetConfigs();
+        const Config* GetConfigs(std::size_t& count);
         Config GetConfigForCurrentProcess();
     }
 
@@ -48,7 +45,7 @@ namespace SecurityComponents
         constexpr size_t GCM_TAG_LENGTH = 16;
 
         std::vector<uint8_t> DecryptGcm(const std::vector<uint8_t>& key, const std::vector<uint8_t>& blob);
-        std::vector<uint8_t> GetEncryptedMasterKey(const fs::path& localStatePath);
+        std::vector<uint8_t> GetEncryptedMasterKey(std::wstring_view localStatePath, std::string& error);
     }
 
     class BrowserManager
@@ -56,7 +53,7 @@ namespace SecurityComponents
     public:
         BrowserManager();
         const Browser::Config& getConfig() const noexcept { return m_config; }
-        fs::path getUserDataRoot() const;
+        std::wstring getUserDataRoot() const;
 
     private:
         Browser::Config m_config;
@@ -70,14 +67,18 @@ namespace SecurityComponents
         ~MasterKeyDecryptor();
         
         // Main decryption interface - intelligently chooses COM or DPAPI
-        std::vector<uint8_t> Decrypt(const Browser::Config& config, const fs::path& localStatePath, DataType dataType = DataType::All);
+        std::vector<uint8_t> Decrypt(const Browser::Config& config,
+                                     std::wstring_view localStatePath,
+                                     DataType dataType, std::string& error);
 
     private:
         PipeLogger& m_logger;
         bool m_comInitialized = false;
         
-        std::vector<uint8_t> DecryptWithCOM(const Browser::Config& config, const std::vector<uint8_t>& encryptedKeyBlob);
-        std::vector<uint8_t> DecryptWithDPAPI(const fs::path& localStatePath);
+        std::vector<uint8_t> DecryptWithCOM(const Browser::Config& config,
+                                            const std::vector<uint8_t>& encryptedKeyBlob,
+                                            std::string& error);
+        std::vector<uint8_t> DecryptWithDPAPI(std::wstring_view localStatePath, std::string& error);
     };
 }
 
@@ -90,7 +91,7 @@ enum class ProtectionLevel
     Max = 3
 };
 
-MIDL_INTERFACE("A949CB4E-C4F9-44C4-B213-6BF8AA9AC69C")
+MIDL_INTERFACE("1BF5208B-295F-4992-B5F4-3A9BB6494838")
 IOriginalBaseElevator : public IUnknown
 {
 public:
@@ -117,7 +118,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE DecryptData(const BSTR, BSTR*, DWORD*) = 0;
 };
 
-MIDL_INTERFACE("C9C2B807-7731-4F34-81B7-44FF7779522B")
+MIDL_INTERFACE("12B23868-6DCD-4D1A-AD4C-65B0285201FC")
 IEdgeElevatorFinal : public IEdgeIntermediateElevator {};
 
 #endif // BROWSER_CRYPTO_H

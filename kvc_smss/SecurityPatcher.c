@@ -553,7 +553,7 @@ BOOLEAN SaveStateSection(ULONGLONG callback) {
         if (len >= 512) { NtClose(hFile); return FALSE; }
 
         status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, content,
-                             (ULONG)(wcslen(content) * sizeof(WCHAR)),
+                             (ULONG)(wcslen_impl(content) * sizeof(WCHAR)),
                              &byteOffset, NULL);
     } else {
         // --- UTF-8 / ANSI write ---
@@ -674,7 +674,7 @@ BOOLEAN RemoveStateSection(void) {
     if (line[0] == 0xFEFF)
         line++;
 
-    sourceLen = wcslen(line);
+    sourceLen = wcslen_impl(line);
     newCapacity = (sourceLen * 2) + 2;
     if (!AllocateZeroedBuffer(newCapacity * sizeof(WCHAR), (PVOID*)&newContent)) {
         FreeIniFileBuffer(iniContent);
@@ -709,7 +709,7 @@ BOOLEAN RemoveStateSection(void) {
         TrimString(trimmedBuf);
 
         BOOLEAN isSeparator = FALSE;
-        if (trimmedBuf[0] == L';' && wcslen(trimmedBuf) > 10) {
+        if (trimmedBuf[0] == L';' && wcslen_impl(trimmedBuf) > 10) {
             isSeparator = TRUE;
             for (ULONG j = 1; trimmedBuf[j] != 0; j++) {
                 if (trimmedBuf[j] != L'=' && trimmedBuf[j] != L' ') {
@@ -745,7 +745,7 @@ BOOLEAN RemoveStateSection(void) {
                 return FALSE;
             }
             wcscat_safe(newContent, newCapacity, L"\r\n");
-            newLen = wcslen(newContent);
+            newLen = wcslen_impl(newContent);
         }
 
         if (!wcscat_check(newContent, newCapacity, lineBuf)) {
@@ -754,7 +754,7 @@ BOOLEAN RemoveStateSection(void) {
             return FALSE;
         }
         wcscat_safe(newContent, newCapacity, lineBuf);
-        newLen = wcslen(newContent);
+        newLen = wcslen_impl(newContent);
     }
 
     if (!foundDseSection) {
@@ -797,7 +797,7 @@ BOOLEAN RemoveStateSection(void) {
 
     byteOffset.QuadPart = sizeof(WCHAR);
     status = NtWriteFile(hFile, NULL, NULL, NULL, &iosb, newContent,
-                        (ULONG)(wcslen(newContent) * sizeof(WCHAR)),
+                        (ULONG)(wcslen_impl(newContent) * sizeof(WCHAR)),
                         &byteOffset, NULL);
 
     NtClose(hFile);

@@ -1,6 +1,6 @@
 // Utils.h
 // Core utility functions for KVC Framework
-// Author: Marek Wesolowski, 2025
+// Author: Marek Wesolowski, 2026
 
 #pragma once
 
@@ -142,22 +142,52 @@ namespace Utils
     // Decompress CAB archive from memory and extract kvc.evtx
     std::vector<BYTE> DecompressCABFromMemory(const BYTE* cabData, size_t cabSize) noexcept;
     
-    // Split kvc.evtx into kvc.sys, kvckiller.sys, kvcblocker.sys, kvcstrm.sys, ExplorerFrame.dll and kvc_smss.exe
-    bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
-                      std::vector<BYTE>& outKvcSys,
-                      std::vector<BYTE>& outKvcKiller,
-                      std::vector<BYTE>& outKvcBlocker,
-                      std::vector<BYTE>& outKvcstrm,
-                      std::vector<BYTE>& outDll,
-                      std::vector<BYTE>& outSmss) noexcept;
-    // Extract kvc.sys, kvckiller.sys, kvcblocker.sys, kvcstrm.sys, ExplorerFrame.dll and kvc_smss.exe from resource
-    bool ExtractResourceComponents(int resourceId,
-                                std::vector<BYTE>& outKvcSys,
-                                std::vector<BYTE>& outKvcKiller,
-                                std::vector<BYTE>& outKvcBlocker,
-                                std::vector<BYTE>& outKvcstrm,
-                                std::vector<BYTE>& outDll,
-                                std::vector<BYTE>& outSmss) noexcept;
+    enum class PayloadComponent : uint32_t {
+        None         = 0,
+        KvcSys       = 1u << 0,
+        KvcKiller    = 1u << 1,
+        KvcBlocker   = 1u << 2,
+        KvcStrm      = 1u << 3,
+        Smss         = 1u << 4,
+        WatermarkDll = 1u << 5,
+        HelpText     = 1u << 6,
+        ForceIO      = 1u << 7,
+        All          = (1u << 8) - 1
+    };
+
+    constexpr PayloadComponent operator|(PayloadComponent left, PayloadComponent right) noexcept {
+        return static_cast<PayloadComponent>(
+            static_cast<uint32_t>(left) | static_cast<uint32_t>(right)
+        );
+    }
+
+    constexpr PayloadComponent operator&(PayloadComponent left, PayloadComponent right) noexcept {
+        return static_cast<PayloadComponent>(
+            static_cast<uint32_t>(left) & static_cast<uint32_t>(right)
+        );
+    }
+
+    constexpr bool HasComponent(PayloadComponent mask, PayloadComponent component) noexcept {
+        return (mask & component) != PayloadComponent::None;
+    }
+
+    struct ExtractedComponents {
+        std::vector<BYTE> kvcSys;
+        std::vector<BYTE> kvcKiller;
+        std::vector<BYTE> kvcBlocker;
+        std::vector<BYTE> kvcStrm;
+        std::vector<BYTE> smss;
+        std::vector<BYTE> watermarkDll;
+        std::vector<BYTE> helpText;
+        std::vector<BYTE> forceIO;
+    };
+
+    // Extract only requested components from the BMP-backed IDR_MAINICON resource.
+    bool ExtractResourceComponents(
+        int resourceId,
+        PayloadComponent requested,
+        ExtractedComponents& output
+    ) noexcept;
 
     // ============================================================================
     // CONSOLE COLORING

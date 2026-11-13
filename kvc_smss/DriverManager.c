@@ -218,7 +218,7 @@ NTSTATUS CreateDriverRegistryEntry(PCWSTR serviceName, PCWSTR imagePath, PCWSTR 
 
     // DisplayName value
     RtlInitUnicodeString(&usValueName, L"DisplayName");
-    SIZE_T nameLen = wcslen(serviceName);
+    SIZE_T nameLen = wcslen_impl(serviceName);
     if (nameLen >= MAX_PATH_LEN) {
         NtClose(hKey);
         return STATUS_OBJECT_NAME_INVALID;

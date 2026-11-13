@@ -202,7 +202,7 @@ std::string ReportExporter::GenerateHTMLContent(const ReportData& data) noexcept
 {
     std::ostringstream html;
     
-    html << BuildHTMLHeader(data);
+    html << BuildHTMLHeader();
     html << BuildSummarySection(data);
     html << BuildMasterKeysTable(data);
     html << BuildPasswordsTable(data);
@@ -212,7 +212,7 @@ std::string ReportExporter::GenerateHTMLContent(const ReportData& data) noexcept
     return html.str();
 }
 
-std::string ReportExporter::BuildHTMLHeader(const ReportData& data) noexcept
+std::string ReportExporter::BuildHTMLHeader() noexcept
 {
     std::ostringstream header;
 
@@ -240,7 +240,7 @@ std::string ReportExporter::BuildSummarySection(const ReportData& data) noexcept
     summary << "            <strong>Edge Passwords:</strong> " << data.stats.edgePasswords << "<br>\n";
     summary << "            <strong>WiFi Passwords:</strong> " << data.stats.wifiPasswords << "<br>\n";
     summary << "            <strong>Extraction Method:</strong> Registry DPAPI + TrustedInstaller<br>\n";
-    summary << "            <strong>Tool:</strong> kvc v1.0.4 - marek@wesolowski.eu.org\n";
+    summary << "            <strong>Tool:</strong> kvc v1.0.5 - marek@wesolowski.eu.org\n";
     summary << "        </div>\n";
     
     return summary.str();
@@ -400,7 +400,7 @@ std::wstring ReportExporter::BuildTXTHeader(const ReportData& data) noexcept
     header << L"Generated: " << std::wstring(data.timestamp.begin(), data.timestamp.end()) << L"\n";
     header << L"Registry Master Keys: " << data.stats.masterKeyCount << L"\n";
     header << L"Total Passwords: " << data.stats.totalPasswords << L"\n";
-    header << L"Tool: kvc v1.0.4 - Kernel Vulnerability Capabilities Framework by WESMAR\n";
+    header << L"Tool: kvc v1.0.5 - Kernel Vulnerability Capabilities Framework by WESMAR\n";
     header << HelpLayout::MakeBorder(L'=', 33) << L"\n\n";
     
     return header.str();

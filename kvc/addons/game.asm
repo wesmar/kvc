@@ -36,6 +36,9 @@ InitGame PROC pGame:QWORD, boardWidth:DWORD, boardHeight:DWORD
     push rsi
     push rdi
     sub rsp, 20h                     ; TRAP: Shadow space required for Win64 API
+    REFERENCE_ARG pGame
+    REFERENCE_ARG boardWidth
+    REFERENCE_ARG boardHeight
 
     mov rsi, rcx                     ; RSI = pGame pointer
     mov eax, edx                     ; EAX = boardWidth
@@ -116,6 +119,7 @@ StartGame PROC pGame:QWORD
     push rsi
     push rdi
     sub rsp, 20h                     ; Shadow space
+    REFERENCE_ARG pGame
 
     mov rsi, rcx                     ; RSI = pGame
 
@@ -168,6 +172,8 @@ GenerateRandomPiece PROC pGame:QWORD, pPiece:QWORD
     push rdi
     push rbx
     sub rsp, 28h                     ; Shadow space + local storage
+    REFERENCE_ARG pGame
+    REFERENCE_ARG pPiece
 
     mov rsi, rcx                     ; RSI = pGame
     mov rdi, rdx                     ; RDI = pPiece (output)
@@ -259,6 +265,7 @@ SpawnNewPiece PROC pGame:QWORD
     push rsi
     push rdi
     sub rsp, 20h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
     lea rdi, [rsi].GAME_STATE.currentPiece
@@ -298,6 +305,8 @@ SpawnNewPiece ENDP
 CheckCollision PROC pGame:QWORD, pPiece:QWORD
     push rsi
     push rdi
+    REFERENCE_ARG pGame
+    REFERENCE_ARG pPiece
 
     mov rsi, rcx
     mov rdi, rdx
@@ -349,6 +358,7 @@ LockPiece PROC pGame:QWORD
     push rdi
     push rbx
     sub rsp, 28h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
     lea rdi, [rsi].GAME_STATE.currentPiece
@@ -397,6 +407,7 @@ ClearFullLines PROC pGame:QWORD
     push rdi
     push rbx
     sub rsp, 28h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 
@@ -467,6 +478,7 @@ ApplyClearLines PROC pGame:QWORD
     push r14
     push r15
     sub rsp, 30h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 
@@ -595,6 +607,8 @@ UpdateGame PROC pGame:QWORD, deltaTimeMs:DWORD
     push rsi
     push rbx
     sub rsp, 28h
+    REFERENCE_ARG pGame
+    REFERENCE_ARG deltaTimeMs
 
     mov rsi, rcx
     mov ebx, edx                     ; Save deltaTimeMs in EBX (non-volatile)
@@ -663,6 +677,7 @@ UpdateGame ENDP
 MoveLeft PROC pGame:QWORD
     push rsi
     sub rsp, 28h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 
@@ -690,6 +705,7 @@ MoveLeft ENDP
 MoveRight PROC pGame:QWORD
     push rsi
     sub rsp, 28h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 
@@ -719,6 +735,8 @@ MoveDown PROC pGame:QWORD, dy:DWORD
     push rsi
     push rbx
     sub rsp, 28h
+    REFERENCE_ARG pGame
+    REFERENCE_ARG dy
 
     mov rsi, rcx
     mov ebx, edx
@@ -766,6 +784,8 @@ RotatePiece PROC pGame:QWORD
     push rdi
     push rbx
     sub rsp, 40h
+    REFERENCE_ARG pGame
+    REFERENCE_ARG backupBlocks
 
     mov rsi, rcx
 
@@ -904,6 +924,7 @@ RotatePiece ENDP
 DropPiece PROC pGame:QWORD
     push rsi
     sub rsp, 28h
+    REFERENCE_ARG pGame
 
     mov rsi, rcx
 
@@ -936,6 +957,7 @@ DropPiece ENDP
 ; Set game to paused state
 ; RCX = pGame
 PauseGame PROC pGame:QWORD
+    REFERENCE_ARG pGame
     mov rax, rcx
     mov BYTE PTR [rax].GAME_STATE.paused, 1
     ret
@@ -944,6 +966,7 @@ PauseGame ENDP
 ; Resume game from paused state
 ; RCX = pGame
 ResumeGame PROC pGame:QWORD
+    REFERENCE_ARG pGame
     mov rax, rcx
     mov BYTE PTR [rax].GAME_STATE.paused, 0
     ret
@@ -952,6 +975,7 @@ ResumeGame ENDP
 ; Toggle between paused and running states
 ; RCX = pGame
 TogglePause PROC pGame:QWORD
+    REFERENCE_ARG pGame
     mov rax, rcx
     xor BYTE PTR [rax].GAME_STATE.paused, 1
     ret
@@ -962,6 +986,8 @@ TogglePause ENDP
 SetPlayerName PROC pGame:QWORD, pName:QWORD
     push rsi
     push rdi
+    REFERENCE_ARG pGame
+    REFERENCE_ARG pName
 
     mov rsi, rdx
     mov rdi, rcx

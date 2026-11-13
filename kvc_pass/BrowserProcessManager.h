@@ -3,6 +3,8 @@
 #define BROWSER_PROCESS_MANAGER_H
 
 #include <Windows.h>
+#include <memory>
+#include <string>
 #include "OrchestratorCore.h"
 #include "CommunicationLayer.h"
 
@@ -20,7 +22,7 @@ public:
     TargetProcess(const Configuration& config, const Console& console);
 
     // Creates browser process in suspended state for injection
-    void createSuspended();
+    bool createSuspended(std::string& error);
 
     // Terminates the target process using direct syscall
     void terminate();
@@ -29,7 +31,7 @@ public:
 
 private:
     // Validates architecture compatibility between orchestrator and target
-    void checkArchitecture();
+    bool checkArchitecture(std::string& error);
     const char* getArchName(USHORT arch) const noexcept;
 
     const Configuration& m_config;
@@ -44,7 +46,8 @@ private:
 void KillBrowserProcesses(const Configuration& config, const Console& console);
 
 // Terminates browser network service which often holds database locks
-void KillBrowserNetworkService(const Configuration& config, const Console& console);
+void KillBrowserNetworkService(const Configuration& config, const Console& console,
+                               bool waitForGracePeriod = true);
 
 // Checks availability of Windows native SQLite library
 bool CheckWinSQLite3Available();

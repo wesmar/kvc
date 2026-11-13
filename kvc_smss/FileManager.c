@@ -121,7 +121,7 @@ NTSTATUS DeleteDirectoryRecursive(PUNICODE_STRING dirPath) {
                 
                 // Append filename with length validation
                 ULONG fnChars = dirInfo->FileNameLength / sizeof(WCHAR);
-                SIZE_T currentLen = wcslen(fullPath);
+                SIZE_T currentLen = wcslen_impl(fullPath);
                 
                 if (!validate_string_space(currentLen, fnChars, MAX_PATH_LEN)) {
                     NtClose(hDir);

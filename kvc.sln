@@ -11,8 +11,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "kvc_pass", "kvc_pass\kvc_pa
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KvcXor", "kvcXor\KvcXor.vcxproj", "{00000000-0000-0000-0000-000000000005}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "implementer", "Implementer\implementer.vcxproj", "{00000000-0000-0000-0000-000000000001}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "kvcstrm", "kvcstrm\kvcstrm.vcxproj", "{00000000-0000-0000-0000-000000000006}"
 EndProject
 Global
@@ -28,8 +26,6 @@ Global
 		{00000000-0000-0000-0000-000000000004}.Release|x64.Build.0 = Release|x64
 		{00000000-0000-0000-0000-000000000005}.Release|x64.ActiveCfg = Release|x64
 		{00000000-0000-0000-0000-000000000005}.Release|x64.Build.0 = Release|x64
-		{00000000-0000-0000-0000-000000000001}.Release|x64.ActiveCfg = Release|x64
-		{00000000-0000-0000-0000-000000000001}.Release|x64.Build.0 = Release|x64
 		{00000000-0000-0000-0000-000000000006}.Release|x64.ActiveCfg = Release|x64
 		{00000000-0000-0000-0000-000000000006}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection

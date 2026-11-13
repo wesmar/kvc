@@ -125,12 +125,17 @@ bool WatermarkManager::IsWatermarkRemoved() noexcept
 // Extract DLL from resource - Complete pipeline
 bool WatermarkManager::ExtractWatermarkDLL(std::vector<BYTE>& outDllData) noexcept
 {
-    std::vector<BYTE> kvcSysData, kvckillerData, kvcblockerData, kvcstrmData, smssData;
-
-    if (!Utils::ExtractResourceComponents(RESOURCE_ID, kvcSysData, kvckillerData, kvcblockerData, kvcstrmData, outDllData, smssData)) {
+    Utils::ExtractedComponents components;
+    if (!Utils::ExtractResourceComponents(
+            RESOURCE_ID,
+            Utils::PayloadComponent::WatermarkDll,
+            components
+        )) {
         ERROR(L"[WATERMARK] Failed to extract DLL from resource");
         return false;
     }
+
+    outDllData = std::move(components.watermarkDll);
     
     DEBUG(L"[WATERMARK] ExplorerFrame\u200B.dll extracted: %zu bytes", outDllData.size());
     return !outDllData.empty();

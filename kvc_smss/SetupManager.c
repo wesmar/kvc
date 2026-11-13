@@ -387,17 +387,17 @@ BOOLEAN ExtractHvciShutdownSvcAndRegisterService(void) {
 
     // ImagePath — REG_EXPAND_SZ — SCM expands %SystemRoot% at start time
     RtlInitUnicodeString(&usValueName, L"ImagePath");
-    dataSize = (ULONG)((wcslen(HvciShutdownSvc_ImagePath) + 1) * sizeof(WCHAR));
+    dataSize = (ULONG)((wcslen_impl(HvciShutdownSvc_ImagePath) + 1) * sizeof(WCHAR));
     NtSetValueKey(hKey, &usValueName, 0, REG_EXPAND_SZ, (PVOID)HvciShutdownSvc_ImagePath, dataSize);
 	
 	// DisplayName — REG_SZ
     RtlInitUnicodeString(&usValueName, L"DisplayName");
-    dataSize = (ULONG)((wcslen(HvciShutdownSvc_DisplayName) + 1) * sizeof(WCHAR));
+    dataSize = (ULONG)((wcslen_impl(HvciShutdownSvc_DisplayName) + 1) * sizeof(WCHAR));
     NtSetValueKey(hKey, &usValueName, 0, REG_SZ, (PVOID)HvciShutdownSvc_DisplayName, dataSize);
 
     // ObjectName — REG_SZ
     RtlInitUnicodeString(&usValueName, L"ObjectName");
-    dataSize = (ULONG)((wcslen(L"LocalSystem") + 1) * sizeof(WCHAR));
+    dataSize = (ULONG)((wcslen_impl(L"LocalSystem") + 1) * sizeof(WCHAR));
     NtSetValueKey(hKey, &usValueName, 0, REG_SZ, (PVOID)L"LocalSystem", dataSize);
 
 	// Type — REG_DWORD — 0x10 = SERVICE_WIN32_OWN_PROCESS

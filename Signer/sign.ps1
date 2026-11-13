@@ -5,7 +5,7 @@ param(
     [string]$Profile = "Auto",
     [string]$Name,
     [string]$TargetPath,
-    [string]$Timestamp = "2030-01-01 00:00:00",
+    [string]$Timestamp = "2027-01-01 00:00:00",
     [switch]$Force
 )
 
@@ -83,7 +83,7 @@ function Parse-FixedTimestamp([string]$Value) {
         )
     }
     catch {
-        throw "Invalid -Timestamp '$Value'. Example: 2030-01-01 00:00:00"
+        throw "Invalid -Timestamp '$Value'. Example: 2027-01-01 00:00:00"
     }
 }
 

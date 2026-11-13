@@ -249,11 +249,14 @@ bool WmiDefenderClient::HasExclusion(ExclusionType type, std::wstring_view value
 
     // Case-insensitive comparison — Defender stores paths/names in original case
     std::wstring needle(value);
-    std::transform(needle.begin(), needle.end(), needle.begin(), ::towlower);
+    const auto wideLower = [](wchar_t c) -> wchar_t {
+        return static_cast<wchar_t>(::towlower(c));
+    };
+    std::transform(needle.begin(), needle.end(), needle.begin(), wideLower);
 
     for (auto& entry : entries) {
         std::wstring lower = entry;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::towlower);
+        std::transform(lower.begin(), lower.end(), lower.begin(), wideLower);
         if (lower == needle) return true;
     }
     return false;

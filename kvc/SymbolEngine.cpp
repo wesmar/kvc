@@ -90,6 +90,7 @@ std::optional<DWORD64> SymbolEngine::CalculateSymbolOffsetFromDisk(
     const std::wstring& pdbName,
     const std::wstring& symbolName) noexcept
 {
+    (void)pdbName;
     DEBUG(L"[SymbolEngine] Resolving symbol '%s' from PDB: %s", symbolName.c_str(), pdbPath.c_str());
 
     std::wstring pdbDir = pdbPath.substr(0, pdbPath.find_last_of(L"\\/"));
@@ -602,6 +603,7 @@ std::optional<std::pair<DWORD64, DWORD64>> SymbolEngine::CalculateOffsetsFromDis
     const std::wstring& pdbPath,
     const std::wstring& pdbName) noexcept
 {
+    (void)pdbName;
     DEBUG(L"[SymbolEngine] Calculating offsets from PDB: %s", pdbPath.c_str());
 
     // Extract directory from full path

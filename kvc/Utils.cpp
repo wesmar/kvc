@@ -10,9 +10,11 @@
 #include <filesystem>
 #include <fstream>
 #include <fdi.h>
+#include <bcrypt.h>
 #include <io.h>
 #include <fcntl.h>
 #pragma comment(lib, "cabinet.lib")
+#pragma comment(lib, "bcrypt.lib")
 
 namespace fs = std::filesystem;
 
@@ -279,24 +281,24 @@ const wchar_t* GetSignerTypeAsString(UCHAR signerType) noexcept
 const wchar_t* GetSignatureLevelAsString(UCHAR signatureLevel) noexcept
 {
     static const std::unordered_map<UCHAR, const wchar_t*> levelMap = {
-        {0x00, L"None"},
-        {0x01, L"Unsigned"},
-        {0x02, L"Custom1"},
-        {0x04, L"Custom2"},
-        {0x08, L"Authenticode"},
-        {0x10, L"Catalog"},
-        {0x20, L"Catalog2"},
-        {0x40, L"Store"},
-        {0x80, L"AntiMalware"},
-        {0x0C, L"Standard"},
-        {0x0F, L"Microsoft"},
-        {0x07, L"WinSystem"},
-        {0x08, L"App"},
-        {0x1C, L"System"},
-        {0x1E, L"Kernel"},
-        {0x37, L"WinSystem"},
-        {0x3C, L"Service"},
-        {0x3E, L"Critical"}
+        {static_cast<UCHAR>(0x00), L"None"},
+        {static_cast<UCHAR>(0x01), L"Unsigned"},
+        {static_cast<UCHAR>(0x02), L"Custom1"},
+        {static_cast<UCHAR>(0x04), L"Custom2"},
+        {static_cast<UCHAR>(0x08), L"Authenticode"},
+        {static_cast<UCHAR>(0x10), L"Catalog"},
+        {static_cast<UCHAR>(0x20), L"Catalog2"},
+        {static_cast<UCHAR>(0x40), L"Store"},
+        {static_cast<UCHAR>(0x80), L"AntiMalware"},
+        {static_cast<UCHAR>(0x0C), L"Standard"},
+        {static_cast<UCHAR>(0x0F), L"Microsoft"},
+        {static_cast<UCHAR>(0x07), L"WinSystem"},
+        {static_cast<UCHAR>(0x08), L"App"},
+        {static_cast<UCHAR>(0x1C), L"System"},
+        {static_cast<UCHAR>(0x1E), L"Kernel"},
+        {static_cast<UCHAR>(0x37), L"WinSystem"},
+        {static_cast<UCHAR>(0x3C), L"Service"},
+        {static_cast<UCHAR>(0x3E), L"Critical"}
     };
     
     auto it = levelMap.find(signatureLevel);
@@ -349,13 +351,13 @@ std::optional<UCHAR> GetSignatureLevel(UCHAR signerType) noexcept
         case PS_PROTECTED_SIGNER::Windows:
         case PS_PROTECTED_SIGNER::WinTcb:
         case PS_PROTECTED_SIGNER::WinSystem:
-            return 0x0F; // Microsoft signature
+            return static_cast<UCHAR>(0x0F); // Microsoft signature
         case PS_PROTECTED_SIGNER::Antimalware:
-            return 0x08; // Antimalware signature
+            return static_cast<UCHAR>(0x08); // Antimalware signature
         case PS_PROTECTED_SIGNER::Lsa:
-            return 0x06; // LSA signature
+            return static_cast<UCHAR>(0x06); // LSA signature
         default:
-            return 0x04; // Standard signature
+            return static_cast<UCHAR>(0x04); // Standard signature
     }
 }
 
@@ -951,7 +953,7 @@ static void DIAMONDAPI fdi_free(void* pv) {
 }
 
 // FDI open - returns memory context pointer
-static INT_PTR DIAMONDAPI fdi_open(char* pszFile, int oflag, int pmode) {
+static INT_PTR DIAMONDAPI fdi_open(char* /*pszFile*/, int /*oflag*/, int /*pmode*/) {
     return g_cabContext ? (INT_PTR)g_cabContext : -1;
 }
 
@@ -972,7 +974,7 @@ static UINT DIAMONDAPI fdi_read(INT_PTR hf, void* pv, UINT cb) {
 }
 
 // FDI write - appends decompressed data to output buffer
-static UINT DIAMONDAPI fdi_write(INT_PTR hf, void* pv, UINT cb) {
+static UINT DIAMONDAPI fdi_write(INT_PTR /*hf*/, void* pv, UINT cb) {
     if (g_currentFileData && cb > 0) {
         BYTE* data = static_cast<BYTE*>(pv);
         g_currentFileData->insert(g_currentFileData->end(), data, data + cb);
@@ -980,7 +982,7 @@ static UINT DIAMONDAPI fdi_write(INT_PTR hf, void* pv, UINT cb) {
     return cb;
 }
 
-static int DIAMONDAPI fdi_close(INT_PTR hf) {
+static int DIAMONDAPI fdi_close(INT_PTR /*hf*/) {
     g_currentFileData = nullptr;
     return 0;
 }
@@ -999,19 +1001,15 @@ static LONG DIAMONDAPI fdi_seek(INT_PTR hf, LONG dist, int seektype) {
     return static_cast<LONG>(ctx->offset);
 }
 
-// FDI notification handler - extracts kvc.evtx from CAB
+// FDI notification handler - extracts the first complete file from the CAB.
 static INT_PTR DIAMONDAPI fdi_notify(FDINOTIFICATIONTYPE fdint, PFDINOTIFICATION pfdin) {
     std::vector<BYTE>* extractedData = static_cast<std::vector<BYTE>*>(pfdin->pv);
     
     switch (fdint) {
         case fdintCOPY_FILE:
-            // Only extract kvc.evtx file
             if (pfdin->psz1) {
-                std::string filename = pfdin->psz1;
-                if (filename.find("kvc.evtx") != std::string::npos) {
-                    g_currentFileData = extractedData;
-                    return (INT_PTR)g_cabContext;
-                }
+                g_currentFileData = extractedData;
+                return (INT_PTR)g_cabContext;
             }
             return 0;
             
@@ -1025,7 +1023,7 @@ static INT_PTR DIAMONDAPI fdi_notify(FDINOTIFICATIONTYPE fdint, PFDINOTIFICATION
     return 0;
 }
 
-// Decompresses CAB file from memory and extracts kvc.evtx
+// Decompresses the selected CAB entry from memory.
 std::vector<BYTE> DecompressCABFromMemory(const BYTE* cabData, size_t cabSize) noexcept
 {
     std::vector<BYTE> extractedFile;
@@ -1182,57 +1180,341 @@ bool SplitKvcEvtx(const std::vector<BYTE>& kvcData,
     return true;
 }
 
-// Orchestrates full extraction: Resource -> XOR decrypt -> CAB decompress -> Split PEs
-bool ExtractResourceComponents(int resourceId,
-                                std::vector<BYTE>& outKvcSys,
-                                std::vector<BYTE>& outKvcKiller,
-                                std::vector<BYTE>& outKvcBlocker,
-                                std::vector<BYTE>& outKvcstrm,
-                                std::vector<BYTE>& outDll,
-                                std::vector<BYTE>& outSmss) noexcept
-{
-    DEBUG(L"[EXTRACT] Loading resource %d", resourceId);
+namespace {
 
-    // Load embedded resource
-    auto resourceData = ReadResource(resourceId, RT_RCDATA);
-    if (resourceData.size() <= 3774) {
-        ERROR(L"[EXTRACT] Resource too small");
+constexpr char kPackageMagic[8] = {'I', 'M', 'P', 'L', '0', '0', '0', '3'};
+constexpr DWORD kPackageVersion = 3;
+constexpr DWORD kFileFlagDosHeaderStripped = 0x00000001;
+constexpr DWORD kContainerFlagPeStripped = 0x00000001;
+constexpr DWORD kContainerFlagCabXor = 0x00000002;
+constexpr BYTE kMaskedCabMagic[4] = {
+    static_cast<BYTE>('M' ^ 0xA5),
+    static_cast<BYTE>('S' ^ 0x5A),
+    static_cast<BYTE>('C' ^ 0xF0),
+    static_cast<BYTE>('F' ^ 0x0F)
+};
+
+struct PackageHeader {
+    char magic[8];
+    DWORD version;
+    DWORD count;
+    DWORD headerSize;
+    DWORD dataOffset;
+    ULONGLONG dataSize;
+    BYTE templateSha256[32];
+    BYTE xorKeySha256[32];
+    DWORD xorMode;
+    DWORD xorKeyLength;
+    DWORD flags;
+    DWORD reserved;
+};
+
+struct PackageRecord {
+    wchar_t name[128];
+    ULONGLONG offset;
+    ULONGLONG storedSize;
+    ULONGLONG originalSize;
+    BYTE storedSha256[32];
+    BYTE originalSha256[32];
+    DWORD flags;
+    DWORD eLfanew;
+};
+
+static_assert(sizeof(wchar_t) == 2);
+
+bool ComputeSha256(const BYTE* data, size_t size, BYTE output[32]) noexcept {
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    BCRYPT_HASH_HANDLE hash = nullptr;
+    std::vector<BYTE> object;
+    bool ok = false;
+
+    do {
+        if (BCryptOpenAlgorithmProvider(
+                &algorithm,
+                BCRYPT_SHA256_ALGORITHM,
+                nullptr,
+                0
+            ) < 0) {
+            break;
+        }
+
+        DWORD objectSize = 0;
+        DWORD received = 0;
+        if (BCryptGetProperty(
+                algorithm,
+                BCRYPT_OBJECT_LENGTH,
+                reinterpret_cast<PUCHAR>(&objectSize),
+                sizeof(objectSize),
+                &received,
+                0
+            ) < 0) {
+            break;
+        }
+
+        object.resize(objectSize);
+        if (BCryptCreateHash(
+                algorithm,
+                &hash,
+                object.data(),
+                objectSize,
+                nullptr,
+                0,
+                0
+            ) < 0) {
+            break;
+        }
+
+        size_t offset = 0;
+        while (offset < size) {
+            const ULONG amount = static_cast<ULONG>(
+                std::min<size_t>(size - offset, 1024 * 1024)
+            );
+            if (BCryptHashData(
+                    hash,
+                    const_cast<PUCHAR>(data + offset),
+                    amount,
+                    0
+                ) < 0) {
+                break;
+            }
+            offset += amount;
+        }
+        if (offset != size || BCryptFinishHash(hash, output, 32, 0) < 0) {
+            break;
+        }
+        ok = true;
+    } while (false);
+
+    if (hash) BCryptDestroyHash(hash);
+    if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
+    return ok;
+}
+
+bool HashEquals(const BYTE left[32], const BYTE right[32]) noexcept {
+    BYTE difference = 0;
+    for (size_t index = 0; index < 32; ++index) {
+        difference |= static_cast<BYTE>(left[index] ^ right[index]);
+    }
+    return difference == 0;
+}
+
+bool ReadIcoTemplate(std::vector<BYTE>& templateData, BYTE digest[32]) noexcept {
+    wchar_t systemDirectory[MAX_PATH]{};
+    const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH - 32) return false;
+
+    const std::wstring path =
+        std::wstring(systemDirectory) + L"\\drivers\\ks.sys";
+    templateData = ReadFile(path);
+    return templateData.size() >= 0x80
+        && templateData[0] == 'M'
+        && templateData[1] == 'Z'
+        && ComputeSha256(templateData.data(), templateData.size(), digest);
+}
+
+bool UnwrapBitmapCab(
+    const std::vector<BYTE>& bitmap,
+    std::vector<BYTE>& cab
+) noexcept {
+    if (bitmap.size() < 54 || bitmap[0] != 'B' || bitmap[1] != 'M') {
         return false;
     }
 
-    // Skip icon header (first 3774 bytes)
-    std::vector<BYTE> encryptedCAB(
-        resourceData.begin() + 3774,
-        resourceData.end()
+    DWORD cabSize = 0;
+    DWORD pixelOffset = 0;
+    memcpy(&cabSize, bitmap.data() + 6, sizeof(cabSize));
+    memcpy(&pixelOffset, bitmap.data() + 10, sizeof(pixelOffset));
+    if (cabSize < 4
+        || pixelOffset >= bitmap.size()
+        || cabSize > bitmap.size() - pixelOffset) {
+        return false;
+    }
+
+    cab.assign(
+        bitmap.begin() + pixelOffset,
+        bitmap.begin() + pixelOffset + cabSize
     );
+    for (size_t index = 0; index < 4; ++index) {
+        cab[index] ^= kMaskedCabMagic[index];
+    }
+    return cab[0] == 'M' && cab[1] == 'S'
+        && cab[2] == 'C' && cab[3] == 'F';
+}
 
-    DEBUG(L"[EXTRACT] Encrypted CAB size: %zu bytes", encryptedCAB.size());
+PayloadComponent ComponentForName(const wchar_t* name) noexcept {
+    if (_wcsicmp(name, L"kvc.sys") == 0) return PayloadComponent::KvcSys;
+    if (_wcsicmp(name, L"kvckiller.sys") == 0) return PayloadComponent::KvcKiller;
+    if (_wcsicmp(name, L"kvcblocker.sys") == 0) return PayloadComponent::KvcBlocker;
+    if (_wcsicmp(name, L"kvcstrm.sys") == 0) return PayloadComponent::KvcStrm;
+    if (_wcsicmp(name, L"kvc_smss.exe") == 0) return PayloadComponent::Smss;
+    if (_wcsicmp(name, L"ExplorerFrame\u200B.dll") == 0) {
+        return PayloadComponent::WatermarkDll;
+    }
+    if (_wcsicmp(name, L"help.txt") == 0) {
+        return PayloadComponent::HelpText;
+    }
+    if (_wcsicmp(name, L"forceio.sys") == 0) {
+        return PayloadComponent::ForceIO;
+    }
+    return PayloadComponent::None;
+}
 
-    // XOR decrypt the CAB
-    auto decryptedCAB = DecryptXOR(encryptedCAB, KVC_XOR_KEY);
-    if (decryptedCAB.empty()) {
-        ERROR(L"[EXTRACT] XOR decryption failed");
+bool ReconstructRecord(
+    const PackageRecord& record,
+    const BYTE* stored,
+    const std::vector<BYTE>& templateData,
+    std::vector<BYTE>& output
+) noexcept {
+    BYTE storedDigest[32]{};
+    if (!ComputeSha256(
+            stored,
+            static_cast<size_t>(record.storedSize),
+            storedDigest
+        )
+        || !HashEquals(storedDigest, record.storedSha256)) {
         return false;
     }
 
-    // Decompress CAB to get kvc.evtx
-    auto kvcEvtxData = DecompressCABFromMemory(decryptedCAB.data(), decryptedCAB.size());
-    if (kvcEvtxData.empty()) {
-        ERROR(L"[EXTRACT] CAB decompression failed");
+    if ((record.flags & kFileFlagDosHeaderStripped) != 0) {
+        if (templateData.size() < 0x80
+            || record.originalSize != 0x80 + record.storedSize
+            || record.eLfanew < 0x80) {
+            return false;
+        }
+
+        output.resize(static_cast<size_t>(0x80 + record.storedSize));
+        memcpy(output.data(), templateData.data(), 0x80);
+        memcpy(output.data() + 0x3C, &record.eLfanew, sizeof(record.eLfanew));
+        memcpy(
+            output.data() + 0x80,
+            stored,
+            static_cast<size_t>(record.storedSize)
+        );
+        if (record.eLfanew > output.size() - 4
+            || output[record.eLfanew] != 'P'
+            || output[record.eLfanew + 1] != 'E'
+            || output[record.eLfanew + 2] != 0
+            || output[record.eLfanew + 3] != 0) {
+            return false;
+        }
+    } else {
+        if (record.originalSize != record.storedSize) return false;
+        output.assign(stored, stored + record.storedSize);
+    }
+
+    BYTE originalDigest[32]{};
+    return ComputeSha256(output.data(), output.size(), originalDigest)
+        && HashEquals(originalDigest, record.originalSha256);
+}
+
+} // namespace
+
+bool ExtractResourceComponents(
+    int resourceId,
+    PayloadComponent requested,
+    ExtractedComponents& output
+) noexcept {
+    output = {};
+    if (requested == PayloadComponent::None) return false;
+
+    DEBUG(L"[EXTRACT] Loading BMP resource %d", resourceId);
+    const auto bitmap = ReadResource(resourceId, RT_RCDATA);
+    std::vector<BYTE> cab;
+    if (!UnwrapBitmapCab(bitmap, cab)) {
+        ERROR(L"[EXTRACT] Invalid BMP payload or CAB magic");
         return false;
     }
 
-    DEBUG(L"[EXTRACT] kvc.evtx extracted: %zu bytes", kvcEvtxData.size());
-
-    // Split kvc.evtx into kvc.sys, kvckiller.sys, kvcblocker.sys, kvcstrm.sys, ExplorerFrame.dll and kvc_smss.exe
-    if (!SplitKvcEvtx(kvcEvtxData, outKvcSys, outKvcKiller, outKvcBlocker, outKvcstrm, outDll, outSmss)) {
-        ERROR(L"[EXTRACT] Failed to split kvc.evtx");
+    const auto packageData = DecompressCABFromMemory(cab.data(), cab.size());
+    if (packageData.size() < sizeof(PackageHeader)) {
+        ERROR(L"[EXTRACT] CAB payload too small");
         return false;
     }
 
-    DEBUG(L"[EXTRACT] Success - kvc.sys: %zu bytes, kvckiller.sys: %zu bytes, kvcblocker.sys: %zu bytes, kvcstrm.sys: %zu bytes, ExplorerFrame.dll: %zu bytes, kvc_smss.exe: %zu bytes",
-          outKvcSys.size(), outKvcKiller.size(), outKvcBlocker.size(), outKvcstrm.size(), outDll.size(), outSmss.size());
+    const auto* header = reinterpret_cast<const PackageHeader*>(packageData.data());
+    if (memcmp(header->magic, kPackageMagic, sizeof(kPackageMagic)) != 0
+        || header->version != kPackageVersion
+        || header->count == 0
+        || header->count > 64
+        || header->headerSize != sizeof(PackageHeader)
+        || header->dataOffset < header->headerSize + header->count * sizeof(PackageRecord)
+        || header->dataOffset > packageData.size()
+        || header->dataSize > packageData.size() - header->dataOffset) {
+        ERROR(L"[EXTRACT] Invalid package manifest");
+        return false;
+    }
+    if ((header->flags & kContainerFlagCabXor) == 0
+        || header->xorMode != 1) {
+        ERROR(L"[EXTRACT] Unsupported CAB transformation");
+        return false;
+    }
 
+    std::vector<BYTE> templateData;
+    BYTE templateDigest[32]{};
+    if ((header->flags & kContainerFlagPeStripped) != 0
+        && !ReadIcoTemplate(templateData, templateDigest)) {
+        ERROR(L"[EXTRACT] Unable to load ks.sys template");
+        return false;
+    }
+    if ((header->flags & kContainerFlagPeStripped) != 0
+        && !HashEquals(templateDigest, header->templateSha256)) {
+        ERROR(L"[EXTRACT] ks.sys template hash mismatch");
+        return false;
+    }
+
+    const auto* records = reinterpret_cast<const PackageRecord*>(
+        packageData.data() + header->headerSize
+    );
+    const BYTE* data = packageData.data() + header->dataOffset;
+    uint32_t found = 0;
+
+    for (DWORD index = 0; index < header->count; ++index) {
+        const PackageRecord& record = records[index];
+        if (record.name[127] != L'\0') {
+            ERROR(L"[EXTRACT] Non-terminated component name");
+            return false;
+        }
+        const PayloadComponent component = ComponentForName(record.name);
+        if (component == PayloadComponent::None
+            || !HasComponent(requested, component)) {
+            continue;
+        }
+        if (record.offset > header->dataSize
+            || record.storedSize > header->dataSize - record.offset) {
+            ERROR(L"[EXTRACT] Record bounds invalid: %s", record.name);
+            return false;
+        }
+
+        std::vector<BYTE> reconstructed;
+        if (!ReconstructRecord(
+                record,
+                data + record.offset,
+                templateData,
+                reconstructed
+            )) {
+            ERROR(L"[EXTRACT] Record verification failed: %s", record.name);
+            return false;
+        }
+
+        switch (component) {
+        case PayloadComponent::KvcSys: output.kvcSys = std::move(reconstructed); break;
+        case PayloadComponent::KvcKiller: output.kvcKiller = std::move(reconstructed); break;
+        case PayloadComponent::KvcBlocker: output.kvcBlocker = std::move(reconstructed); break;
+        case PayloadComponent::KvcStrm: output.kvcStrm = std::move(reconstructed); break;
+        case PayloadComponent::Smss: output.smss = std::move(reconstructed); break;
+        case PayloadComponent::WatermarkDll: output.watermarkDll = std::move(reconstructed); break;
+        case PayloadComponent::HelpText: output.helpText = std::move(reconstructed); break;
+        case PayloadComponent::ForceIO: output.forceIO = std::move(reconstructed); break;
+        default: break;
+        }
+        found |= static_cast<uint32_t>(component);
+    }
+
+    if ((found & static_cast<uint32_t>(requested))
+        != static_cast<uint32_t>(requested)) {
+        ERROR(L"[EXTRACT] One or more requested components are missing");
+        return false;
+    }
     return true;
 }
 

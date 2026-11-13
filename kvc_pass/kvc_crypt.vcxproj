@@ -19,7 +19,6 @@
     <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
     <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -37,20 +36,21 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;BUILDING_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;BUILDING_DLL;_HAS_EXCEPTIONS=0;_USE_STD_VECTOR_ALGORITHMS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)kvc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)kvc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <Optimization>MinSpace</Optimization>
-      <OmitFramePointers>true</OmitFramePointers>
-      <StringPooling>true</StringPooling>
-      <AdditionalOptions>/utf-8 /GS- /Gy /Gw /Os /Brepro %(AdditionalOptions)</AdditionalOptions>
+      <Optimization>MaxSpeed</Optimization>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExceptionHandling>false</ExceptionHandling>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+      <AdditionalOptions>/utf-8 /permissive- /GS- /Brepro /Zc:threadSafeInit- %(AdditionalOptions)</AdditionalOptions>
       <IgnoreSpecificDefaultLibraries>ole32.lib;oleaut32.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
     </ClCompile>
     <Link>
@@ -60,16 +60,16 @@
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <AdditionalDependencies>ole32.lib;oleaut32.lib;shell32.lib;bcrypt.lib;crypt32.lib;winsqlite3.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalOptions>/OPT:REF /OPT:ICF=10 /MERGE:.rdata=.text /NXCOMPAT /Brepro /NOIMPLIB /NOEXP /INCREMENTAL:NO %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/NXCOMPAT /Brepro /NOIMPLIB /NOEXP /INCREMENTAL:NO %(AdditionalOptions)</AdditionalOptions>
       <ModuleDefinitionFile>kvc_crypt.def</ModuleDefinitionFile>
-      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <StripPrivateSymbols>true</StripPrivateSymbols>
       <TargetMachine>MachineX64</TargetMachine>
-      <IgnoreSpecificDefaultLibraries>msvcprt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <EntryPointSymbol>DllMain</EntryPointSymbol>
+      <IgnoreSpecificDefaultLibraries>msvcprt.lib;libucrt.lib;libcpmt.lib;libvcruntime.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
     </Link>
     <ResourceCompile>
       <Culture>0x0409</Culture>
-      <AdditionalIncludeDirectories>$(SolutionDir)kvc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)kvc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -78,14 +78,18 @@
     <ClCompile Include="DataExtraction.cpp" />
     <ClCompile Include="CommunicationModule.cpp" />
     <ClCompile Include="SelfLoader.cpp" />
+    <ClCompile Include="RuntimeSupport.cpp">
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CryptCore.h" />
     <ClInclude Include="BrowserCrypto.h" />
     <ClInclude Include="DataExtraction.h" />
     <ClInclude Include="CommunicationModule.h" />
-    <ClInclude Include="..\kvc\resource.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="SelfLoader.h" />
+    <ClInclude Include="RuntimeSupport.h" />
     <ClInclude Include="winsqlite3.h" />
   </ItemGroup>
   <ItemGroup>

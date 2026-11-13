@@ -18,6 +18,7 @@
     <ClCompile Include="ProcessEnumerator.cpp" />
     <ClCompile Include="ProcessProtection.cpp" />
     <ClCompile Include="ProcessTerminator.cpp" />
+    <ClCompile Include="ForceIOOperations.cpp" />
     <ClCompile Include="ProcessDisplay.cpp" />
     <ClCompile Include="ControllerMemoryOperations.cpp" />
     <ClCompile Include="ControllerSystemIntegration.cpp" />
@@ -52,6 +53,10 @@
     <ClInclude Include="CiOptionsFinder.h" />
     <ClInclude Include="DSEBypass.h" />
     <ClInclude Include="KvcStrmClient.h" />
+    <ClInclude Include="KillerSession.h" />
+    <ClInclude Include="ForceIOSession.h" />
+    <ClInclude Include="ForceIOStager.h" />
+    <ClInclude Include="HiveIO.h" />
     <ClInclude Include="SymbolEngine.h" />
     <ClInclude Include="Controller.h" />
     <ClInclude Include="OffsetFinder.h" />
@@ -76,6 +81,7 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="ICON\kvc.ico" />
+    <Image Include="ICON\kvc.bmp" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="MmPoolTelemetry.asm" />

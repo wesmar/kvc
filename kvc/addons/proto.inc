@@ -60,6 +60,12 @@ EXTERN GradientFill:PROC
 INCLUDELIB dwmapi.lib
 INCLUDELIB msimg32.lib
 
+; Retain ABI-compatible parameters that are consumed through Win64 argument
+; registers. The scratch register is volatile and is never an implicit input.
+REFERENCE_ARG MACRO argument:REQ
+    lea r10, argument
+ENDM
+
 InitGame PROTO pGame:QWORD, boardWidth:DWORD, boardHeight:DWORD
 StartGame PROTO pGame:QWORD
 GenerateRandomPiece PROTO pGame:QWORD, pPiece:QWORD

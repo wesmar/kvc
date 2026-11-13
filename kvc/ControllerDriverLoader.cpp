@@ -169,9 +169,6 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
     
     // STEP 2: LOAD THE DRIVER (with guaranteed DSE restore on exit)
     {
-        bool serviceSuccess = false;
-        bool apiInitialized = false;
-        
         // RAII-style DSE restore guarantee
         auto dseRestoreGuard = [&]() {
             if (dseDisabled) {
@@ -210,8 +207,6 @@ bool Controller::LoadExternalDriver(const std::wstring& driverPath, DWORD startT
             dseRestoreGuard();
             return false;
         }
-        apiInitialized = true;
-        
         // Try to create and start the service
         SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE));
         if (!scm) {

@@ -554,8 +554,8 @@ bool SessionManager::RestoreBySigner(const std::wstring& signerName, Controller*
         if (controller->SetProcessProtection(kernelAddr.value(), entry.OriginalProtection))
         {
             // Update status in registry
-            std::wstring sessionPath = GetSessionPath(GetCurrentBootSession());
-            std::wstring signerPath = sessionPath + L"\\" + foundSignerKey;
+            std::wstring currentSessionPath = GetSessionPath(GetCurrentBootSession());
+            std::wstring signerPath = currentSessionPath + L"\\" + foundSignerKey;
             
             HKEY hKey;
             if (RegOpenKeyExW(HKEY_CURRENT_USER, signerPath.c_str(), 0, KEY_READ | KEY_WRITE, &hKey) == ERROR_SUCCESS)

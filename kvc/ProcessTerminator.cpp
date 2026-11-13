@@ -2,12 +2,10 @@
 // Process termination with automatic PP/PPL elevation and multi-tier fallback.
 //
 // Termination ladder for a single PID:
-//   1. KillProcessInternal(): elevate caller to target's protection level,
-//      then TerminateProcess().
-//   2. kvcstrm IOCTL_KILL_WESMAR (via KvcStrmClient).
+//   1. KillProcessInternal(): attempt normal termination without changing caller PPL.
+//   2. kvckiller.sys: transactionally lower target PPL when required, then terminate.
 //
-// For KillMultipleTargets() a third tier is added when the first two fail:
-//   3. kvckiller.sys (signed kernel driver) via DeviceIoControl on Warsaw_PM.
+// kvcstrm remains an explicit developer backend and is never auto-loaded by the GUI.
 //
 // Killed paths are persisted to HKCU\Software\kvc\KilledPaths so that
 // TryRelaunchKilledProcess() can restart them later.
@@ -15,6 +13,7 @@
 #include "Controller.h"
 #include "common.h"
 #include "Utils.h"
+#include "KillerSession.h"
 #include <tlhelp32.h>
 #include <unordered_map>
 
@@ -149,8 +148,8 @@ bool Controller::TryRelaunchKilledProcess(const std::wstring& name) noexcept
 
 // ── Core termination primitive ───────────────────────────────────────────────
 
-// Terminates a single PID. If the target has PP or PPL protection, elevates
-// the current process to the same level before attempting termination.
+// Terminates a single PID without changing the caller's protection. Protected
+// targets are handled transactionally by the target-strip fallback.
 // Pass insideBatchSession=true when the caller already holds a driver session.
 bool Controller::KillProcessInternal(DWORD pid, bool insideBatchSession) noexcept
 {
@@ -163,24 +162,6 @@ bool Controller::KillProcessInternal(DWORD pid, bool insideBatchSession) noexcep
     if (!kernelAddr) {
         if (!insideBatchSession) EndDriverSession(true);
         return false;
-    }
-
-    if (const auto prot = GetProcessProtection(kernelAddr.value());
-        prot && prot.value() > 0)
-    {
-        const UCHAR targetLevel  = Utils::GetProtectionLevel(prot.value());
-        const UCHAR targetSigner = Utils::GetSignerType(prot.value());
-        const std::wstring levelStr =
-            (targetLevel == static_cast<UCHAR>(PS_PROTECTED_TYPE::Protected))
-                ? L"PP" : L"PPL";
-
-        INFO(L"Target process has %s-%s protection — elevating current process",
-             levelStr.c_str(), Utils::GetSignerTypeAsString(targetSigner));
-
-        const UCHAR currentProcessProtection =
-            Utils::GetProtection(targetLevel, targetSigner);
-        if (!SetCurrentProcessProtection(currentProcessProtection))
-            ERROR(L"Failed to elevate current process protection");
     }
 
     HandleGuard process(OpenProcess(PROCESS_TERMINATE, FALSE, pid));
@@ -202,22 +183,60 @@ bool Controller::KillProcessInternal(DWORD pid, bool insideBatchSession) noexcep
 
 // ── Public single-target API ─────────────────────────────────────────────────
 
-// Terminates a process by PID.
-// Falls back to kvcstrm IOCTL_KILL_WESMAR if the primary path fails.
+// Terminates a process by PID using the signed kvckiller fallback.
+// It must not auto-load kvcstrm on systems where HVCI is enabled.
 bool Controller::KillProcess(DWORD pid) noexcept
 {
     bool ok = KillProcessInternal(pid, /*insideBatchSession=*/false);
     EndDriverSession(true);
 
     if (!ok) {
-        bool autoStarted = false;
-        if (EnsureStrmOpen(autoStarted)) {
-            ok = static_cast<bool>(m_strm.KillProcessLegacy(pid));
-            CleanupStrm(autoStarted);
+        PrivilegeUtils::EnablePrivilege(SE_LOAD_DRIVER_NAME);
+        EnsureDriverAvailable();
+        const std::wstring killerPath = GetDriverStorePath() + L"\\kvckiller.sys";
+
+        if (GetFileAttributesW(killerPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            KillerSession session;
+            if (session.Open(killerPath)) {
+                UCHAR originalProtection = 0;
+                bool stripped = false;
+                const bool driverOpen = BeginDriverSession();
+
+                if (driverOpen) {
+                    const auto addr = GetProcessKernelAddress(pid);
+                    if (addr) {
+                        const auto prot = GetProcessProtection(addr.value());
+                        if (prot && prot.value() > 0) {
+                            originalProtection = prot.value();
+                            if (SetProcessProtection(addr.value(), 0)) {
+                                const auto verified =
+                                    GetProcessProtection(addr.value());
+                                if (verified && verified.value() == 0)
+                                    stripped = true;
+                                else
+                                    SetProcessProtection(
+                                        addr.value(), originalProtection);
+                            }
+                        }
+                    }
+                }
+
+                ok = session.Kill(pid).processGone;
+
+                if (stripped && !KillerSession::VerifyDead(pid)) {
+                    const auto addr = GetProcessKernelAddress(pid);
+                    if (addr)
+                        SetProcessProtection(addr.value(), originalProtection);
+                }
+
+                if (driverOpen) EndDriverSession(true);
+                session.Close();
+            }
         }
-        if (!ok)
-            INFO(L"PID %d not terminated (process may no longer exist)", pid);
     }
+
+    if (!ok)
+        INFO(L"PID %d not terminated (process may no longer exist)", pid);
     return ok;
 }
 
@@ -369,73 +388,69 @@ bool Controller::KillMultipleTargets(
             for (DWORD pid : failedPids)
                 INFO(L"PID %d not terminated (kvckiller.sys not found)", pid);
         } else {
-            // Remove any stale wsftprm service registration before installing.
-            if (SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS)) {
-                if (SC_HANDLE hOld = OpenServiceW(hSCM, L"wsftprm", DELETE)) {
-                    DeleteService(hOld);
-                    CloseServiceHandle(hOld);
-                }
-                CloseServiceHandle(hSCM);
-            }
+            KillerSession session;
+            if (session.Open(killerPath)) {
+                struct ProtectionBackup { DWORD pid; UCHAR protection; };
+                std::vector<ProtectionBackup> backups;
+                const bool driverOpen = BeginDriverSession();
 
-            SC_HANDLE hKillerSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-            SC_HANDLE hKillerSvc = nullptr;
-            bool      killerLoaded = false;
-
-            if (hKillerSCM) {
-                hKillerSvc = CreateServiceW(
-                    hKillerSCM, L"wsftprm", L"wsftprm",
-                    SERVICE_START | SERVICE_STOP | DELETE,
-                    SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START,
-                    SERVICE_ERROR_NORMAL, killerPath.c_str(),
-                    nullptr, nullptr, nullptr, nullptr, nullptr);
-                killerLoaded = hKillerSvc && StartServiceW(hKillerSvc, 0, nullptr);
-            }
-
-            if (killerLoaded) {
-                HANDLE hDev = CreateFileW(L"\\\\.\\Warsaw_PM",
-                                          GENERIC_READ | GENERIC_WRITE,
-                                          0, nullptr, OPEN_EXISTING,
-                                          FILE_ATTRIBUTE_NORMAL, nullptr);
-                if (hDev != INVALID_HANDLE_VALUE) {
+                if (driverOpen) {
                     for (DWORD pid : failedPids) {
-                        std::vector<BYTE> buf(1036, 0);
-                        *reinterpret_cast<DWORD*>(buf.data()) = pid;
-                        DWORD ret = 0;
-                        if (DeviceIoControl(hDev, 0x22201C,
-                                            buf.data(), static_cast<DWORD>(buf.size()),
-                                            nullptr, 0, &ret, nullptr))
-                        {
-                            ++successCount;
-                            SUCCESS(L"PID %d terminated via kvckiller", pid);
-                            if (const auto it = pidInfo.find(pid);
-                                it != pidInfo.end() && !it->second.second.empty())
-                                CacheKilledProcessPath(it->second.first,
-                                                        it->second.second);
-                        } else {
-                            INFO(L"PID %d not terminated (kvckiller IOCTL failed: %lu)",
-                                 pid, GetLastError());
+                        const auto addr = GetProcessKernelAddress(pid);
+                        if (!addr) continue;
+                        const auto prot = GetProcessProtection(addr.value());
+                        if (!prot || prot.value() == 0) continue;
+
+                        const UCHAR original = prot.value();
+                        if (SetProcessProtection(addr.value(), 0)) {
+                            const auto verified =
+                                GetProcessProtection(addr.value());
+                            if (verified && verified.value() == 0) {
+                                backups.push_back({pid, original});
+                            } else {
+                                SetProcessProtection(addr.value(), original);
+                            }
                         }
                     }
-                    CloseHandle(hDev);
-                } else {
-                    for (DWORD pid : failedPids)
-                        INFO(L"PID %d not terminated (Warsaw_PM unavailable: %lu)",
-                             pid, GetLastError());
+                }
+
+                for (DWORD pid : failedPids) {
+                    const KillerSession::KillResult result = session.Kill(pid);
+                    if (result.processGone) {
+                        ++successCount;
+                        SUCCESS(L"PID %d terminated via kvckiller", pid);
+                        if (const auto it = pidInfo.find(pid);
+                            it != pidInfo.end() && !it->second.second.empty())
+                            CacheKilledProcessPath(it->second.first,
+                                                    it->second.second);
+                    } else if (!result.requestAccepted) {
+                        INFO(L"PID %d not terminated (kvckiller Win32 error %lu)",
+                             pid, result.transportError);
+                    } else if (result.hasDriverStatus) {
+                        INFO(L"PID %d not terminated (kvckiller NTSTATUS 0x%08lX)",
+                             pid, result.driverStatus);
+                    } else {
+                        INFO(L"PID %d not terminated (no kvckiller status returned)",
+                             pid);
+                    }
+                }
+
+                for (const auto& backup : backups) {
+                    if (KillerSession::VerifyDead(backup.pid)) continue;
+                    const auto addr = GetProcessKernelAddress(backup.pid);
+                    if (addr)
+                        SetProcessProtection(addr.value(), backup.protection);
+                }
+
+                if (driverOpen) EndDriverSession(true);
+
+                if (!session.Close()) {
+                    INFO(L"kvckiller cleanup reported an error");
                 }
             } else {
                 for (DWORD pid : failedPids)
-                    INFO(L"PID %d not terminated (kvckiller service failed to start)", pid);
+                    INFO(L"PID %d not terminated (kvckiller driver unavailable)", pid);
             }
-
-            // Always stop and delete the temporary service.
-            if (hKillerSvc) {
-                SERVICE_STATUS ss{};
-                ControlService(hKillerSvc, SERVICE_CONTROL_STOP, &ss);
-                DeleteService(hKillerSvc);
-                CloseServiceHandle(hKillerSvc);
-            }
-            if (hKillerSCM) CloseServiceHandle(hKillerSCM);
         }
     }
 

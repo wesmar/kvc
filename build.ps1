@@ -1,8 +1,8 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Configuration = "Release",
     [string]$Platform      = "x64",
-    [string]$Timestamp     = "2030-01-01 00:00:00",
+    [string]$Timestamp     = "2027-01-01 00:00:00",
 
     # Component switches — omit all to build everything
     [switch]$implementer,
@@ -20,15 +20,23 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
 $BinDir      = Join-Path $ProjectRoot "bin"
 
+# kvc_pass implies kvc_crypt — they are always built as a pair
+if ($kvc_pass) { $kvc_crypt = [switch]::new($true) }
+
 # All usermode projects
 $UserProjects = @(
-    @{ Name = "implementer"; Switch = $implementer; Path = "Implementer\implementer.vcxproj";     OutputName = "implementer"; OutputExtension = ".exe" },
-    @{ Name = "kvc";         Switch = $kvc;         Path = "kvc\kvc.vcxproj";                    OutputName = "kvc";         OutputExtension = ".exe" },
-    @{ Name = "kvc_crypt";   Switch = $kvc_crypt;   Path = "kvc_pass\kvc_crypt.vcxproj";         OutputName = "kvc_crypt";   OutputExtension = ".dll" },
-    @{ Name = "kvc_pass";    Switch = $kvc_pass;    Path = "kvc_pass\kvc_pass.vcxproj";          OutputName = "kvc_pass";    OutputExtension = ".exe" },
+    @{ Name = "kvc_crypt";   Switch = $kvc_crypt;   Path = "kvc_pass\kvc_crypt.vcxproj";        OutputName = "kvc_crypt";   OutputExtension = ".dll" },
+    @{ Name = "kvc_pass";    Switch = $kvc_pass;    Path = "kvc_pass\kvc_pass.vcxproj";         OutputName = "kvc_pass";    OutputExtension = ".exe" },
     @{ Name = "KvcXor";      Switch = $KvcXor;      Path = "kvcXor\KvcXor.vcxproj";              OutputName = "KvcXor";      OutputExtension = ".exe" },
     @{ Name = "kvc_smss";    Switch = $kvc_smss;    Path = "kvc_smss\BootBypass.vcxproj";        OutputName = "kvc_smss";    OutputExtension = ".exe" }
 )
+
+$KvcProjectPath = Join-Path $ProjectRoot "kvc\kvc.vcxproj"
+$ImplementerBuild = Join-Path $ProjectRoot "Implementer\build.ps1"
+$ProjectConfig = Join-Path $ProjectRoot "config\kvc.ini"
+$BinConfig = Join-Path $BinDir "kvc.ini"
+$KvcBitmapPath = Join-Path $ProjectRoot "kvc\ICON\kvc.bmp"
+$StandalonePassBinDir = Join-Path (Split-Path $ProjectRoot -Parent) "kvc_pass\bin"
 
 # kvcstrm outputs to the solution-level x64\Release\ (not under kvcstrm\)
 $DriverProjectPath = Join-Path $ProjectRoot "kvcstrm\kvcstrm.vcxproj"
@@ -37,6 +45,8 @@ $DriverPackageDir  = Join-Path $DriverBuildRoot "kvcstrm"                  # …
 
 # If no component switch was set, build everything
 $BuildAll = -not ($implementer -or $kvc -or $kvc_crypt -or $kvc_pass -or $KvcXor -or $kvcstrm -or $kvc_smss)
+$BuildImplementer = $BuildAll -or $implementer
+$BuildKvc = $BuildAll -or $kvc
 
 function Write-Info([string]$Message)    { Write-Host $Message -ForegroundColor Cyan }
 function Write-Step([string]$Message)    { Write-Host $Message -ForegroundColor DarkGray }
@@ -50,7 +60,7 @@ function Parse-FixedTimestamp([string]$Value) {
         return [datetime]::Parse($Value, [System.Globalization.CultureInfo]::InvariantCulture, $styles)
     }
     catch {
-        throw "Invalid -Timestamp '$Value'. Example: 2030-01-01 00:00:00"
+        throw "Invalid -Timestamp '$Value'. Example: 2027-01-01 00:00:00"
     }
 }
 
@@ -87,6 +97,42 @@ function Get-LatestVsPath {
     throw "Visual Studio with MSBuild was not found."
 }
 
+function Build-UsermodeProject {
+    param(
+        [Parameter(Mandatory)][hashtable]$Project,
+        [Parameter(Mandatory)][string]$MsBuild,
+        [Parameter(Mandatory)][long]$SourceDateEpoch
+    )
+
+    $projectPath = Join-Path $ProjectRoot $Project.Path
+    if (-not (Test-Path -LiteralPath $projectPath)) {
+        throw "Project file not found: $projectPath"
+    }
+
+    $projectObjDir = Join-Path (Split-Path $projectPath -Parent) "obj"
+    if (Test-Path -LiteralPath $projectObjDir) {
+        Remove-Item -LiteralPath $projectObjDir -Recurse -Force
+        Write-Step "Cleaned $($Project.Name)\obj\"
+    }
+
+    Write-Info "Building $($Project.Name)..."
+    & $MsBuild $projectPath `
+        /p:Configuration=$Configuration `
+        /p:Platform=$Platform `
+        /p:SolutionDir="$ProjectRoot\" `
+        /p:SOURCE_DATE_EPOCH=$SourceDateEpoch `
+        /m /nologo /v:m
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to build $($Project.Name) (exit code $LASTEXITCODE)"
+    }
+    Write-Success "Built $($Project.Name)"
+
+    if (Test-Path -LiteralPath $projectObjDir) {
+        Remove-Item -LiteralPath $projectObjDir -Recurse -Force
+        Write-Step "Removed $($Project.Name)\obj\"
+    }
+}
+
 try {
     $fixedTimestamp     = Parse-FixedTimestamp -Value $Timestamp
     $fixedTimestampText = $fixedTimestamp.ToString("yyyy-MM-dd HH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture)
@@ -100,9 +146,11 @@ try {
     if ($BuildAll) {
         Write-Step "Components: ALL"
     } else {
-        $sel = @($UserProjects | Where-Object { $_.Switch } | ForEach-Object { $_.Name })
+        $sel = @()
+        if ($implementer) { $sel += "implementer" }
+        if ($kvc) { $sel += "kvc" }
+        $sel += @($UserProjects | Where-Object { $_.Switch } | ForEach-Object { $_.Name })
         if ($kvcstrm) { $sel += "kvcstrm" }
-        # kvc_smss is already in $UserProjects so it appears automatically
         Write-Step "Components: $($sel -join ', ')"
     }
 
@@ -128,38 +176,7 @@ try {
     # ── Regular usermode projects ────────────────────────────────────────────
     foreach ($project in $UserProjects) {
         if (-not $BuildAll -and -not $project.Switch) { continue }
-
-        $projectPath = Join-Path $ProjectRoot $project.Path
-        if (-not (Test-Path -LiteralPath $projectPath)) {
-            Write-Failure "Project file not found: $projectPath"
-            continue
-        }
-
-        # Clean project-local obj\ before build — avoids stale incremental state
-        # for projects whose IntDir lives inside the project directory (e.g. kvc_smss).
-        $projectObjDir = Join-Path (Split-Path $projectPath -Parent) "obj"
-        if (Test-Path -LiteralPath $projectObjDir) {
-            Remove-Item -LiteralPath $projectObjDir -Recurse -Force
-            Write-Step "Cleaned $($project.Name)\obj\"
-        }
-
-        Write-Info "Building $($project.Name)..."
-        & $msbuild $projectPath `
-            /p:Configuration=$Configuration `
-            /p:Platform=$Platform `
-            /p:SolutionDir="$ProjectRoot\" `
-            /p:SOURCE_DATE_EPOCH=$epoch `
-            /m /nologo /v:m
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to build $($project.Name) (exit code $LASTEXITCODE)"
-        }
-        Write-Success "Built $($project.Name)"
-
-        # Remove project-local obj\ after build so it does not persist between runs.
-        if (Test-Path -LiteralPath $projectObjDir) {
-            Remove-Item -LiteralPath $projectObjDir -Recurse -Force
-            Write-Step "Removed $($project.Name)\obj\"
-        }
+        Build-UsermodeProject -Project $project -MsBuild $msbuild -SourceDateEpoch $epoch
     }
 
     # ── kvcstrm kernel driver ────────────────────────────────────────────────
@@ -178,6 +195,8 @@ try {
             /p:SignMode=Off `
             /p:SkipPackageVerification=true `
             /p:ApiValidator_Enable=false `
+            /p:Driver_SpectreMitigation=false `
+            /p:SpectreMitigation=false `
             /m /nologo /v:m
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to build kvcstrm (exit code $LASTEXITCODE)"
@@ -213,6 +232,63 @@ try {
         }
     }
 
+    # ── New no-CRT implementer ───────────────────────────────────────────────
+    if ($BuildImplementer) {
+        if (-not (Test-Path -LiteralPath $ImplementerBuild -PathType Leaf)) {
+            throw "Implementer build script not found: $ImplementerBuild"
+        }
+
+        Write-Info "Building implementer (no CRT)..."
+        & $ImplementerBuild `
+            -Configuration $Configuration `
+            -CrtMode None `
+            -OutputDir $BinDir `
+            -Clean `
+            -NoReceipt
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to build implementer (exit code $LASTEXITCODE)"
+        }
+
+        $implementerExe = Join-Path $BinDir "implementer.exe"
+        if (-not (Test-Path -LiteralPath $implementerExe -PathType Leaf)) {
+            throw "implementer.exe was not staged to $BinDir"
+        }
+        Write-Success "Built implementer -> bin\implementer.exe"
+
+        if (-not (Test-Path -LiteralPath $ProjectConfig -PathType Leaf)) {
+            throw "Project config not found: $ProjectConfig"
+        }
+        $env:KVC_ROOT = $ProjectRoot
+        Copy-Item -LiteralPath $ProjectConfig -Destination $BinConfig -Force
+        $configText = [IO.File]::ReadAllText($BinConfig)
+        $expandedConfig = [Environment]::ExpandEnvironmentVariables($configText)
+        [IO.File]::WriteAllText(
+            $BinConfig,
+            $expandedConfig,
+            [Text.UTF8Encoding]::new($false)
+        )
+        & $implementerExe pack --config $BinConfig
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $KvcBitmapPath -PathType Leaf)) {
+            throw "Failed to build KVC bitmap payload"
+        }
+        Write-Success "Built KVC bitmap -> kvc\ICON\kvc.bmp"
+
+        $implementerBuildDir = Join-Path $ProjectRoot "Implementer\build"
+        if (Test-Path -LiteralPath $implementerBuildDir) {
+            Remove-Item -LiteralPath $implementerBuildDir -Recurse -Force
+            Write-Step "Removed Implementer\build\"
+        }
+    }
+
+    # ── KVC executable last, after payload tools are staged ─────────────────
+    if ($BuildKvc) {
+        $kvcProject = @{
+            Name = "kvc"
+            Path = "kvc\kvc.vcxproj"
+        }
+        Build-UsermodeProject -Project $kvcProject -MsBuild $msbuild -SourceDateEpoch $epoch
+    }
+
     # ── Remove obj\ intermediate directory ──────────────────────────────────
     $objRoot = Join-Path $ProjectRoot "obj"
     if (Test-Path -LiteralPath $objRoot) {
@@ -221,9 +297,14 @@ try {
     }
 
     # ── Stamp ALL bin\ files to fixed timestamp ──────────────────────────────
-    $binFiles = Get-ChildItem -LiteralPath $BinDir -File
-    if ($binFiles) {
-        $needsStamp = @($binFiles |
+    $outputFiles = @(
+        Get-ChildItem -LiteralPath $BinDir -File -ErrorAction SilentlyContinue
+        Get-Item -LiteralPath (Join-Path $StandalonePassBinDir "kvc_pass.exe"),
+                            (Join-Path $StandalonePassBinDir "kvc_crypt.dll") `
+            -ErrorAction SilentlyContinue
+    )
+    if ($outputFiles) {
+        $needsStamp = @($outputFiles |
             Where-Object { $_.LastWriteTime -ne $fixedTimestamp } |
             Select-Object -ExpandProperty FullName)
         if ($needsStamp) {

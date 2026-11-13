@@ -1,14 +1,18 @@
 // CommunicationLayer.cpp - Console and pipe communication implementation
 #include "CommunicationLayer.h"
+#include "RuntimeSupport.h"
 #include "syscalls.h"
 #include <ShlObj.h>
 #include <Rpc.h>
-#include <iostream>
-#include <algorithm>
 
 #pragma comment(lib, "Rpcrt4.lib")
 
 constexpr DWORD MODULE_COMPLETION_TIMEOUT_MS = 60000;
+constexpr DWORD DATABASE_READY_TIMEOUT_MS = 30000;
+constexpr DWORD PIPE_POLL_INTERVAL_MS = 10;
+constexpr const char* DATABASE_READY_SIGNAL = "__DB_READY__";
+constexpr const char* DATABASE_READY_ACK = "DB_READY_ACK";
+constexpr const char* MODULE_COMPLETION_SIGNAL = "__DLL_PIPE_COMPLETION_SIGNAL__";
 
 #ifndef NT_SUCCESS
 #define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
@@ -17,52 +21,40 @@ constexpr DWORD MODULE_COMPLETION_TIMEOUT_MS = 60000;
 // Utility function implementations
 namespace Utils
 {
-    std::string u8string_to_string(const std::u8string& u8str) noexcept
+    std::string path_to_api_string(std::wstring_view path)
     {
-        return {reinterpret_cast<const char*>(u8str.c_str()), u8str.size()};
-    }
-
-    std::string path_to_api_string(const fs::path& path)
-    {
-        return u8string_to_string(path.u8string());
+        return kvc::text::WideToUtf8(path);
     }
     
-    fs::path GetLocalAppDataPath()
+    std::wstring GetLocalAppDataPath()
     {
         PWSTR path = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &path)))
         {
-            fs::path result = path;
+            std::wstring result = path;
             CoTaskMemFree(path);
             return result;
         }
-        throw std::runtime_error("Failed to get Local AppData path.");
+        return {};
     }
 
     std::string WStringToUtf8(std::wstring_view w_sv)
     {
-        if (w_sv.empty()) return {};
-
-        int size_needed = WideCharToMultiByte(CP_UTF8, 0, w_sv.data(), static_cast<int>(w_sv.length()),
-                                            nullptr, 0, nullptr, nullptr);
-        std::string utf8_str(size_needed, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, w_sv.data(), static_cast<int>(w_sv.length()),
-                          &utf8_str[0], size_needed, nullptr, nullptr);
-        return utf8_str;
+        return kvc::text::WideToUtf8(w_sv);
     }
 
     std::string PtrToHexStr(const void* ptr) noexcept
     {
-        std::ostringstream oss;
-        oss << "0x" << std::hex << reinterpret_cast<uintptr_t>(ptr);
-        return oss.str();
+        std::string result;
+        kvc::text::AppendHex(result, reinterpret_cast<uintptr_t>(ptr), true);
+        return result;
     }
 
     std::string NtStatusToString(NTSTATUS status) noexcept
     {
-        std::ostringstream oss;
-        oss << "0x" << std::hex << status;
-        return oss.str();
+        std::string result;
+        kvc::text::AppendHex(result, static_cast<std::uint32_t>(status), true);
+        return result;
     }
 
     std::wstring GenerateUniquePipeName()
@@ -71,7 +63,9 @@ namespace Utils
         UuidCreate(&uuid);
         wchar_t* uuidStrRaw = nullptr;
         UuidToStringW(&uuid, (RPC_WSTR*)&uuidStrRaw);
-        std::wstring pipeName = L"\\\\.\\pipe\\" + std::wstring(uuidStrRaw);
+        std::wstring pipeName = L"\\\\.\\pipe\\";
+        if (uuidStrRaw)
+            pipeName.append(uuidStrRaw);
         RpcStringFreeW((RPC_WSTR*)&uuidStrRaw);
         return pipeName;
     }
@@ -80,7 +74,8 @@ namespace Utils
     {
         if (str.empty()) return str;
         std::string result = str;
-        result[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(result[0])));
+        if (result[0] >= 'a' && result[0] <= 'z')
+            result[0] = static_cast<char>(result[0] - ('a' - 'A'));
         return result;
     }
 }
@@ -111,7 +106,7 @@ void Console::Relay(const std::string& message) const
     
     if (tagStart != std::string::npos && tagEnd != std::string::npos)
     {
-        std::cout << message.substr(0, tagStart);
+        kvc::console::WriteUtf8(m_hConsole, std::string_view(message).substr(0, tagStart));
         std::string tag = message.substr(tagStart, tagEnd - tagStart + 1);
 
         WORD color = m_originalAttributes;
@@ -121,22 +116,31 @@ void Console::Relay(const std::string& message) const
         else if (tag == "[!]") color = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
 
         SetColor(color);
-        std::cout << tag;
+        kvc::console::WriteUtf8(m_hConsole, tag);
         ResetColor();
-        std::cout << message.substr(tagEnd + 1) << std::endl;
+        kvc::console::WriteUtf8(m_hConsole, std::string_view(message).substr(tagEnd + 1));
+        kvc::console::WriteUtf8(m_hConsole, "\n");
     }
     else
     {
-        std::cout << message << std::endl;
+        kvc::console::WriteUtf8(m_hConsole, message);
+        kvc::console::WriteUtf8(m_hConsole, "\n");
     }
 }
 
 void Console::print(const std::string& tag, const std::string& msg, WORD color) const
 {
     SetColor(color);
-    std::cout << tag;
+    kvc::console::WriteUtf8(m_hConsole, tag);
     ResetColor();
-    std::cout << " " << msg << std::endl;
+    kvc::console::WriteUtf8(m_hConsole, " ");
+    kvc::console::WriteUtf8(m_hConsole, msg);
+    kvc::console::WriteUtf8(m_hConsole, "\n");
+}
+
+void Console::BlankLine() const
+{
+    kvc::console::WriteUtf8(m_hConsole, "\n");
 }
 
 void Console::SetColor(WORD attributes) const noexcept { SetConsoleTextAttribute(m_hConsole, attributes); }
@@ -146,126 +150,217 @@ void Console::ResetColor() const noexcept { SetConsoleTextAttribute(m_hConsole, 
 PipeCommunicator::PipeCommunicator(const std::wstring& pipeName, const Console& console) 
     : m_pipeName(pipeName), m_console(console) {}
 
-void PipeCommunicator::create()
+bool PipeCommunicator::create(std::string& error)
 {
-    m_pipeHandle.reset(CreateNamedPipeW(m_pipeName.c_str(), PIPE_ACCESS_DUPLEX,
-                                      PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                                      1, 65536, 65536, 0, nullptr));
-    if (!m_pipeHandle)
-        throw std::runtime_error("CreateNamedPipeW failed. Error: " + std::to_string(GetLastError()));
+    HANDLE pipe = CreateNamedPipeW(m_pipeName.c_str(), PIPE_ACCESS_DUPLEX,
+                                   PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                                   1, 65536, 65536, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE)
+    {
+        error = "CreateNamedPipeW failed. Error: ";
+        kvc::text::AppendUnsigned(error, GetLastError());
+        return false;
+    }
+    m_pipeHandle.reset(pipe);
 
     m_console.Debug("Named pipe server created: " + Utils::WStringToUtf8(m_pipeName));
+    return true;
 }
 
-void PipeCommunicator::waitForClient()
+bool PipeCommunicator::waitForClient(std::string& error)
 {
     m_console.Debug("Waiting for security module to connect to named pipe.");
     if (!ConnectNamedPipe(m_pipeHandle.get(), nullptr) && GetLastError() != ERROR_PIPE_CONNECTED)
-        throw std::runtime_error("ConnectNamedPipe failed. Error: " + std::to_string(GetLastError()));
+    {
+        error = "ConnectNamedPipe failed. Error: ";
+        kvc::text::AppendUnsigned(error, GetLastError());
+        return false;
+    }
 
     m_console.Debug("Security module connected to named pipe.");
+    return true;
 }
 
-void PipeCommunicator::sendInitialData(bool isVerbose, const fs::path& outputPath, const std::vector<uint8_t>& edgeDpapiKey)
+bool PipeCommunicator::sendInitialData(bool isVerbose, std::wstring_view outputPath,
+                                       const std::vector<uint8_t>& edgeDpapiKey,
+                                       std::string& error)
 {
-    writeMessage(isVerbose ? "VERBOSE_TRUE" : "VERBOSE_FALSE");
-    writeMessage(Utils::path_to_api_string(outputPath));
+    if (!writeMessage(isVerbose ? "VERBOSE_TRUE" : "VERBOSE_FALSE", error))
+        return false;
+    if (!writeMessage(Utils::path_to_api_string(outputPath), error))
+        return false;
     
     // Send DPAPI key as hex string (or "NONE" if empty)
     if (!edgeDpapiKey.empty())
     {
-        std::ostringstream oss;
-        oss << std::hex << std::setfill('0');
+        std::string key;
+        key.reserve(10 + edgeDpapiKey.size() * 2);
+        key.append("DPAPI_KEY:");
         for (uint8_t byte : edgeDpapiKey)
-            oss << std::setw(2) << static_cast<int>(byte);
-        writeMessage("DPAPI_KEY:" + oss.str());
+            kvc::text::AppendUnsigned(key, byte, 16, 2);
+        return writeMessage(key, error);
     }
-    else
+    return writeMessage("DPAPI_KEY:NONE", error);
+}
+
+bool PipeCommunicator::waitForDatabaseReady(std::string& error)
+{
+    m_console.Debug("Waiting for security module to decrypt its database key.");
+    const DWORD startTime = GetTickCount();
+
+    while (GetTickCount() - startTime < DATABASE_READY_TIMEOUT_MS)
     {
-        writeMessage("DPAPI_KEY:NONE");
+        const DWORD elapsed = GetTickCount() - startTime;
+        const DWORD remaining = elapsed < DATABASE_READY_TIMEOUT_MS
+                                    ? DATABASE_READY_TIMEOUT_MS - elapsed
+                                    : 0;
+        std::string message;
+        bool timedOut = false;
+        if (!readMessage(message, remaining, error, timedOut))
+        {
+            if (timedOut)
+                error = "Timed out waiting for database-ready signal.";
+            if (!error.empty())
+                m_console.Error(error);
+            return false;
+        }
+
+        if (message == DATABASE_READY_SIGNAL)
+        {
+            m_console.Debug("Security module is ready for database access.");
+            return true;
+        }
+
+        if (message == MODULE_COMPLETION_SIGNAL)
+        {
+            error = "Security module ended before requesting database access.";
+            m_console.Error(error);
+            return false;
+        }
+
+        parseExtractionMessage(message);
+        if (!message.empty())
+            m_console.Relay(message);
     }
+
+    error = "Timed out waiting for database-ready signal.";
+    m_console.Error(error);
+    return false;
+}
+
+bool PipeCommunicator::acknowledgeDatabaseReady(std::string& error)
+{
+    if (!writeMessage(DATABASE_READY_ACK, error))
+        return false;
+    m_console.Debug("Security module released to open browser databases.");
+    return true;
 }
 
 void PipeCommunicator::relayMessages()
 {
-    m_console.Debug("Waiting for security module execution. (Pipe: " + Utils::WStringToUtf8(m_pipeName) + ")");
+    m_console.Debug("Waiting for security module execution. (Pipe: " +
+                    Utils::WStringToUtf8(m_pipeName) + ")");
 
-    std::cout << std::endl;
+    m_console.BlankLine();
 
-    const std::string moduleCompletionSignal = "__DLL_PIPE_COMPLETION_SIGNAL__";
-    DWORD startTime = GetTickCount();
-    std::string accumulatedData;
-    char buffer[4096];
-    bool completed = false;
-
-    while (!completed && (GetTickCount() - startTime < MODULE_COMPLETION_TIMEOUT_MS))
+    const DWORD startTime = GetTickCount();
+    while (GetTickCount() - startTime < MODULE_COMPLETION_TIMEOUT_MS)
     {
-        DWORD bytesAvailable = 0;
-        if (!PeekNamedPipe(m_pipeHandle.get(), nullptr, 0, nullptr, &bytesAvailable, nullptr))
+        const DWORD elapsed = GetTickCount() - startTime;
+        const DWORD remaining = elapsed < MODULE_COMPLETION_TIMEOUT_MS
+                                    ? MODULE_COMPLETION_TIMEOUT_MS - elapsed
+                                    : 0;
+        std::string message;
+        std::string error;
+        bool timedOut = false;
+        if (!readMessage(message, remaining, error, timedOut))
         {
-            if (GetLastError() == ERROR_BROKEN_PIPE)
-                break;
-            m_console.Error("PeekNamedPipe failed. Error: " + std::to_string(GetLastError()));
+            if (!timedOut && !error.empty())
+                m_console.Error(error);
             break;
         }
 
-        if (bytesAvailable == 0)
+        if (message == MODULE_COMPLETION_SIGNAL)
         {
-            Sleep(100);
-            continue;
-        }
-
-        DWORD bytesRead = 0;
-        if (!ReadFile(m_pipeHandle.get(), buffer, sizeof(buffer) - 1, &bytesRead, nullptr) || bytesRead == 0)
-        {
-            if (GetLastError() == ERROR_BROKEN_PIPE)
-                break;
-            continue;
-        }
-
-        accumulatedData.append(buffer, bytesRead);
-
-        size_t messageStart = 0;
-        size_t nullPos;
-        while ((nullPos = accumulatedData.find('\0', messageStart)) != std::string::npos)
-        {
-            std::string message = accumulatedData.substr(messageStart, nullPos - messageStart);
-            messageStart = nullPos + 1;
-
-            if (message == moduleCompletionSignal)
-            {
-                m_console.Debug("Security module completion signal received.");
-                completed = true;
-                break;
-            }
-
-            parseExtractionMessage(message);
-
-            if (!message.empty())
-                m_console.Relay(message);
-        }
-        
-        if (completed)
+            m_console.Debug("Security module completion signal received.");
             break;
-            
-        accumulatedData.erase(0, messageStart);
+        }
+
+        parseExtractionMessage(message);
+        if (!message.empty())
+            m_console.Relay(message);
     }
 
-    std::cout << std::endl;
-
+    m_console.BlankLine();
     m_console.Debug("Security module signaled completion or pipe interaction ended.");
 }
 
-void PipeCommunicator::writeMessage(const std::string& msg)
+bool PipeCommunicator::readMessage(std::string& message, DWORD timeoutMs,
+                                   std::string& error, bool& timedOut)
+{
+    timedOut = false;
+    const DWORD startTime = GetTickCount();
+
+    for (;;)
+    {
+        DWORD bytesAvailable = 0;
+        if (!PeekNamedPipe(m_pipeHandle.get(), nullptr, 0, nullptr,
+                           &bytesAvailable, nullptr))
+        {
+            if (GetLastError() == ERROR_BROKEN_PIPE)
+            {
+                error = "Security module closed the pipe.";
+                return false;
+            }
+
+            error = "PeekNamedPipe failed. Error: ";
+            kvc::text::AppendUnsigned(error, GetLastError());
+            return false;
+        }
+
+        if (bytesAvailable > 0)
+        {
+            std::vector<char> buffer(bytesAvailable);
+            DWORD bytesRead = 0;
+            if (!ReadFile(m_pipeHandle.get(), buffer.data(), bytesAvailable,
+                          &bytesRead, nullptr) || bytesRead == 0)
+            {
+                error = "ReadFile from pipe failed. Error: ";
+                kvc::text::AppendUnsigned(error, GetLastError());
+                return false;
+            }
+
+            message.assign(buffer.data(), bytesRead);
+            if (!message.empty() && message.back() == '\0')
+                message.pop_back();
+            return true;
+        }
+
+        if (GetTickCount() - startTime >= timeoutMs)
+        {
+            timedOut = true;
+            return false;
+        }
+
+        Sleep(PIPE_POLL_INTERVAL_MS);
+    }
+}
+
+bool PipeCommunicator::writeMessage(const std::string& msg, std::string& error)
 {
     DWORD bytesWritten = 0;
     if (!WriteFile(m_pipeHandle.get(), msg.c_str(), static_cast<DWORD>(msg.length() + 1), &bytesWritten, nullptr) ||
         bytesWritten != (msg.length() + 1))
-        throw std::runtime_error("WriteFile to pipe failed for message: " + msg);
+    {
+        error = "WriteFile to pipe failed. Error: ";
+        kvc::text::AppendUnsigned(error, GetLastError());
+        return false;
+    }
 
     FlushFileBuffers(m_pipeHandle.get());
 
     m_console.Debug("Sent message to pipe: " + msg);
+    return true;
 }
 
 void PipeCommunicator::parseExtractionMessage(const std::string& message)
@@ -278,12 +373,10 @@ void PipeCommunicator::parseExtractionMessage(const std::string& message)
         size_t end = message.find(suffix, start);
         if (end == std::string::npos) return 0;
         
-        try {
-            return std::stoi(message.substr(start, end - start));
-        }
-        catch (...) {
-            return 0;
-        }
+        int value = 0;
+        return kvc::text::ParseInt(std::string_view(message).substr(start, end - start), value)
+                   ? value
+                   : 0;
     };
 
     if (message.find("Found ") != std::string::npos && message.find("profile(s)") != std::string::npos)
@@ -317,7 +410,7 @@ std::wstring BrowserPathResolver::resolve(const std::wstring& browserExeName)
     for (const auto& regPath : registryPaths)
     {
         std::wstring path = queryRegistryDefaultValue(regPath);
-        if (!path.empty() && fs::exists(path))
+        if (!path.empty() && kvc::paths::FileExists(path))
         {
             m_console.Debug("Found at: " + Utils::WStringToUtf8(path));
             return path;
@@ -352,9 +445,16 @@ std::vector<std::pair<std::wstring, std::wstring>> BrowserPathResolver::findAllI
     }
 
     if (installedBrowsers.empty())
+    {
         m_console.Warn("No supported browsers found installed on this system");
+    }
     else
-        m_console.Debug("Found " + std::to_string(installedBrowsers.size()) + " browser(s) to process");
+    {
+        std::string message = "Found ";
+        kvc::text::AppendUnsigned(message, installedBrowsers.size());
+        message.append(" browser(s) to process");
+        m_console.Debug(message);
+    }
 
     return installedBrowsers;
 }

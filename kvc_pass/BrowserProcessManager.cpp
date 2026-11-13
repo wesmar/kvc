@@ -1,7 +1,8 @@
 // BrowserProcessManager.cpp - Browser process management and cleanup operations
 #include "BrowserProcessManager.h"
+#include "RuntimeSupport.h"
 #include "syscalls.h"
-#include <stdexcept>
+#include <utility>
 
 #ifndef IMAGE_FILE_MACHINE_AMD64
 #define IMAGE_FILE_MACHINE_AMD64 0x8664
@@ -27,7 +28,7 @@ TargetProcess::TargetProcess(const Configuration& config, const Console& console
     : m_config(config), m_console(console) {}
 
 // Creates suspended browser process for safe injection
-void TargetProcess::createSuspended()
+bool TargetProcess::createSuspended(std::string& error)
 {
     m_console.Debug("Creating suspended " + m_config.browserDisplayName + " process.");
     m_console.Debug("Target executable path: " + Utils::WStringToUtf8(m_config.browserDefaultExePath));
@@ -38,14 +39,20 @@ void TargetProcess::createSuspended()
 
     if (!CreateProcessW(m_config.browserDefaultExePath.c_str(), nullptr, nullptr, nullptr,
                        FALSE, CREATE_SUSPENDED, nullptr, nullptr, &si, &pi))
-        throw std::runtime_error("CreateProcessW failed. Error: " + std::to_string(GetLastError()));
+    {
+        error = "CreateProcessW failed. Error: ";
+        kvc::text::AppendUnsigned(error, GetLastError());
+        return false;
+    }
 
     m_hProcess.reset(pi.hProcess);
     m_hThread.reset(pi.hThread);
     m_pid = pi.dwProcessId;
 
-    m_console.Debug("Created suspended process PID: " + std::to_string(m_pid));
-    checkArchitecture();
+    std::string message = "Created suspended process PID: ";
+    kvc::text::AppendUnsigned(message, m_pid);
+    m_console.Debug(message);
+    return checkArchitecture(error);
 }
 
 // Terminates target process via direct syscall
@@ -53,29 +60,39 @@ void TargetProcess::terminate()
 {
     if (m_hProcess)
     {
-        m_console.Debug("Terminating browser PID=" + std::to_string(m_pid) + " via direct syscall.");
+        std::string message = "Terminating browser PID=";
+        kvc::text::AppendUnsigned(message, m_pid);
+        message.append(" via direct syscall.");
+        m_console.Debug(message);
         NtTerminateProcess_syscall(m_hProcess.get(), 0);
         m_console.Debug(m_config.browserDisplayName + " terminated by orchestrator.");
     }
 }
 
 // Validates matching x64 architecture
-void TargetProcess::checkArchitecture()
+bool TargetProcess::checkArchitecture(std::string& error)
 {
     USHORT processArch = 0, nativeMachine = 0;
     auto fnIsWow64Process2 = (decltype(&IsWow64Process2))GetProcAddress(
         GetModuleHandleW(L"kernel32.dll"), "IsWow64Process2");
     if (!fnIsWow64Process2 || !fnIsWow64Process2(m_hProcess.get(), &processArch, &nativeMachine))
-        throw std::runtime_error("Failed to determine target process architecture.");
+    {
+        error = "Failed to determine target process architecture.";
+        return false;
+    }
 
     m_arch = (processArch == IMAGE_FILE_MACHINE_UNKNOWN) ? nativeMachine : processArch;
     constexpr USHORT orchestratorArch = IMAGE_FILE_MACHINE_AMD64;
 
     if (m_arch != orchestratorArch)
-        throw std::runtime_error("Architecture mismatch. Orchestrator is x64 but target is " + 
-                               std::string(getArchName(m_arch)));
+    {
+        error = "Architecture mismatch. Orchestrator is x64 but target is ";
+        error.append(getArchName(m_arch));
+        return false;
+    }
 
     m_console.Debug("Architecture match: Orchestrator=x64, Target=" + std::string(getArchName(m_arch)));
+    return true;
 }
 
 // Returns human-readable architecture name
@@ -111,8 +128,8 @@ void KillBrowserProcesses(const Configuration& config, const Console& console)
             imageName->Length == 0)
             continue;
 
-        fs::path p(std::wstring(imageName->Buffer, imageName->Length / sizeof(wchar_t)));
-        if (_wcsicmp(p.filename().c_str(), config.browserProcessName.c_str()) != 0)
+        const std::wstring imagePath(imageName->Buffer, imageName->Length / sizeof(wchar_t));
+        if (!kvc::text::IEqualsWide(kvc::paths::FileName(imagePath), config.browserProcessName))
             continue;
         
         PROCESS_BASIC_INFORMATION pbi{};
@@ -121,22 +138,28 @@ void KillBrowserProcesses(const Configuration& config, const Console& console)
             !pbi.PebBaseAddress)
             continue;
 
-        console.Debug("Found and terminated browser process PID: " + std::to_string((DWORD)pbi.UniqueProcessId));
+        std::string message = "Found and terminated browser process PID: ";
+        kvc::text::AppendUnsigned(message, static_cast<DWORD>(pbi.UniqueProcessId));
+        console.Debug(message);
         NtTerminateProcess_syscall(hCurrentProc.get(), 0);
         processes_terminated++;
     }
 
     if (processes_terminated > 0)
     {
-        console.Debug("Terminated " + std::to_string(processes_terminated) + " browser processes. Waiting for file locks to release.");
+        std::string message = "Terminated ";
+        kvc::text::AppendSigned(message, processes_terminated);
+        message.append(" browser processes. Waiting for file locks to release.");
+        console.Debug(message);
         Sleep(2000); 
     }
 }
 
-// Terminates browser network service processes that hold database locks
-void KillBrowserNetworkService(const Configuration& config, const Console& console)
+// Terminates Chromium services that hold browser database handles.
+void KillBrowserNetworkService(const Configuration& config, const Console& console,
+                               bool waitForGracePeriod)
 {
-    console.Debug("Scanning for and terminating browser network services...");
+    console.Debug("Scanning for and terminating browser database services...");
 
     UniqueHandle hCurrentProc;
     HANDLE nextProcHandle = nullptr;
@@ -155,8 +178,8 @@ void KillBrowserNetworkService(const Configuration& config, const Console& conso
             imageName->Length == 0)
             continue;
 
-        fs::path p(std::wstring(imageName->Buffer, imageName->Length / sizeof(wchar_t)));
-        if (_wcsicmp(p.filename().c_str(), config.browserProcessName.c_str()) != 0)
+        const std::wstring imagePath(imageName->Buffer, imageName->Length / sizeof(wchar_t));
+        if (!kvc::text::IEqualsWide(kvc::paths::FileName(imagePath), config.browserProcessName))
             continue;
         
         PROCESS_BASIC_INFORMATION pbi{};
@@ -179,18 +202,28 @@ void KillBrowserNetworkService(const Configuration& config, const Console& conso
                                                    cmdLine.data(), params.CommandLine.Length, nullptr)))
             continue;
         
-        if (wcsstr(cmdLine.data(), L"--utility-sub-type=network.mojom.NetworkService"))
+        const bool isNetworkService = kvc::text::Contains(
+            cmdLine.data(), L"--utility-sub-type=network.mojom.NetworkService");
+        const bool isStorageService = kvc::text::Contains(
+            cmdLine.data(), L"--utility-sub-type=storage.mojom.StorageService");
+        if (isNetworkService || isStorageService)
         {
-            console.Debug("Found and terminated network service PID: " + std::to_string((DWORD)pbi.UniqueProcessId));
+            std::string message = isStorageService
+                                      ? "Found and terminated storage service PID: "
+                                      : "Found and terminated network service PID: ";
+            kvc::text::AppendUnsigned(message, static_cast<DWORD>(pbi.UniqueProcessId));
+            console.Debug(message);
             NtTerminateProcess_syscall(hCurrentProc.get(), 0);
+            WaitForSingleObject(hCurrentProc.get(), 2000);
             processes_terminated++;
         }
     }
 
     if (processes_terminated > 0)
     {
-        console.Debug("Termination sweep complete. Waiting for file locks to fully release.");
-        Sleep(1500);
+        console.Debug("Termination sweep complete.");
+        if (waitForGracePeriod)
+            Sleep(1500);
     }
 }
 

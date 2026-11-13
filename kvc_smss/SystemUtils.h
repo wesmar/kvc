@@ -15,9 +15,9 @@ extern BOOLEAN g_VerboseMode;
 
 void* memset_impl(void* dest, int c, SIZE_T count);
 void* memcpy_impl(void* dest, const void* src, SIZE_T count);
-SIZE_T wcslen(const WCHAR* str);
-WCHAR* wcscpy(WCHAR* dest, const WCHAR* src);
-WCHAR* wcscat(WCHAR* dest, const WCHAR* src);
+SIZE_T wcslen_impl(const WCHAR* str);
+WCHAR* wcscpy_impl(WCHAR* dest, const WCHAR* src);
+WCHAR* wcscat_impl(WCHAR* dest, const WCHAR* src);
 int _wcsicmp_impl(const WCHAR* str1, const WCHAR* str2);
 // Safe string operations with bounds checking
 // All size parameters are in WCHAR count (not bytes)

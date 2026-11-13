@@ -39,20 +39,20 @@ void* memcpy_impl(void* dest, const void* src, SIZE_T count) {
     return dest;
 }
 
-SIZE_T wcslen(const WCHAR* str) {
+SIZE_T wcslen_impl(const WCHAR* str) {
     const WCHAR* s = str;
     while (*s) s++;
     return s - str;
 }
 
-WCHAR* wcscpy(WCHAR* dest, const WCHAR* src) {
+WCHAR* wcscpy_impl(WCHAR* dest, const WCHAR* src) {
     WCHAR* d = dest;
     while ((*d++ = *src++) != 0);
     return dest;
 }
 
-WCHAR* wcscat(WCHAR* dest, const WCHAR* src) {
-    WCHAR* d = dest + wcslen(dest);
+WCHAR* wcscat_impl(WCHAR* dest, const WCHAR* src) {
+    WCHAR* d = dest + wcslen_impl(dest);
     while ((*d++ = *src++) != 0);
     return dest;
 }
@@ -86,7 +86,7 @@ SIZE_T wcsnlen_safe(const WCHAR* str, SIZE_T maxLen) {
 // Result is always null-terminated if destSize > 0
 SIZE_T wcscpy_safe(WCHAR* dest, SIZE_T destSize, const WCHAR* src) {
     if (!dest || destSize == 0) {
-        return src ? wcslen(src) : 0;
+        return src ? wcslen_impl(src) : 0;
     }
     
     if (!src) {
@@ -94,7 +94,7 @@ SIZE_T wcscpy_safe(WCHAR* dest, SIZE_T destSize, const WCHAR* src) {
         return 0;
     }
     
-    SIZE_T srcLen = wcslen(src);
+    SIZE_T srcLen = wcslen_impl(src);
     SIZE_T copyLen = (srcLen < destSize - 1) ? srcLen : (destSize - 1);
     
     SIZE_T i;
@@ -111,7 +111,7 @@ SIZE_T wcscpy_safe(WCHAR* dest, SIZE_T destSize, const WCHAR* src) {
 // Result is always null-terminated if destSize > 0
 SIZE_T wcscat_safe(WCHAR* dest, SIZE_T destSize, const WCHAR* src) {
     if (!dest || destSize == 0) {
-        return src ? wcslen(src) : 0;
+        return src ? wcslen_impl(src) : 0;
     }
     
     if (!src) {
@@ -120,7 +120,7 @@ SIZE_T wcscat_safe(WCHAR* dest, SIZE_T destSize, const WCHAR* src) {
     
     // Use bounded length check in case dest is not properly terminated
     SIZE_T destLen = wcsnlen_safe(dest, destSize);
-    SIZE_T srcLen = wcslen(src);
+    SIZE_T srcLen = wcslen_impl(src);
     
     // If dest already fills buffer, cannot append
     if (destLen >= destSize - 1) {
@@ -144,7 +144,7 @@ BOOLEAN wcscat_check(WCHAR* dest, SIZE_T destSize, const WCHAR* src) {
     if (!dest || !src || destSize == 0) return FALSE;
     
     SIZE_T destLen = wcsnlen_safe(dest, destSize);
-    SIZE_T srcLen = wcslen(src);
+    SIZE_T srcLen = wcslen_impl(src);
     
     // Check overflow protection: destLen + srcLen + 1 <= destSize
     if (destLen >= destSize) return FALSE;
@@ -193,10 +193,10 @@ void TrimString(PWSTR str) {
     while (*semicolon && *semicolon != L';') semicolon++;
     if (*semicolon == L';') *semicolon = 0;
     
-    end = start + wcslen(start) - 1;
+    end = start + wcslen_impl(start) - 1;
     while (end > start && (*end == L' ' || *end == L'\t' || *end == L'\r' || *end == L'\n')) end--;
     *(end + 1) = 0;
-    if (start != str) wcscpy(str, start);
+    if (start != str) wcscpy_impl(str, start);
 }
 
 BOOLEAN StringToULONGLONG(PCWSTR str, ULONGLONG* out) {

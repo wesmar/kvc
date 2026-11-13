@@ -12,23 +12,26 @@
 class InjectionManager
 {
 public:
-    InjectionManager(TargetProcess& target, const Console& console);
+    InjectionManager(TargetProcess& target, const Console& console,
+                     std::wstring securityModulePath);
 
     // Performs complete injection workflow: load, parse, inject, execute
-    void execute(const std::wstring& pipeName);
+    bool execute(const std::wstring& pipeName, std::string& error);
 
 private:
     // Loads security module from disk into memory buffer
-    void loadSecurityModuleFromFile(const std::string& modulePath);
+    bool loadSecurityModuleFromFile(std::string& error);
 
     // Parses PE export table to find entry point offset
     DWORD getInitializeSecurityContextOffset();
 
     // Creates remote thread to execute injected code
-    void startSecurityThreadInTarget(PVOID remoteModuleBase, DWORD rdiOffset, PVOID remotePipeNameAddr);
+    bool startSecurityThreadInTarget(PVOID remoteModuleBase, DWORD rdiOffset,
+                                     PVOID remotePipeNameAddr, std::string& error);
 
     TargetProcess& m_target;
     const Console& m_console;
+    std::wstring m_securityModulePath;
     std::vector<BYTE> m_moduleBuffer;
 };
 

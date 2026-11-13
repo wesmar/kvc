@@ -4,11 +4,8 @@
 
 #include <Windows.h>
 #include <string>
-#include <filesystem>
 #include <optional>
 #include "CommunicationModule.h"
-
-namespace fs = std::filesystem;
 
 namespace SecurityComponents
 {
@@ -19,15 +16,16 @@ namespace SecurityComponents
         explicit SecurityOrchestrator(LPCWSTR lpcwstrPipeName);
 
         // Executes full analysis: key decryption, profile enumeration, data extraction
-        void Run();
+        bool Initialize(std::string& error);
+        bool Run(std::string& error);
 
     private:
         // Reads configuration parameters from orchestrator via pipe
-        void ReadPipeParameters();
+        bool ReadPipeParameters(std::string& error);
 
         std::optional<PipeLogger> m_logger;
-        fs::path m_outputPath;
-		std::vector<uint8_t> m_edgeDpapiKey;
+        std::wstring m_outputPath;
+        std::vector<uint8_t> m_edgeDpapiKey;
     };
 }
 

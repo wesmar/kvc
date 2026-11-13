@@ -1,0 +1,258 @@
+#==============================================================================
+# KVC Remote Installer
+# Downloads, decrypts and installs KVC Framework
+# Usage: irm https://github.com/wesmar/kvc/releases/download/latest/run | iex
+# Requires: Administrator privileges
+#==============================================================================
+
+$ErrorActionPreference = "Stop"
+
+# Configuration - primary GitHub Releases with kvc.pl fallback
+$DownloadUrls = @(
+    "https://github.com/wesmar/kvc/releases/download/latest/kvc.enc",
+    "https://kvc.pl/kvc.enc"
+)
+$TempDir   = [System.IO.Path]::GetTempPath()
+$OutputExe = [System.IO.Path]::Combine($TempDir, "kvc.exe")
+$OutputDat = [System.IO.Path]::Combine($TempDir, "kvc.dat")
+
+# XOR key (7-byte repeating key matching framework specification)
+$XorKey = [byte[]]@(0xA0, 0xE2, 0x80, 0x8B, 0xE2, 0x80, 0x8C)
+
+function Write-Status {
+    param([string]$Message)
+    Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] $Message" -ForegroundColor Green
+}
+
+function Write-Error-Status {
+    param([string]$Message)
+    Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] ERROR: $Message" -ForegroundColor Red
+}
+
+function Write-Warning-Status {
+    param([string]$Message)
+    Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] WARNING: $Message" -ForegroundColor Yellow
+}
+
+# XOR decrypt buffer with repeating key
+function Invoke-XorDecryption {
+    param(
+        [Parameter(Mandatory)][byte[]]$Data,
+        [Parameter(Mandatory)][byte[]]$Key
+    )
+    Write-Status "Decrypting package ($($Data.Length) bytes)..."
+    $keyLen = $Key.Length
+    $dataLen = $Data.Length
+    $decrypted = New-Object byte[] $dataLen
+
+    for ($i = 0; $i -lt $dataLen; $i++) {
+        $decrypted[$i] = $Data[$i] -bxor $Key[$i % $keyLen]
+    }
+    return ,$decrypted
+}
+
+# Parse PE headers and determine exact executable file size (including Authenticode)
+function Get-PEFileSize {
+    param([Parameter(Mandatory)][byte[]]$Data)
+
+    try {
+        if ($Data.Length -lt 0x40 -or $Data[0] -ne 0x4D -or $Data[1] -ne 0x5A) {
+            throw "Invalid DOS header signature"
+        }
+
+        $peOffset = [BitConverter]::ToUInt32($Data, 0x3C)
+        if (($peOffset + 4) -gt $Data.Length) {
+            throw "PE offset out of bounds"
+        }
+
+        if ($Data[$peOffset] -ne 0x50 -or $Data[$peOffset + 1] -ne 0x45) {
+            throw "Invalid PE signature"
+        }
+
+        $coffOffset = $peOffset + 4
+        $sectionCount = [BitConverter]::ToUInt16($Data, $coffOffset + 2)
+        $optHeaderSize = [BitConverter]::ToUInt16($Data, $coffOffset + 16)
+        $sectionTableOffset = $coffOffset + 20 + $optHeaderSize
+
+        $maxSectionEnd = 0
+        for ($i = 0; $i -lt $sectionCount; $i++) {
+            $sh = $sectionTableOffset + ($i * 40)
+            if (($sh + 40) -gt $Data.Length) { break }
+
+            $rawSize = [BitConverter]::ToUInt32($Data, $sh + 16)
+            $rawPtr  = [BitConverter]::ToUInt32($Data, $sh + 20)
+            if ($rawPtr -eq 0) { continue }
+
+            $end = $rawPtr + $rawSize
+            if ($end -gt $maxSectionEnd) {
+                $maxSectionEnd = $end
+            }
+        }
+
+        # Account for Authenticode certificate table (IMAGE_DIRECTORY_ENTRY_SECURITY)
+        $optHeaderOffset = $coffOffset + 20
+        if (($optHeaderOffset + 2) -le $Data.Length) {
+            $magic = [BitConverter]::ToUInt16($Data, $optHeaderOffset)
+            # PE32+ (x64) = 0x20B (data dir offset 112); PE32 (x86) = 0x10B (data dir offset 96)
+            $dataDirOffset = if ($magic -eq 0x20B) { $optHeaderOffset + 112 } else { $optHeaderOffset + 96 }
+            $secDirOffset  = $dataDirOffset + (4 * 8) # index 4: SECURITY directory
+
+            if (($secDirOffset + 8) -le $Data.Length) {
+                $secFileOffset = [BitConverter]::ToUInt32($Data, $secDirOffset)
+                $secSize       = [BitConverter]::ToUInt32($Data, $secDirOffset + 4)
+                if ($secFileOffset -gt 0 -and $secSize -gt 0) {
+                    $certEnd = $secFileOffset + $secSize
+                    if ($certEnd -gt $maxSectionEnd) {
+                        $maxSectionEnd = $certEnd
+                    }
+                }
+            }
+        }
+
+        return $maxSectionEnd
+    }
+    catch {
+        Write-Error-Status "PE parsing failed: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Download helper with curl fallback to .NET WebClient
+function Get-RemotePackage {
+    param([string[]]$Urls)
+
+    $hasCurl = [bool](Get-Command "curl.exe" -ErrorAction SilentlyContinue)
+    $tempEnc = [System.IO.Path]::Combine($TempDir, "kvc_dl.enc")
+
+    foreach ($url in $Urls) {
+        Write-Status "Attempting download from $url..."
+
+        # Method 1: curl.exe (fast, native TLS stack)
+        if ($hasCurl) {
+            try {
+                if (Test-Path $tempEnc) { Remove-Item $tempEnc -Force -ErrorAction SilentlyContinue }
+                $p = Start-Process -FilePath "curl.exe" `
+                    -ArgumentList @("-f", "-s", "-S", "-L", "--connect-timeout", "15", "--max-time", "90", "-o", $tempEnc, $url) `
+                    -Wait -PassThru -NoNewWindow
+
+                if ($p.ExitCode -eq 0 -and (Test-Path $tempEnc) -and (Get-Item $tempEnc).Length -gt 1024) {
+                    $bytes = [System.IO.File]::ReadAllBytes($tempEnc)
+                    Remove-Item $tempEnc -Force -ErrorAction SilentlyContinue
+                    Write-Status "Download succeeded via curl ($($bytes.Length) bytes)"
+                    return ,$bytes
+                }
+            }
+            catch {
+                Write-Warning-Status "curl failed for $url - $($_.Exception.Message)"
+            }
+            finally {
+                if (Test-Path $tempEnc) { Remove-Item $tempEnc -Force -ErrorAction SilentlyContinue }
+            }
+        }
+
+        # Method 2: .NET WebClient fallback
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+            $client = New-Object System.Net.WebClient
+            try {
+                $bytes = $client.DownloadData($url)
+                if ($bytes -and $bytes.Length -gt 1024) {
+                    Write-Status "Download succeeded via .NET ($($bytes.Length) bytes)"
+                    return ,$bytes
+                }
+            }
+            finally {
+                $client.Dispose()
+            }
+        }
+        catch {
+            Write-Warning-Status ".NET download failed for $url - $($_.Exception.Message)"
+        }
+    }
+
+    return $null
+}
+
+#==============================================================================
+# MAIN EXECUTION
+#==============================================================================
+
+Write-Status "KVC Framework Remote Installer"
+
+# 1. Administrator verification
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Error-Status "Administrator privileges required. Please run PowerShell as Administrator."
+    exit 1
+}
+
+try {
+    # 2. Download package
+    [byte[]]$encBytes = Get-RemotePackage -Urls $DownloadUrls
+    if ($null -eq $encBytes -or $encBytes.Length -eq 0) {
+        throw "Failed to download package from all configured sources."
+    }
+
+    # 3. Decrypt package
+    [byte[]]$decBytes = Invoke-XorDecryption -Data $encBytes -Key $XorKey
+    $encBytes = $null # Free encrypted buffer
+
+    # 4. Determine kvc.exe boundary
+    $exeSize = Get-PEFileSize -Data $decBytes
+    if ($null -eq $exeSize -or $exeSize -le 0 -or $exeSize -ge $decBytes.Length) {
+        throw "Invalid package layout: could not determine binary boundary ($exeSize bytes)."
+    }
+
+    Write-Status "Package structure: kvc.exe ($exeSize bytes), kvc.dat ($($decBytes.Length - $exeSize) bytes)"
+
+    # 5. Extract components using fast BlockCopy (zero GC bloat)
+    [byte[]]$exeBytes = New-Object byte[] $exeSize
+    [System.Buffer]::BlockCopy($decBytes, 0, $exeBytes, 0, $exeSize)
+
+    $datSize = $decBytes.Length - $exeSize
+    [byte[]]$datBytes = New-Object byte[] $datSize
+    [System.Buffer]::BlockCopy($decBytes, $exeSize, $datBytes, 0, $datSize)
+    $decBytes = $null # Free combined buffer
+
+    # 6. Stage binaries to temp directory
+    Write-Status "Staging deployment files..."
+    [System.IO.File]::WriteAllBytes($OutputExe, $exeBytes)
+    [System.IO.File]::WriteAllBytes($OutputDat, $datBytes)
+    $exeBytes = $null
+    $datBytes = $null
+
+    if (-not (Test-Path $OutputExe) -or -not (Test-Path $OutputDat)) {
+        throw "Failed to stage binaries to temp directory."
+    }
+
+    # 7. Execute kvc setup (runs TrustedInstaller deployment + driver staging)
+    Write-Status "Launching KVC setup (System32 deployment & exclusions)..."
+    Push-Location $TempDir
+    try {
+        $setupProcess = Start-Process -FilePath $OutputExe -ArgumentList "setup" -Wait -PassThru -NoNewWindow
+        $setupExitCode = $setupProcess.ExitCode
+    }
+    finally {
+        Pop-Location
+    }
+
+    # 8. Verification and cleanup
+    if ($setupExitCode -eq 0) {
+        Write-Status "KVC Framework installed successfully to System32!"
+
+        # Remove temporary staged files
+        Remove-Item $OutputExe -Force -ErrorAction SilentlyContinue
+        Remove-Item $OutputDat -Force -ErrorAction SilentlyContinue
+        Write-Status "Temporary staging files cleaned up."
+    } else {
+        Write-Error-Status "KVC setup exited with code $setupExitCode"
+        Write-Warning-Status "Staged files retained for troubleshooting: $OutputExe, $OutputDat"
+        exit $setupExitCode
+    }
+
+    Write-Status "Installation finished. You can now run 'kvc' from any command prompt."
+}
+catch {
+    Write-Error-Status "Installation failed: $($_.Exception.Message)"
+    exit 1
+}

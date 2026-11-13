@@ -195,7 +195,7 @@ int ServiceManager::RunAsService() noexcept
     return 0;
 }
 
-VOID WINAPI ServiceManager::ServiceMain(DWORD argc, LPWSTR* argv)
+VOID WINAPI ServiceManager::ServiceMain(DWORD /*argc*/, LPWSTR* /*argv*/)
 {
     INFO(L"SERVICE: ServiceMain entry point reached");
 
@@ -296,7 +296,7 @@ VOID WINAPI ServiceManager::ServiceCtrlHandler(DWORD ctrlCode)
     }
 }
 
-DWORD WINAPI ServiceManager::ServiceWorkerThread(LPVOID param)
+DWORD WINAPI ServiceManager::ServiceWorkerThread(LPVOID /*param*/)
 {
     INFO(L"SERVICE WORKER: Thread started, running flag = %s", s_serviceRunning ? L"TRUE" : L"FALSE");
 

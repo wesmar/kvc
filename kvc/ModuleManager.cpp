@@ -156,8 +156,8 @@ void ModuleManager::PrintHexDump(const unsigned char* buffer, size_t size, ULONG
     for (size_t i = 0; i < size; i += 16) {
         // Address column
         SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        std::wcout << std::hex << std::setfill(L'0') << std::setw(8) 
-                   << static_cast<unsigned int>(i) << L": ";
+        std::wcout << std::hex << std::setfill(L'0') << std::setw(16)
+                   << static_cast<ULONG_PTR>(baseAddress + i) << L": ";
         
         // Hex values
         SetConsoleTextAttribute(hConsole, originalColor);

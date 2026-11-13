@@ -115,7 +115,7 @@ bool Controller::UnprotectProcess(DWORD pid) noexcept
 
     const auto currentProtection = GetProcessProtection(kernelAddr.value());
     if (!currentProtection || currentProtection.value() == 0) {
-        ERROR(L"PID %d is not protected", pid);
+        INFO(L"PID %d is not protected", pid);
         EndDriverSession(true);
         return false;
     }

@@ -3,12 +3,95 @@
 
 #include "ProcessListGUI.h"
 #include "Utils.h"
+#include "resource.h"
 #include <windowsx.h>
+#include <dwmapi.h>
 #include <sstream>
 #include <algorithm>
 
 // Global instance pointer for WindowProc callback
 static ProcessListWindow* g_pWindow = nullptr;
+
+namespace
+{
+    constexpr DWORD kDwmUseImmersiveDarkMode = 20;
+    constexpr DWORD kDwmUseImmersiveDarkModeLegacy = 19;
+    constexpr DWORD kDwmSystemBackdropType = 38;
+    constexpr DWORD kDwmBackdropMainWindow = 2;
+    constexpr DWORD kDwmMicaEffectLegacy = 1029;
+
+    bool IsAppDarkModeEnabled() noexcept
+    {
+        DWORD lightTheme = 1;
+        DWORD valueSize = sizeof(lightTheme);
+        const LSTATUS status = RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &lightTheme,
+            &valueSize
+        );
+        return status == ERROR_SUCCESS && lightTheme == 0;
+    }
+
+    bool EnableMicaBackdrop(HWND hwnd) noexcept
+    {
+        const DWORD backdrop = kDwmBackdropMainWindow;
+        HRESULT result = DwmSetWindowAttribute(
+            hwnd,
+            kDwmSystemBackdropType,
+            &backdrop,
+            sizeof(backdrop)
+        );
+        if (SUCCEEDED(result)) {
+            return true;
+        }
+
+        const DWORD legacyMica = 1;
+        result = DwmSetWindowAttribute(
+            hwnd,
+            kDwmMicaEffectLegacy,
+            &legacyMica,
+            sizeof(legacyMica)
+        );
+        return SUCCEEDED(result);
+    }
+
+    void ApplyDwmAppearance(HWND hwnd, bool& micaEnabled) noexcept
+    {
+        const BOOL darkMode = IsAppDarkModeEnabled() ? TRUE : FALSE;
+        HRESULT result = DwmSetWindowAttribute(
+            hwnd,
+            kDwmUseImmersiveDarkMode,
+            &darkMode,
+            sizeof(darkMode)
+        );
+        if (FAILED(result)) {
+            result = DwmSetWindowAttribute(
+                hwnd,
+                kDwmUseImmersiveDarkModeLegacy,
+                &darkMode,
+                sizeof(darkMode)
+            );
+        }
+
+        micaEnabled = EnableMicaBackdrop(hwnd);
+    }
+
+    HICON LoadApplicationIcon(int width, int height) noexcept
+    {
+        return static_cast<HICON>(LoadImageW(
+            GetModuleHandleW(nullptr),
+            MAKEINTRESOURCEW(IDI_ICON1),
+            IMAGE_ICON,
+            width,
+            height,
+            LR_DEFAULTCOLOR | LR_SHARED
+        ));
+    }
+}
 
 // Protection dialog parameter structure
 struct ProtectionParams {
@@ -95,6 +178,7 @@ ProcessListWindow::ProcessListWindow(Controller* controller)
     , m_filterProtected(false)
     , m_sortColumn(-1)
     , m_sortAscending(true)
+    , m_micaEnabled(false)
 {
     // Initialize common controls
     INITCOMMONCONTROLSEX icex;
@@ -136,12 +220,21 @@ bool ProcessListWindow::CreateMainWindow()
     const wchar_t* className = L"KVCProcessListWindow";
     
     WNDCLASSEXW wc = {};
+    HINSTANCE instance = GetModuleHandleW(nullptr);
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WindowProc;
-    wc.hInstance = GetModuleHandle(nullptr);
+    wc.hInstance = instance;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hIcon = LoadApplicationIcon(
+        GetSystemMetrics(SM_CXICON),
+        GetSystemMetrics(SM_CYICON)
+    );
+    wc.hIconSm = LoadApplicationIcon(
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON)
+    );
+    wc.hbrBackground = nullptr;
     wc.lpszClassName = className;
     
     if (!RegisterClassExW(&wc)) {
@@ -160,10 +253,24 @@ bool ProcessListWindow::CreateMainWindow()
         1400, 800,
         nullptr,
         nullptr,
-        GetModuleHandle(nullptr),
+        instance,
         this
     );
-    
+
+    if (m_hWnd) {
+        if (HICON largeIcon = LoadApplicationIcon(
+                GetSystemMetrics(SM_CXICON),
+                GetSystemMetrics(SM_CYICON))) {
+            SendMessageW(m_hWnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(largeIcon));
+        }
+        if (HICON smallIcon = LoadApplicationIcon(
+                GetSystemMetrics(SM_CXSMICON),
+                GetSystemMetrics(SM_CYSMICON))) {
+            SendMessageW(m_hWnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(smallIcon));
+        }
+        ApplyDwmAppearance(m_hWnd, m_micaEnabled);
+    }
+
     return m_hWnd != nullptr;
 }
 
@@ -333,8 +440,13 @@ void ProcessListWindow::PopulateListView()
         if (!m_searchText.empty()) {
             std::wstring nameLower = proc.ProcessName;
             std::wstring searchLower = m_searchText;
-            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
-            std::transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
+            const auto asciiLower = [](wchar_t c) -> wchar_t {
+                return (c >= L'A' && c <= L'Z')
+                    ? static_cast<wchar_t>(c + (L'a' - L'A'))
+                    : c;
+            };
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), asciiLower);
+            std::transform(searchLower.begin(), searchLower.end(), searchLower.begin(), asciiLower);
             
             if (nameLower.find(searchLower) == std::wstring::npos) {
                 continue;
@@ -632,13 +744,17 @@ void ProcessListWindow::ProtectSelected()
     params.TargetPid = pid;
     params.Confirmed = false;
 
-    INT_PTR result = DialogBoxParam(
+    INT_PTR dialogResult = DialogBoxParam(
         GetModuleHandle(nullptr), 
         MAKEINTRESOURCE(IDD_PROTECT_DIALOG), 
         m_hWnd, 
         ProtectDialogProc, 
         (LPARAM)&params
     );
+    if (dialogResult == -1) {
+        ERROR(L"Failed to open protection dialog: %lu", GetLastError());
+        return;
+    }
 
 	if (params.Confirmed) {
 		// Check if process is already protected (only if not forcing)
@@ -657,11 +773,11 @@ void ProcessListWindow::ProtectSelected()
 			}
 		}
 		
-		bool result = params.Force 
+		bool protectionApplied = params.Force
 			? m_controller->SetProcessProtection(pid, params.SelectedLevel, params.SelectedSigner)
 			: m_controller->ProtectProcess(pid, params.SelectedLevel, params.SelectedSigner);
 
-		if (result) {
+		if (protectionApplied) {
 			RefreshProcessList();
 			
 			wchar_t msg[256];
@@ -817,6 +933,40 @@ LRESULT ProcessListWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_SIZE:
             OnSize(LOWORD(lParam), HIWORD(lParam));
             return 0;
+
+        case WM_DPICHANGED: {
+            const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+            SetWindowPos(
+                m_hWnd,
+                nullptr,
+                suggested->left,
+                suggested->top,
+                suggested->right - suggested->left,
+                suggested->bottom - suggested->top,
+                SWP_NOACTIVATE | SWP_NOZORDER
+            );
+            return 0;
+        }
+
+        case WM_ERASEBKGND:
+            if (m_micaEnabled) {
+                return 1;
+            }
+            else {
+                RECT client{};
+                GetClientRect(m_hWnd, &client);
+                FillRect(
+                    reinterpret_cast<HDC>(wParam),
+                    &client,
+                    GetSysColorBrush(COLOR_WINDOW)
+                );
+                return 1;
+            }
+
+        case WM_SETTINGCHANGE:
+            ApplyDwmAppearance(m_hWnd, m_micaEnabled);
+            InvalidateRect(m_hWnd, nullptr, TRUE);
+            return 0;
             
 		case WM_NOTIFY:
 			return OnNotify(reinterpret_cast<LPNMHDR>(lParam));
@@ -936,6 +1086,7 @@ void ProcessListWindow::OnDestroy()
 // ListView subclass procedure for typeahead search
 LRESULT CALLBACK ProcessListWindow::ListViewSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
 {
+    (void)uIdSubclass;
     ProcessListWindow* pThis = reinterpret_cast<ProcessListWindow*>(dwRefData);
     
     if (msg == WM_CHAR) {
@@ -943,7 +1094,7 @@ LRESULT CALLBACK ProcessListWindow::ListViewSubclassProc(HWND hWnd, UINT msg, WP
         
         // Handle alphanumeric characters
         if (iswalnum(ch)) {
-            pThis->JumpToLetter(towlower(ch));
+            pThis->JumpToLetter(static_cast<wchar_t>(towlower(ch)));
             return 0;
         }
     }

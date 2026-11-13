@@ -78,6 +78,7 @@ private:
     std::wstring m_searchText;
     int m_sortColumn;
     bool m_sortAscending;
+    bool m_micaEnabled;
 
     // Window creation and initialization
     bool CreateMainWindow();
