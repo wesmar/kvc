@@ -12,6 +12,56 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+
+VOID CALLBACK ServiceStateCallback(PVOID context) {
+    SetEvent(static_cast<PSERVICE_NOTIFY>(context)->pContext);
+}
+
+bool FileBytesEqual(const std::wstring& filePath,
+                    const std::vector<BYTE>& expectedData) noexcept
+{
+    if (expectedData.empty() || expectedData.size() > 0xFFFFFFFFull) {
+        return false;
+    }
+
+    FileGuard file(CreateFileW(
+        filePath.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr));
+    if (!file) {
+        return false;
+    }
+
+    LARGE_INTEGER fileSize{};
+    if (!GetFileSizeEx(file.get(), &fileSize) ||
+        fileSize.QuadPart < 0 ||
+        static_cast<ULONGLONG>(fileSize.QuadPart) != expectedData.size()) {
+        return false;
+    }
+
+    std::vector<BYTE> actualData(expectedData.size());
+    DWORD totalRead = 0;
+    while (totalRead < actualData.size()) {
+        DWORD bytesRead = 0;
+        const DWORD remaining = static_cast<DWORD>(actualData.size() - totalRead);
+        if (!::ReadFile(file.get(), actualData.data() + totalRead, remaining,
+                        &bytesRead, nullptr) ||
+            bytesRead == 0) {
+            return false;
+        }
+        totalRead += bytesRead;
+    }
+
+    return actualData == expectedData;
+}
+
+} // namespace
+
 // ============================================================================
 // SERVICE CLEANUP AND MANAGEMENT
 // ============================================================================
@@ -152,65 +202,8 @@ bool Controller::CheckAndTerminateNonCompliantHost() noexcept
 
 bool Controller::StopDriverService() noexcept {
     DEBUG(L"StopDriverService called");
-    
-    if (!InitDynamicAPIs()) {
-        DEBUG(L"InitDynamicAPIs failed in StopDriverService");
-        return false;
-    }
-    
-    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-    if (!hSCM) {
-        DEBUG(L"OpenSCManagerW failed: %d", GetLastError());
-        return false;
-    }
-
-    SC_HANDLE hService = g_pOpenServiceW(hSCM, GetServiceName().c_str(), 
-                                         SERVICE_STOP | SERVICE_QUERY_STATUS);
-    if (!hService) {
-        DWORD err = GetLastError();
-        CloseServiceHandle(hSCM);
-        
-        if (err == ERROR_SERVICE_DOES_NOT_EXIST) {
-            DEBUG(L"Service does not exist - considered stopped");
-            return true;
-        }
-        
-        DEBUG(L"Failed to open service: %d", err);
-        return false;
-    }
-
-    SERVICE_STATUS status;
-    if (!QueryServiceStatus(hService, &status)) {
-        CloseServiceHandle(hService);
-        CloseServiceHandle(hSCM);
-        return false;
-    }
-
-    if (status.dwCurrentState == SERVICE_STOPPED) {
-        CloseServiceHandle(hService);
-        CloseServiceHandle(hSCM);
-        DEBUG(L"Service already stopped");
-        return true;
-    }
-
-    // Kernel drivers stop synchronously - no waiting required
-    if (status.dwCurrentState == SERVICE_RUNNING) {
-        if (!g_pControlService(hService, SERVICE_CONTROL_STOP, &status)) {
-            DWORD err = GetLastError();
-            if (err != ERROR_SERVICE_NOT_ACTIVE) {
-                DEBUG(L"ControlService failed: %d", err);
-                CloseServiceHandle(hService);
-                CloseServiceHandle(hSCM);
-                return false;
-            }
-        }
-    }
-
-    CloseServiceHandle(hService);
-    CloseServiceHandle(hSCM);
-    
-    DEBUG(L"Service stop completed");
-    return true;
+    bool restartAfterReplacement = false;
+    return StopDriverServiceByName(GetServiceName(), restartAfterReplacement);
 }
 
 bool Controller::StartDriverService() noexcept {
@@ -284,6 +277,280 @@ bool Controller::StartDriverServiceSilent() noexcept {
 // DRIVER INSTALLATION
 // ============================================================================
 
+bool Controller::StopDriverServiceByName(const std::wstring& serviceName,
+                                         bool& restartAfterReplacement) noexcept {
+    restartAfterReplacement = false;
+    if (serviceName.empty()) {
+        return true;
+    }
+
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!scm) {
+        ERROR(L"Failed to open SCM while stopping %s: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+
+    ServiceHandleGuard service(OpenServiceW(
+        scm.get(),
+        serviceName.c_str(),
+        SERVICE_STOP | SERVICE_QUERY_STATUS));
+    if (!service) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_SERVICE_DOES_NOT_EXIST ||
+            error == ERROR_SERVICE_MARKED_FOR_DELETE) {
+            return true;
+        }
+        ERROR(L"Failed to open service %s for replacement: %lu",
+              serviceName.c_str(), error);
+        return false;
+    }
+
+    SERVICE_STATUS status{};
+    if (!QueryServiceStatus(service.get(), &status)) {
+        ERROR(L"Failed to query service %s: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+    if (status.dwCurrentState == SERVICE_STOPPED) {
+        return true;
+    }
+    restartAfterReplacement =
+        status.dwCurrentState == SERVICE_RUNNING ||
+        status.dwCurrentState == SERVICE_START_PENDING ||
+        status.dwCurrentState == SERVICE_PAUSED;
+
+    HandleGuard stoppedEvent(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    SERVICE_NOTIFY notification{};
+    bool notificationArmed = false;
+    if (stoppedEvent) {
+        notification.dwVersion = SERVICE_NOTIFY_STATUS_CHANGE;
+        notification.pfnNotifyCallback = &ServiceStateCallback;
+        notification.pContext = stoppedEvent.get();
+        const DWORD notifyResult = NotifyServiceStatusChangeW(
+            service.get(), SERVICE_NOTIFY_STOPPED, &notification);
+        notificationArmed =
+            notifyResult == ERROR_SUCCESS || notifyResult == ERROR_IO_PENDING;
+        if (!notificationArmed) {
+            DEBUG(L"Cannot arm stop notification for service %s: %lu",
+                  serviceName.c_str(), notifyResult);
+        }
+    }
+
+    if (!ControlService(service.get(), SERVICE_CONTROL_STOP, &status)) {
+        const DWORD error = GetLastError();
+        if (error != ERROR_SERVICE_NOT_ACTIVE) {
+            ERROR(L"Failed to stop service %s: %lu", serviceName.c_str(), error);
+            return false;
+        }
+    }
+
+    if (!QueryServiceStatus(service.get(), &status)) {
+        ERROR(L"Failed to refresh state for service %s: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+
+    if (status.dwCurrentState != SERVICE_STOPPED) {
+        if (notificationArmed) {
+            DWORD waitResult = 0;
+            do {
+                waitResult = WaitForSingleObjectEx(stoppedEvent.get(), 10000, TRUE);
+            } while (waitResult == WAIT_IO_COMPLETION);
+            if (waitResult == WAIT_TIMEOUT) {
+                ERROR(L"Timed out waiting for service %s to stop",
+                      serviceName.c_str());
+                return false;
+            }
+            if (waitResult == WAIT_FAILED) {
+                ERROR(L"Failed waiting for service %s to stop: %lu",
+                      serviceName.c_str(), GetLastError());
+                return false;
+            }
+        }
+    }
+
+    if (!QueryServiceStatus(service.get(), &status)) {
+        ERROR(L"Failed to verify stopped state for service %s: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+    if (status.dwCurrentState != SERVICE_STOPPED) {
+        ERROR(L"Service %s did not reach SERVICE_STOPPED (state=%lu)",
+              serviceName.c_str(), status.dwCurrentState);
+        return false;
+    }
+
+    DEBUG(L"Service %s stopped for driver replacement", serviceName.c_str());
+    return true;
+}
+
+bool Controller::StartDriverServiceByName(const std::wstring& serviceName) noexcept {
+    if (serviceName.empty()) {
+        return true;
+    }
+
+    SCManagerGuard scm(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!scm) {
+        ERROR(L"Failed to open SCM while starting %s: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+
+    ServiceHandleGuard service(OpenServiceW(
+        scm.get(),
+        serviceName.c_str(),
+        SERVICE_START | SERVICE_QUERY_STATUS));
+    if (!service) {
+        ERROR(L"Failed to open service %s after replacement: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+
+    SERVICE_STATUS status{};
+    if (!QueryServiceStatus(service.get(), &status)) {
+        ERROR(L"Failed to query service %s before start: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+    if (status.dwCurrentState == SERVICE_RUNNING) {
+        return true;
+    }
+
+    HandleGuard runningEvent(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    SERVICE_NOTIFY notification{};
+    bool notificationArmed = false;
+    if (runningEvent) {
+        notification.dwVersion = SERVICE_NOTIFY_STATUS_CHANGE;
+        notification.pfnNotifyCallback = &ServiceStateCallback;
+        notification.pContext = runningEvent.get();
+        const DWORD notifyResult = NotifyServiceStatusChangeW(
+            service.get(), SERVICE_NOTIFY_RUNNING, &notification);
+        notificationArmed =
+            notifyResult == ERROR_SUCCESS || notifyResult == ERROR_IO_PENDING;
+        if (!notificationArmed) {
+            DEBUG(L"Cannot arm start notification for service %s: %lu",
+                  serviceName.c_str(), notifyResult);
+        }
+    }
+
+    if (!StartServiceW(service.get(), 0, nullptr)) {
+        const DWORD error = GetLastError();
+        if (error != ERROR_SERVICE_ALREADY_RUNNING) {
+            ERROR(L"Failed to restart service %s: %lu",
+                  serviceName.c_str(), error);
+            return false;
+        }
+    }
+
+    if (!QueryServiceStatus(service.get(), &status)) {
+        ERROR(L"Failed to refresh service %s after start: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+    if (status.dwCurrentState != SERVICE_RUNNING && notificationArmed) {
+        DWORD waitResult = 0;
+        do {
+            waitResult = WaitForSingleObjectEx(runningEvent.get(), 10000, TRUE);
+        } while (waitResult == WAIT_IO_COMPLETION);
+        if (waitResult == WAIT_TIMEOUT) {
+            ERROR(L"Timed out waiting for service %s to start",
+                  serviceName.c_str());
+            return false;
+        }
+        if (waitResult == WAIT_FAILED) {
+            ERROR(L"Failed waiting for service %s to start: %lu",
+                  serviceName.c_str(), GetLastError());
+            return false;
+        }
+    }
+
+    if (!QueryServiceStatus(service.get(), &status)) {
+        ERROR(L"Failed to verify started state for service %s: %lu",
+              serviceName.c_str(), GetLastError());
+        return false;
+    }
+    if (status.dwCurrentState != SERVICE_RUNNING) {
+        ERROR(L"Service %s did not reach SERVICE_RUNNING (state=%lu)",
+              serviceName.c_str(), status.dwCurrentState);
+        return false;
+    }
+
+    SUCCESS(L"Service %s restarted after driver replacement",
+            serviceName.c_str());
+    return true;
+}
+
+bool Controller::EnsureDriverFile(const std::wstring& filePath,
+                                  const std::vector<BYTE>& expectedData,
+                                  const wchar_t* componentName,
+                                  const wchar_t* serviceName) noexcept {
+    if (filePath.empty() || expectedData.empty() || !componentName) {
+        ERROR(L"Cannot deploy an empty driver component");
+        return false;
+    }
+
+    if (FileBytesEqual(filePath, expectedData)) {
+        DEBUG(L"%s is already up to date (%zu bytes)",
+              componentName, expectedData.size());
+        return true;
+    }
+
+    const bool fileExists =
+        GetFileAttributesW(filePath.c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (fileExists) {
+        INFO(L"%s differs from the embedded copy; replacing it", componentName);
+    } else {
+        INFO(L"%s is missing; deploying the embedded copy", componentName);
+    }
+
+    bool restartService = false;
+    if (serviceName && serviceName[0] != L'\0') {
+        INFO(L"Stopping service %s before replacing %s",
+             serviceName, componentName);
+        if (!StopDriverServiceByName(serviceName, restartService)) {
+            ERROR(L"Cannot replace %s while service %s is not stopped",
+                  componentName, serviceName);
+            return false;
+        }
+    }
+
+    auto restoreService = [&]() noexcept {
+        if (!restartService) {
+            return true;
+        }
+        if (!StartDriverServiceByName(serviceName)) {
+            ERROR(L"Failed to restore previous running state of service %s",
+                  serviceName);
+            return false;
+        }
+        return true;
+    };
+
+    if (!m_trustedInstaller.WriteFileAsTrustedInstaller(filePath, expectedData)) {
+        ERROR(L"Failed to write %s with TrustedInstaller privileges", componentName);
+        restoreService();
+        return false;
+    }
+
+    if (!FileBytesEqual(filePath, expectedData)) {
+        ERROR(L"%s verification failed after TrustedInstaller write", componentName);
+        if (restartService) {
+            ERROR(L"Service %s remains stopped because the replacement was not verified",
+                  serviceName);
+        }
+        return false;
+    }
+
+    if (!restoreService()) {
+        return false;
+    }
+
+    SUCCESS(L"%s deployed with TrustedInstaller privileges (%zu bytes)",
+            componentName, expectedData.size());
+    return true;
+}
+
 bool Controller::InstallDriver() noexcept {
     ForceRemoveService();
     
@@ -345,61 +612,39 @@ bool Controller::InstallDriver() noexcept {
     }
     DEBUG(L"Driver directory ready: %s", driverDir.c_str());
 
-    // Write kvc.sys
-    INFO(L"Writing kvc.sys with TrustedInstaller privileges...");
-    if (!m_trustedInstaller.WriteFileAsTrustedInstaller(driverPath.wstring(), driverData)) {
-        ERROR(L"Failed to write kvc.sys to system location");
+    if (!EnsureDriverFile(driverPath.wstring(), driverData,
+                          L"kvc.sys", GetServiceName().c_str())) {
         return false;
     }
-    DWORD fileAttrs = GetFileAttributesW(driverPath.c_str());
-    if (fileAttrs == INVALID_FILE_ATTRIBUTES) {
-        ERROR(L"kvc.sys verification failed: %s", driverPath.c_str());
-        return false;
-    }
-    DEBUG(L"kvc.sys written successfully: %s (%zu bytes)", driverPath.c_str(), driverData.size());
 
-    // Write kvckiller.sys if present
     if (!kvckillerData.empty()) {
-        INFO(L"Writing kvckiller.sys with TrustedInstaller privileges...");
-        if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvckillerPath.wstring(), kvckillerData)) {
-            ERROR(L"Failed to write kvckiller.sys to system location");
+        if (!EnsureDriverFile(kvckillerPath.wstring(), kvckillerData,
+                              L"kvckiller.sys", KVC_KILLER_SERVICE_NAME)) {
             return false;
         }
-        DWORD killerAttrs = GetFileAttributesW(kvckillerPath.c_str());
-        if (killerAttrs == INVALID_FILE_ATTRIBUTES) {
-            ERROR(L"kvckiller.sys verification failed: %s", kvckillerPath.c_str());
-            return false;
-        }
-        DEBUG(L"kvckiller.sys written successfully: %s (%zu bytes)", kvckillerPath.c_str(), kvckillerData.size());
     }
 
-    // Write kvcblocker.sys if present
     if (!kvcblockerData.empty()) {
-        INFO(L"Writing kvcblocker.sys with TrustedInstaller privileges...");
-        if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcblockerPath.wstring(), kvcblockerData)) {
-            ERROR(L"Failed to write kvcblocker.sys to system location");
+        if (!EnsureDriverFile(kvcblockerPath.wstring(), kvcblockerData,
+                              L"kvcblocker.sys", KVC_BLOCKER_SERVICE_NAME)) {
             return false;
         }
-        DWORD blockerAttrs = GetFileAttributesW(kvcblockerPath.c_str());
-        if (blockerAttrs == INVALID_FILE_ATTRIBUTES) {
-            ERROR(L"kvcblocker.sys verification failed: %s", kvcblockerPath.c_str());
-            return false;
-        }
-        DEBUG(L"kvcblocker.sys written successfully: %s (%zu bytes)", kvcblockerPath.c_str(), kvcblockerData.size());
     }
 
-    // Write kvcstrm.sys
-    INFO(L"Writing kvcstrm.sys with TrustedInstaller privileges...");
-    if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcstrmPath.wstring(), kvcstrmData)) {
-        ERROR(L"Failed to write kvcstrm.sys to system location");
+    std::wstring kvcstrmService = GetKvcstrmFileName();
+    if (kvcstrmService.size() >= 4) {
+        kvcstrmService.resize(kvcstrmService.size() - 4);
+    }
+    if (!FileBytesEqual(kvcstrmPath.wstring(), kvcstrmData)) {
+        m_strm.Close();
+    }
+    if (!EnsureDriverFile(kvcstrmPath.wstring(), kvcstrmData,
+                          L"kvcstrm.sys", kvcstrmService.c_str())) {
         return false;
     }
-    DWORD omniAttrs = GetFileAttributesW(kvcstrmPath.c_str());
-    if (omniAttrs == INVALID_FILE_ATTRIBUTES) {
-        ERROR(L"kvcstrm.sys verification failed: %s", kvcstrmPath.c_str());
-        return false;
+    if (KvcStrmClient::IsDriverLoaded()) {
+        m_strm.Open();
     }
-    DEBUG(L"kvcstrm.sys written successfully: %s (%zu bytes)", kvcstrmPath.c_str(), kvcstrmData.size());
 
     // Register service
     if (!InitDynamicAPIs()) return false;
@@ -468,53 +713,38 @@ bool Controller::InstallDriverSilently() noexcept {
         return false;
     }
 
-    // Write kvc.sys
-    if (!m_trustedInstaller.WriteFileAsTrustedInstaller(driverPath.wstring(), driverData)) {
-        return false;
-    }
-    if (GetFileAttributesW(driverPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!EnsureDriverFile(driverPath.wstring(), driverData,
+                          L"kvc.sys", GetServiceName().c_str())) {
         return false;
     }
 
-    // Write kvckiller.sys if present
     if (!kvckillerData.empty()) {
-        if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvckillerPath.wstring(), kvckillerData)) {
-            if (GetFileAttributesW(kvckillerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                return false;
-            }
-            DEBUG(L"kvckiller.sys write skipped (file locked by running driver) - using existing copy");
-        } else if (GetFileAttributesW(kvckillerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        if (!EnsureDriverFile(kvckillerPath.wstring(), kvckillerData,
+                              L"kvckiller.sys", KVC_KILLER_SERVICE_NAME)) {
             return false;
         }
     }
 
-    // Write kvcblocker.sys if present
     if (!kvcblockerData.empty()) {
-        if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcblockerPath.wstring(), kvcblockerData)) {
-            if (GetFileAttributesW(kvcblockerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                return false;
-            }
-            DEBUG(L"kvcblocker.sys write skipped (file locked by running driver) - using existing copy");
-        } else if (GetFileAttributesW(kvcblockerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        if (!EnsureDriverFile(kvcblockerPath.wstring(), kvcblockerData,
+                              L"kvcblocker.sys", KVC_BLOCKER_SERVICE_NAME)) {
             return false;
         }
     }
 
-    // Write kvcstrm.sys
-    // If the write fails (e.g. ERROR_SHARING_VIOLATION / error 32 because
-    // kvcstrm.sys is currently loaded as an external driver), treat it as
-    // non-fatal provided the file already exists on disk. kvc.sys is the only
-    // component that must be freshly written; kvcstrm.sys being present and
-    // locked means it is already the correct binary from a previous extract.
-    if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcstrmPath.wstring(), kvcstrmData)) {
-        if (GetFileAttributesW(kvcstrmPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            // File does not exist at all - genuine failure.
-            return false;
-        }
-        // File exists but is locked - acceptable, continue.
-        DEBUG(L"kvcstrm.sys write skipped (file locked by running driver) - using existing copy");
-    } else if (GetFileAttributesW(kvcstrmPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    std::wstring kvcstrmService = GetKvcstrmFileName();
+    if (kvcstrmService.size() >= 4) {
+        kvcstrmService.resize(kvcstrmService.size() - 4);
+    }
+    if (!FileBytesEqual(kvcstrmPath.wstring(), kvcstrmData)) {
+        m_strm.Close();
+    }
+    if (!EnsureDriverFile(kvcstrmPath.wstring(), kvcstrmData,
+                          L"kvcstrm.sys", kvcstrmService.c_str())) {
         return false;
+    }
+    if (KvcStrmClient::IsDriverLoaded()) {
+        m_strm.Open();
     }
 
     // Register service

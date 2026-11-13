@@ -1,5 +1,7 @@
 # KVC - Kernel Vulnerability Capabilities Framework
 
+> **Build & Validation Note:** `v1.0.5` is undergoing cross-environment verification through Sunday (Windows 10 through Windows 11 Germanium/24H2/26H1), alongside an ongoing experimental effort toward an `x86` build. Any edge cases found during testing are fixed and synchronized continuously both here and on [kvc.pl](https://kvc.pl).
+
 <div align="center">
 
 **Windows Security Research and Kernel Internals Framework**

@@ -464,44 +464,10 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) n
     auto& kvcstrmData = components.kvcStrm;
     auto& smssData = components.smss;
 
-    // Helper: returns true if the file at path exists and its bytes match expected.
-    auto FileBytesMatch = [](const std::wstring& path, const std::vector<BYTE>& expected) -> bool {
-        HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h == INVALID_HANDLE_VALUE) return false;
-        LARGE_INTEGER sz{};
-        bool ok = GetFileSizeEx(h, &sz) &&
-                  sz.QuadPart == static_cast<LONGLONG>(expected.size());
-        if (ok) {
-            std::vector<BYTE> buf(expected.size());
-            DWORD nRead = 0;
-            ok = ReadFile(h, buf.data(), static_cast<DWORD>(expected.size()), &nRead, nullptr) &&
-                 nRead == static_cast<DWORD>(expected.size()) &&
-                 buf == expected;
-        }
-        CloseHandle(h);
-        return ok;
-    };
-
-    // --- 0a. Deploy kvc_smss.exe to System32 if not already present ---
-    if (GetFileAttributesW(SMSS_SYSTEM32_PATH) == INVALID_FILE_ATTRIBUTES) {
-        HANDLE hFile = CreateFileW(SMSS_SYSTEM32_PATH, GENERIC_WRITE, 0, nullptr,
-                                   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hFile == INVALID_HANDLE_VALUE) {
-            ERROR(L"Failed to create %s: %lu", SMSS_SYSTEM32_PATH, GetLastError());
-            return false;
-        }
-        DWORD written = 0;
-        WriteFile(hFile, smssData.data(), static_cast<DWORD>(smssData.size()), &written, nullptr);
-        CloseHandle(hFile);
-        if (written != smssData.size()) {
-            ERROR(L"Failed to write kvc_smss.exe to System32 (wrote %lu of %zu bytes)", written, smssData.size());
-            DeleteFileW(SMSS_SYSTEM32_PATH);
-            return false;
-        }
-        SUCCESS(L"kvc_smss.exe deployed to System32 (%lu bytes)", written);
-    } else {
-        INFO(L"kvc_smss.exe already present in System32");
+    // --- 0a. Deploy kvc_smss.exe to System32 with TrustedInstaller privileges ---
+    if (!EnsureDriverFile(SMSS_SYSTEM32_PATH, smssData,
+                          L"kvc_smss.exe", nullptr)) {
+        return false;
     }
 
     // --- 0a2. Extract HvciShutdownSvc.exe and register HvciShutdownSvc ---
@@ -527,57 +493,38 @@ bool Controller::InstallSmssDriver(const std::wstring& driverArg, bool usePdb) n
             return false;
         }
 
-        if (!FileBytesMatch(kvcSysPath, kvcSysData)) {
-            if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcSysPath, kvcSysData) ||
-                GetFileAttributesW(kvcSysPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                ERROR(L"Failed to deploy kvc.sys to DriverStore");
+        if (!EnsureDriverFile(kvcSysPath, kvcSysData,
+                              L"kvc.sys", GetServiceName().c_str())) {
+            return false;
+        }
+
+        if (!kvckillerData.empty()) {
+            if (!EnsureDriverFile(kvckillerPath, kvckillerData,
+                                  L"kvckiller.sys", KVC_KILLER_SERVICE_NAME)) {
                 return false;
             }
-            SUCCESS(L"kvc.sys deployed to DriverStore");
-        } else {
-            INFO(L"kvc.sys already up to date in DriverStore");
         }
 
-        // Deploy kvckiller.sys if present
-        if (!kvckillerData.empty()) {
-            if (!FileBytesMatch(kvckillerPath, kvckillerData)) {
-                if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvckillerPath, kvckillerData) ||
-                    GetFileAttributesW(kvckillerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                    ERROR(L"Failed to deploy kvckiller.sys to DriverStore");
-                    return false;
-                }
-                SUCCESS(L"kvckiller.sys deployed to DriverStore");
-            } else {
-                INFO(L"kvckiller.sys already up to date in DriverStore");
-            }
-        }
-
-        // Deploy kvcblocker.sys if present
         if (!kvcblockerData.empty()) {
-            if (!FileBytesMatch(kvcblockerPath, kvcblockerData)) {
-                if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcblockerPath, kvcblockerData) ||
-                    GetFileAttributesW(kvcblockerPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                    ERROR(L"Failed to deploy kvcblocker.sys to DriverStore");
-                    return false;
-                }
-                SUCCESS(L"kvcblocker.sys deployed to DriverStore");
-            } else {
-                INFO(L"kvcblocker.sys already up to date in DriverStore");
+            if (!EnsureDriverFile(kvcblockerPath, kvcblockerData,
+                                  L"kvcblocker.sys", KVC_BLOCKER_SERVICE_NAME)) {
+                return false;
             }
         }
 
-        if (!FileBytesMatch(kvcstrmPath, kvcstrmData)) {
-            if (!m_trustedInstaller.WriteFileAsTrustedInstaller(kvcstrmPath, kvcstrmData)) {
-                if (GetFileAttributesW(kvcstrmPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                    ERROR(L"Failed to deploy kvcstrm.sys to DriverStore");
-                    return false;
-                }
-                DEBUG(L"kvcstrm.sys write skipped (file locked by running driver) - existing copy retained");
-            } else {
-                SUCCESS(L"kvcstrm.sys deployed to DriverStore");
-            }
-        } else {
-            INFO(L"kvcstrm.sys already up to date in DriverStore");
+        std::wstring kvcstrmService = GetKvcstrmFileName();
+        if (kvcstrmService.size() >= 4) {
+            kvcstrmService.resize(kvcstrmService.size() - 4);
+        }
+        if (GetFileAttributesW(kvcstrmPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            m_strm.Close();
+        }
+        if (!EnsureDriverFile(kvcstrmPath, kvcstrmData,
+                              L"kvcstrm.sys", kvcstrmService.c_str())) {
+            return false;
+        }
+        if (KvcStrmClient::IsDriverLoaded()) {
+            m_strm.Open();
         }
     }
 

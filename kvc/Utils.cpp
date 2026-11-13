@@ -1298,18 +1298,39 @@ bool HashEquals(const BYTE left[32], const BYTE right[32]) noexcept {
     return difference == 0;
 }
 
-bool ReadIcoTemplate(std::vector<BYTE>& templateData, BYTE digest[32]) noexcept {
+bool ReadIcoTemplate(std::vector<BYTE>& templateData) noexcept {
     wchar_t systemDirectory[MAX_PATH]{};
     const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
     if (length == 0 || length >= MAX_PATH - 32) return false;
 
     const std::wstring path =
         std::wstring(systemDirectory) + L"\\drivers\\ks.sys";
-    templateData = ReadFile(path);
-    return templateData.size() >= 0x80
+    HANDLE file = CreateFileW(
+        path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+    if (file == INVALID_HANDLE_VALUE) return false;
+
+    templateData.resize(0x80);
+    DWORD bytesRead = 0;
+    const BOOL ok = ::ReadFile(
+        file,
+        templateData.data(),
+        static_cast<DWORD>(templateData.size()),
+        &bytesRead,
+        nullptr
+    );
+    CloseHandle(file);
+
+    return ok
+        && bytesRead == static_cast<DWORD>(templateData.size())
         && templateData[0] == 'M'
-        && templateData[1] == 'Z'
-        && ComputeSha256(templateData.data(), templateData.size(), digest);
+        && templateData[1] == 'Z';
 }
 
 bool UnwrapBitmapCab(
@@ -1450,17 +1471,14 @@ bool ExtractResourceComponents(
     }
 
     std::vector<BYTE> templateData;
-    BYTE templateDigest[32]{};
     if ((header->flags & kContainerFlagPeStripped) != 0
-        && !ReadIcoTemplate(templateData, templateDigest)) {
+        && !ReadIcoTemplate(templateData)) {
         ERROR(L"[EXTRACT] Unable to load ks.sys template");
         return false;
     }
-    if ((header->flags & kContainerFlagPeStripped) != 0
-        && !HashEquals(templateDigest, header->templateSha256)) {
-        ERROR(L"[EXTRACT] ks.sys template hash mismatch");
-        return false;
-    }
+    // The container digest describes the build host's ks.sys. Windows servicing can
+    // change the rest of that file while retaining the same 0x80-byte DOS header.
+    // Final reconstructed PE hashes below are the authoritative integrity check.
 
     const auto* records = reinterpret_cast<const PackageRecord*>(
         packageData.data() + header->headerSize

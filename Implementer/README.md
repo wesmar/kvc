@@ -11,6 +11,10 @@ The container manifest is stored inside the CAB payload. It records file names,
 offsets, lengths, and SHA-256 digests. Entry boundaries are never inferred by
 scanning for `MZ` signatures.
 
+The template digest covers exactly the first 128 bytes copied from `ks.sys`.
+The remainder of `ks.sys` is not part of the container contract and may differ
+between Windows builds.
+
 ## Build
 
 ```powershell
@@ -186,8 +190,10 @@ Example:
 ```
 
 `pack` sorts input names case-insensitively, sets a fixed timestamp on the
-temporary payload, uses LZX compression, and prints measured pixel entropy.
-The maximum representable value is `8.0` bits per byte.
+temporary file set, uses LZX compression, and prints measured pixel entropy.
+The maximum representable value is `8.0` bits per byte. The stored template
+digest covers only the 0x80-byte DOS header reused during reconstruction, not
+the version-specific remainder of `ks.sys`.
 
 Each PE record stores:
 
@@ -198,7 +204,6 @@ original e_lfanew
 DOS-header-stripped flag
 ```
 
-Non-PE files are stored unchanged. The original `ks.sys` SHA-256 is stored in
-the container header and checked before extraction. A reconstructed PE must
-match its original SHA-256 and contain a valid `PE\0\0` signature at the stored
-`e_lfanew`.
+Non-PE files are stored unchanged. The reusable DOS-header template is read at
+extraction time, while every reconstructed PE must match its original SHA-256
+and contain a valid `PE\0\0` signature at the stored `e_lfanew`.

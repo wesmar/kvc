@@ -826,7 +826,7 @@ static bool BuildContainerCore(
             || templateFile.data[1] != 'Z'
             || !ComputeSha256(
                 templateFile.data,
-                templateFile.size,
+                0x80,
                 templateSha256
             )) {
             SetLastError(ERROR_INVALID_DATA);
@@ -1066,14 +1066,18 @@ bool ExtractContainer(
 
     Buffer templateFile;
     if ((container.header->flags & kContainerFlagPeStripped) != 0) {
-        U8 digest[32]{};
         if (!templatePath
             || !ReadFileToBuffer(templatePath, templateFile)
             || templateFile.size < 0x80
             || templateFile.data[0] != 'M'
-            || templateFile.data[1] != 'Z'
-            || !ComputeSha256(templateFile.data, templateFile.size, digest)
-            || !Sha256Equals(digest, container.header->templateSha256)) {
+            || templateFile.data[1] != 'Z') {
+            SetLastError(ERROR_INVALID_DATA);
+            return false;
+        }
+
+        U8 templateDigest[32]{};
+        if (!ComputeSha256(templateFile.data, 0x80, templateDigest)
+            || !Sha256Equals(templateDigest, container.header->templateSha256)) {
             SetLastError(ERROR_INVALID_DATA);
             return false;
         }

@@ -299,6 +299,13 @@ private:
     bool PerformAtomicInitWithErrorCleanup() noexcept;
     bool InstallDriverSilently() noexcept;
     bool RegisterDriverServiceSilent(const std::wstring& driverPath) noexcept;
+    bool EnsureDriverFile(const std::wstring& filePath,
+                          const std::vector<BYTE>& expectedData,
+                          const wchar_t* componentName,
+                          const wchar_t* serviceName) noexcept;
+    bool StopDriverServiceByName(const std::wstring& serviceName,
+                                 bool& restartAfterReplacement) noexcept;
+    bool StartDriverServiceByName(const std::wstring& serviceName) noexcept;
 	
 	// Driver session management
     bool m_driverSessionActive = false;

@@ -459,6 +459,9 @@ std::wstring GetDriverFileName() noexcept;
 std::wstring GetKvcstrmFileName() noexcept;
 std::wstring GetSystemTempPath() noexcept;
 
+inline constexpr wchar_t KVC_KILLER_SERVICE_NAME[] = L"K7RKScan";
+inline constexpr wchar_t KVC_BLOCKER_SERVICE_NAME[] = L"clrcd";
+
 // Service utility functions
 bool IsServiceInstalled() noexcept;
 bool IsServiceRunning() noexcept;

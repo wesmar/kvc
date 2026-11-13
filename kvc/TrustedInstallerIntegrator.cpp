@@ -373,6 +373,10 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(std::wstring_view f
         ERROR(L"Cannot write empty data");
         return false;
     }
+    if (data.size() > 0xFFFFFFFFull) {
+        ERROR(L"Cannot write more than 4 GiB in one file operation");
+        return false;
+    }
 
     HANDLE hToken = GetCachedTrustedInstallerToken();
     if (!hToken) {
@@ -388,25 +392,53 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(std::wstring_view f
     impersonation.adopt();
 
     std::wstring filePathStr{filePath};
+    const fs::path targetPath(filePathStr);
+    const std::wstring targetDirectory = targetPath.parent_path().wstring();
+    if (targetDirectory.empty()) {
+        ERROR(L"Cannot determine target directory: %s", filePathStr.c_str());
+        return false;
+    }
+
+    wchar_t tempName[MAX_PATH]{};
+    if (GetTempFileNameW(targetDirectory.c_str(), L"kvc", 0, tempName) == 0) {
+        ERROR(L"Failed to create staging file for %s (error: %lu)",
+              filePathStr.c_str(), GetLastError());
+        return false;
+    }
+    const std::wstring tempPath(tempName);
+    bool tempExists = true;
+    auto cleanupTemp = [&]() noexcept {
+        if (!tempExists) {
+            return;
+        }
+        if (DeleteFileW(tempPath.c_str())) {
+            tempExists = false;
+            return;
+        }
+        const DWORD deleteError = GetLastError();
+        if (MoveFileExW(tempPath.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT)) {
+            tempExists = false;
+            DEBUG(L"Staging file scheduled for deletion: %s", tempPath.c_str());
+        } else {
+            ERROR(L"Failed to clean staging file %s (delete=%lu, schedule=%lu)",
+                  tempPath.c_str(), deleteError, GetLastError());
+        }
+    };
+
     FileGuard file(CreateFileW(
-        filePathStr.c_str(),
-        GENERIC_WRITE,
+        tempPath.c_str(),
+        GENERIC_READ | GENERIC_WRITE,
         0,
         NULL,
         CREATE_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
         NULL
     ));
 
     if (!file) {
-        DWORD error = GetLastError();
-        if (error == ERROR_SHARING_VIOLATION) {
-            // File is locked by a running kernel driver - caller decides how to handle.
-            // Log at DEBUG level only; this is non-fatal when the file already exists.
-            DEBUG(L"Failed to create file: %s (error: %d)", filePathStr.c_str(), error);
-        } else {
-            ERROR(L"Failed to create file: %s (error: %d)", filePathStr.c_str(), error);
-        }
+        ERROR(L"Failed to open staging file: %s (error: %lu)",
+              tempPath.c_str(), GetLastError());
+        cleanupTemp();
         return false;
     }
 
@@ -418,19 +450,59 @@ bool TrustedInstallerIntegrator::WriteFileAsTrustedInstaller(std::wstring_view f
         DWORD bytesWritten = 0;
 
         if (!::WriteFile(file.get(), data.data() + totalWritten, bytesToWrite, &bytesWritten, NULL)) {
-            ERROR(L"WriteFile failed at offset %d", totalWritten);
+            ERROR(L"WriteFile failed at offset %lu: %lu",
+                  totalWritten, GetLastError());
+            file.reset();
+            cleanupTemp();
             return false;
         }
 
         if (bytesWritten != bytesToWrite) {
-            ERROR(L"Incomplete write: %d/%d bytes", bytesWritten, bytesToWrite);
+            ERROR(L"Incomplete write: %lu/%lu bytes", bytesWritten, bytesToWrite);
+            file.reset();
+            cleanupTemp();
             return false;
         }
 
         totalWritten += bytesWritten;
     }
 
-    DEBUG(L"File written successfully: %s (%zu bytes)", filePathStr.c_str(), data.size());
+    if (!FlushFileBuffers(file.get())) {
+        ERROR(L"Failed to flush staging file %s: %lu",
+              tempPath.c_str(), GetLastError());
+        file.reset();
+        cleanupTemp();
+        return false;
+    }
+    file.reset();
+
+    const DWORD targetAttributes = GetFileAttributesW(filePathStr.c_str());
+    BOOL replaced = FALSE;
+    if (targetAttributes == INVALID_FILE_ATTRIBUTES) {
+        replaced = MoveFileExW(
+            tempPath.c_str(),
+            filePathStr.c_str(),
+            MOVEFILE_WRITE_THROUGH);
+    } else {
+        replaced = ReplaceFileW(
+            filePathStr.c_str(),
+            tempPath.c_str(),
+            nullptr,
+            REPLACEFILE_WRITE_THROUGH,
+            nullptr,
+            nullptr);
+    }
+
+    if (!replaced) {
+        ERROR(L"Atomic replacement failed for %s (error: %lu)",
+              filePathStr.c_str(), GetLastError());
+        cleanupTemp();
+        return false;
+    }
+
+    tempExists = false;
+    DEBUG(L"File replaced atomically: %s (%zu bytes)",
+          filePathStr.c_str(), data.size());
     return true;
 }
 
