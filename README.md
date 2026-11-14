@@ -35,8 +35,18 @@ KVC Framework v1.0.5 introduces a steganographic 24-bit carrier matrix, dual-bac
 The primary component carrier no longer relies on application icon headers. The entire payload is encapsulated within an authentic 24-bit bitmap resource:
 
 <div align="center">
-
-![Steganographic Carrier](https://raw.githubusercontent.com/wesmar/kvc/main/kvc/ICON/kvc.bmp)
+<table>
+  <tr>
+    <td align="center" valign="middle">
+      <img src="https://raw.githubusercontent.com/wesmar/kvc/main/kvc/ICON/kvc.bmp" alt="Steganographic Carrier (kvc.bmp)" height="220" /><br>
+      <sub><em>Raw 24-bit bitmap carrier (<code>kvc.bmp</code>)</em></sub>
+    </td>
+    <td align="center" valign="middle">
+      <img src="https://raw.githubusercontent.com/wesmar/kvc/main/images/RH.webp" alt="Resource Hacker — kvc.exe BITMAP 102" height="220" /><br>
+      <sub><em>Embedded <code>BITMAP 102</code> in <code>kvc.exe</code> (Resource Hacker)</em></sub>
+    </td>
+  </tr>
+</table>
 
 <sub><em>The binary armorer — authentic 24-bit bitmap carrier matrix</em></sub>
 
