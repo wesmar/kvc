@@ -1,6 +1,6 @@
 # KVC - Kernel Vulnerability Capabilities Framework
 
-> **Build & Validation Note:** `v1.0.6` is verified on Windows 10 22H2 and Windows 11 builds 26300 and 28000, alongside an ongoing experimental effort toward an `x86` build. Fixes are synchronized continuously both here and on [kvc.pl](https://kvc.pl).
+> **Build & Validation Note:** `v1.0.5` is undergoing cross-environment verification through Sunday (Windows 10 through Windows 11 Germanium/24H2/26H1), alongside an ongoing experimental effort toward an `x86` build. Any edge cases found during testing are fixed and synchronized continuously both here and on [kvc.pl](https://kvc.pl).
 
 <div align="center">
 
@@ -15,9 +15,9 @@
 
 ---
 
-<img src="https://raw.githubusercontent.com/wesmar/BootBypass/main/images/bb.png" alt="KVC v1.0.6 — fully hardened system, Device Security clean" width="700"/>
+<img src="https://raw.githubusercontent.com/wesmar/BootBypass/main/images/bb.png" alt="KVC v1.0.5 — fully hardened system, Device Security clean" width="700"/>
 
-**KVC v1.0.6 — fully hardened system: Memory Integrity ON, Secure Boot ON, TPM ON after `kvc install <your_unsigned_driver>`**
+**KVC v1.0.5 — fully hardened system: Memory Integrity ON, Secure Boot ON, TPM ON after `kvc install <your_unsigned_driver>`**
 
 After the initial one-time reboot required to load the unsigned driver, subsequent reboots require no additional restarts.
 Set `RestoreHVCI=YES` in `C:\Windows\drivers.ini` to have `kvc_smss` automatically restore the Memory Integrity flag on every boot — `windowsdefender://devicesecurity` stays clean indefinitely.
@@ -26,11 +26,7 @@ Set `RestoreHVCI=YES` in `C:\Windows\drivers.ini` to have `kvc_smss` automatical
 
 ---
 
-## What's New — 14.11.2026 (v1.0.6)
-
-KVC Framework v1.0.6 stores the component carrier as a native Windows `BITMAP` resource instead of opaque `RCDATA`. `kvc.bmp` remains a complete 24-bit image, while `rc.exe` writes its 121,240-byte DIB form as `RT_BITMAP 102`. The CAB length is preserved in `biClrImportant`; `Utils::ExtractResourceComponents` accepts both the full `BM` file and the headerless DIB. The seven PE images use the local `ks.sys` DOS stub and their recorded `e_lfanew`, with final reconstructed SHA-256 verification remaining authoritative.
-
-## Previous Release — 13.11.2026 (v1.0.5)
+## What's New — 13.11.2026 (v1.0.5)
 
 KVC Framework v1.0.5 introduces a steganographic 24-bit carrier matrix, dual-backend signed driver primitives for protected process termination and low-level locked file operations, zero-CRT browser credential extraction over asynchronous Named Pipes, and streamlined remote deployment.
 
