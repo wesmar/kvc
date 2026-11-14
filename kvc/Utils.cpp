@@ -1337,14 +1337,36 @@ bool UnwrapBitmapCab(
     const std::vector<BYTE>& bitmap,
     std::vector<BYTE>& cab
 ) noexcept {
-    if (bitmap.size() < 54 || bitmap[0] != 'B' || bitmap[1] != 'M') {
+    if (bitmap.size() < 40) {
         return false;
     }
 
     DWORD cabSize = 0;
-    DWORD pixelOffset = 0;
-    memcpy(&cabSize, bitmap.data() + 6, sizeof(cabSize));
-    memcpy(&pixelOffset, bitmap.data() + 10, sizeof(pixelOffset));
+    size_t pixelOffset = 0;
+    if (bitmap.size() >= 54 && bitmap[0] == 'B' && bitmap[1] == 'M') {
+        memcpy(&cabSize, bitmap.data() + 6, sizeof(cabSize));
+        DWORD filePixelOffset = 0;
+        memcpy(&filePixelOffset, bitmap.data() + 10, sizeof(filePixelOffset));
+        pixelOffset = filePixelOffset;
+    } else {
+        DWORD dibSize = 0;
+        WORD bitsPerPixel = 0;
+        DWORD compression = 0;
+        DWORD colorsUsed = 0;
+        memcpy(&dibSize, bitmap.data(), sizeof(dibSize));
+        memcpy(&bitsPerPixel, bitmap.data() + 14, sizeof(bitsPerPixel));
+        memcpy(&compression, bitmap.data() + 16, sizeof(compression));
+        memcpy(&cabSize, bitmap.data() + 36, sizeof(cabSize));
+        memcpy(&colorsUsed, bitmap.data() + 32, sizeof(colorsUsed));
+        if (dibSize < 40 || dibSize > bitmap.size()
+            || bitsPerPixel != 24 || compression != 0
+            || colorsUsed > (bitmap.size() - dibSize) / 4) {
+            return false;
+        }
+        pixelOffset = static_cast<size_t>(dibSize)
+            + static_cast<size_t>(colorsUsed) * 4;
+    }
+
     if (cabSize < 4
         || pixelOffset >= bitmap.size()
         || cabSize > bitmap.size() - pixelOffset) {
@@ -1439,7 +1461,7 @@ bool ExtractResourceComponents(
     if (requested == PayloadComponent::None) return false;
 
     DEBUG(L"[EXTRACT] Loading BMP resource %d", resourceId);
-    const auto bitmap = ReadResource(resourceId, RT_RCDATA);
+    const auto bitmap = ReadResource(resourceId, RT_BITMAP);
     std::vector<BYTE> cab;
     if (!UnwrapBitmapCab(bitmap, cab)) {
         ERROR(L"[EXTRACT] Invalid BMP payload or CAB magic");

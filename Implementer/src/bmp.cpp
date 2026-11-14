@@ -90,23 +90,41 @@ bool WrapCabInBitmap(const U8* cabData, SIZE_T cabSize, Buffer& bitmap) {
     WriteU32(bitmap.data + 38, 2835);
     WriteU32(bitmap.data + 42, 2835);
     WriteU32(bitmap.data + 46, 0);
-    WriteU32(bitmap.data + 50, 0);
+    // RT_BITMAP stores only the DIB and drops BITMAPFILEHEADER. Preserve the
+    // CAB length in biClrImportant, which is unused for uncompressed 24-bit RGB.
+    WriteU32(bitmap.data + 50, static_cast<U32>(cabSize));
 
     memcpy(bitmap.data + 54, cabData, cabSize);
     return true;
 }
 
 bool UnwrapBitmap(const U8* bitmapData, SIZE_T bitmapSize, Buffer& cabData) {
-    if (!bitmapData || bitmapSize < 54) return false;
-    if (bitmapData[0] != 'B' || bitmapData[1] != 'M') return false;
+    if (!bitmapData || bitmapSize < 40) return false;
 
-    const U32 cabSize = ReadU32(bitmapData + 6);
-    const U32 pixelOffset = ReadU32(bitmapData + 10);
-    const U32 declaredSize = ReadU32(bitmapData + 2);
-    if (cabSize < 4
-        || pixelOffset > bitmapSize
-        || cabSize > bitmapSize - pixelOffset
-        || declaredSize > bitmapSize) {
+    U32 cabSize = 0;
+    SIZE_T pixelOffset = 0;
+    if (bitmapSize >= 54 && bitmapData[0] == 'B' && bitmapData[1] == 'M') {
+        cabSize = ReadU32(bitmapData + 6);
+        pixelOffset = ReadU32(bitmapData + 10);
+        const U32 declaredSize = ReadU32(bitmapData + 2);
+        if (declaredSize > bitmapSize) return false;
+    } else {
+        const U32 dibSize = ReadU32(bitmapData);
+        const U16 bitsPerPixel = ReadU16(bitmapData + 14);
+        const U32 compression = ReadU32(bitmapData + 16);
+        const U32 colorsUsed = ReadU32(bitmapData + 32);
+        if (dibSize < 40 || dibSize > bitmapSize
+            || bitsPerPixel != 24 || compression != 0
+            || colorsUsed > (bitmapSize - dibSize) / 4) {
+            return false;
+        }
+        cabSize = ReadU32(bitmapData + 36);
+        pixelOffset = static_cast<SIZE_T>(dibSize)
+            + static_cast<SIZE_T>(colorsUsed) * 4;
+    }
+
+    if (cabSize < 4 || pixelOffset > bitmapSize
+        || cabSize > bitmapSize - pixelOffset) {
         return false;
     }
 

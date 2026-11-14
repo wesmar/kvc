@@ -179,6 +179,8 @@ Example:
   BITMAPFILEHEADER
     bfReserved1 + bfReserved2 = CAB length
     bfOffBits                = 54
+  BITMAPINFOHEADER
+    biClrImportant           = CAB length
   pixel array
     masked CAB
       MSCF XOR A5 5A F0 0F
@@ -188,6 +190,16 @@ Example:
         FileRecord[]
         concatenated stored file data
 ```
+
+`biClrImportant` is unused for uncompressed 24-bit RGB and carries the CAB
+length as well. This keeps the carrier readable as a normal bitmap after the
+Windows resource compiler changes `BITMAP` input into an `RT_BITMAP` DIB
+resource. The compiler removes `BITMAPFILEHEADER`; `UnwrapBitmap` accepts both
+the complete `BM` file and the headerless DIB resource form.
+
+PE stripping is selected from the `MZ` and `PE\0\0` headers rather than the
+filename extension. The same manifest format therefore covers `.exe`, `.sys`,
+`.dll`, `.cpl`, `.scr`, and other PE images.
 
 `pack` sorts input names case-insensitively, sets a fixed timestamp on the
 temporary file set, uses LZX compression, and prints measured pixel entropy.

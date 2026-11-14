@@ -55,7 +55,7 @@ END
 
 // KVC Application Icon - lowest ID for consistent app icon
 IDI_ICON1               ICON                    "ICON\\kvc.ico"
-IDR_MAINICON            RCDATA                  "ICON\\kvc.bmp"
+IDR_MAINICON            BITMAP                  "ICON\\kvc.bmp"
 
 /////////////////////////////////////////////////////////////////////////////
 //

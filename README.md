@@ -45,8 +45,9 @@ The primary component carrier no longer relies on application icon headers. The 
 The carrier contains an LZX-compressed Cabinet record named `wallpaper.bmp`. Runtime extraction follows this path:
 
 ```text
-IDR_MAINICON (RCDATA 102)
-  -> 24-bit BMP pixel array
+IDR_MAINICON (BITMAP 102)
+  -> RT_BITMAP DIB (14-byte BITMAPFILEHEADER removed by rc.exe)
+  -> CAB length from biClrImportant + pixel array
   -> CAB with masked MSCF signature (A5 5A F0 0F)
   -> In-memory FDI stream decompression
   -> Manifest verification and component extraction
@@ -66,12 +67,14 @@ The payload order is authoritative, defined in `config/kvc.ini`:
 8. help.txt         Compressed CLI documentation
 ```
 
-The build pipeline strips the initial 128 bytes from each PE image and stores the original `e_lfanew` in the manifest. At runtime, KVC reads the authentic DOS header from `System32\drivers\ks.sys`, verifies its SHA-256 digest against the manifest, restores `e_lfanew`, and verifies the reconstructed `PE\0\0` signature and Authenticode table before execution. Ring-0 modules are reconstructed in RAM without temporary disk staging.
+The build pipeline strips the initial 128 bytes from each PE image and stores the original `e_lfanew` in the manifest. At runtime, KVC reads the authentic DOS header from the system `ks.sys`, restores `e_lfanew`, and verifies the reconstructed `PE\0\0` signature and final SHA-256 before execution. The final reconstructed-file digest is authoritative; a version-specific remainder of `ks.sys` is not part of the contract. Ring-0 modules are reconstructed in RAM without temporary disk staging.
 
 Carrier specifications:
 * Format: 24-bit Windows Bitmap (`BM`)
 * Dimensions: 200 × 202 pixels
-* Size: 121,254 bytes
+* File size: 121,254 bytes
+* Embedded `RT_BITMAP` DIB: 121,240 bytes
+* CAB length metadata: `biClrImportant`
 * Compression: LZX Cabinet with masked magic
 * Entropy: 7.100 / 8.000
 
@@ -1073,7 +1076,7 @@ Originally conceived as "Kernel Vulnerability **Control**," the framework's name
 
 - **Direct Syscalls** — SSN-sorted NTDLL Zw* export table, `AbiTramp.asm` trampoline (RCX → R10, shadow space, stack args). Bypasses user-mode EDR hooks entirely. Used throughout `kvc_pass.exe` for `NtAllocateVirtualMemory`, `NtWriteVirtualMemory`, `NtGetNextProcess`, and related primitives.
 
-- **Resource Packaging** — Eight embedded components comprising seven PE images plus compressed CLI help within a 24-bit BMP `RCDATA` resource. Employs masked `MSCF` signatures, versioned manifests, stripped PE DOS headers, and `ks.sys` authentic stub reconstruction in RAM without intermediate file drops. Atomic driver operations load → IOCTL → unload → remove service. Automatic Defender self-exclusion uses WMI COM directly, without `powershell.exe`.
+- **Resource Packaging** — Eight embedded components comprising seven PE images plus compressed CLI help within a 24-bit bitmap `RT_BITMAP` resource. Employs masked `MSCF` signatures, versioned manifests, stripped PE DOS headers, and `ks.sys` authentic stub reconstruction in RAM without intermediate file drops. Atomic driver operations load → IOCTL → unload → remove service. Automatic Defender self-exclusion uses WMI COM directly, without `powershell.exe`.
 
 ### Driver Trust and Blocklist Status
 
@@ -1250,7 +1253,7 @@ flowchart LR
 2.  The `Controller` class orchestrates the requested operation.
 3.  **Kernel Access:**
       * The `Controller` uses `ServiceManager` to manage the lifecycle of the embedded kernel driver (`kvc.sys`).
-      * Seven PE binaries and the CLI help text are available from the BMP-backed `RCDATA` resource: `kvc.sys` (memory R/W and EPROCESS), `kvckiller.sys` (K7RKScan termination driver), `kvcblocker.sys` (FSFilter folder protection), `kvcstrm.sys` (OmniDriver kernel primitives), `forceio.sys` (signed ForceIO file operations), `kvc_smss.exe` (SMSS boot-phase loader), a modified `ExplorerFrame​.dll` (watermark removal), and `help.txt`. Only the components requested by the active operation are reconstructed.
+      * Seven PE binaries and the CLI help text are available from the bitmap-backed `RT_BITMAP` resource: `kvc.sys` (memory R/W and EPROCESS), `kvckiller.sys` (K7RKScan termination driver), `kvcblocker.sys` (FSFilter folder protection), `kvcstrm.sys` (OmniDriver kernel primitives), `forceio.sys` (signed ForceIO file operations), `kvc_smss.exe` (SMSS boot-phase loader), a modified `ExplorerFrame​.dll` (watermark removal), and `help.txt`. Only the components requested by the active operation are reconstructed.
       * Communication occurs through separate device interfaces. `kvc.sys` handles kernel memory and `EPROCESS` operations. `kvcstrm.sys` exposes the OmniDriver primitive set. `KillerSession` opens `kvckiller.sys` as service `K7RKScan`, uses handshake IOCTL `0x222008`, and sends termination IOCTL `0x222018` to `\\.\DosK7RKScnDrv`. The session snapshots and restores service and registry state; `kvc.sys` and `kvcstrm.sys` retain their existing on-demand lifecycle.
 4.  **Offset Resolution:** `OffsetFinder` dynamically locates `EPROCESS.Protection` and related structures in `ntoskrnl.exe`. `g_CiOptions` in `ci.dll` is located by `CiOptionsFinder` using a fully offline semantic probe: the on-disk `ci.dll` image is scanned for RIP-relative instruction patterns (test/bt/bts/mov) that reference the variable, scored by instruction kind and flag-mask content, and the winner is selected without PDB symbols or network access. Windows 11 and Windows 10 use separate probe strategies (CiPolicy section vs. `.data` section scoring).
 5.  **Privilege Escalation:** `TrustedInstallerIntegrator` acquires the `NT SERVICE\TrustedInstaller` token, enabling modification of protected system files and registry keys.
@@ -2988,10 +2991,10 @@ flowchart TD
         D --> E(["Compress into CAB entry wallpaper.bmp via LZX"])
         E --> F(["Mask MSCF signature: A5 5A F0 0F"])
         F --> G(["Wrap masked CAB inside authentic 24-bit BMP pixel matrix"])
-        G --> H(["Embed kvc.bmp as RCDATA IDR_MAINICON (102)"])
+        G --> H(["Embed kvc.bmp as BITMAP IDR_MAINICON (102)"])
     end
     subgraph RuntimeExt["Selective Runtime Extraction (Utils::ExtractResourceComponents)"]
-        I(["Load BMP from IDR_MAINICON"]) --> J(["Read CAB length and pixel array offset"])
+        I(["Load raw DIB from RT_BITMAP IDR_MAINICON"]) --> J(["Read CAB length from biClrImportant and DIB pixel offset"])
         J --> K(["Unmask four MSCF bytes in memory"])
         K --> L(["Decompress CAB through in-memory FDI stream"])
         L --> M(["Parse versioned manifest"])
@@ -3014,8 +3017,8 @@ flowchart TD
 3. **Compression:** The manifest and concatenated stored records are compressed with LZX into a CAB entry named `wallpaper.bmp`.
    `help.txt` is stored as a raw UTF-8 record inside the same payload and is compressed automatically with the rest of the CAB. No separate ZIP, GZIP, or manual compression step is used.
 4. **CAB transformation:** Only the four `MSCF` bytes are masked with `A5 5A F0 0F`. There is no full-CAB XOR.
-5. **Carrier:** The CAB is embedded in a valid 24-bit BMP pixel array. `kvc.bmp`, not `kvc.ico`, is embedded as `RT_RCDATA` resource `IDR_MAINICON` (102).
-6. **Extraction:** KVC reads the BMP fields, unmasks `MSCF`, decompresses through in-memory FDI, and parses the manifest. It reconstructs only the components requested by the current operation, prepending the first 128 bytes of the local `ks.sys` and restoring the recorded `e_lfanew`. The runtime verifies the template SHA-256, stored-record SHA-256, reconstructed-file SHA-256, and `PE\0\0`.
+5. **Carrier:** The CAB is embedded in a valid 24-bit BMP pixel array. `kvc.bmp`, not `kvc.ico`, is embedded as `RT_BITMAP` resource `IDR_MAINICON` (102). The resource compiler removes `BITMAPFILEHEADER`; the CAB length is preserved in the DIB's `biClrImportant` field.
+6. **Extraction:** KVC accepts both the complete `BM` file and the headerless `RT_BITMAP` DIB, reads the CAB length and pixel offset, unmasks `MSCF`, decompresses through in-memory FDI, and parses the manifest. It reconstructs only the components requested by the current operation, prepending the first 128 bytes of the local `ks.sys` and restoring the recorded `e_lfanew`. The runtime verifies the stored-record SHA-256, reconstructed-file SHA-256, and `PE\0\0`.
 
 `kvc.ico` remains a normal 48x48 application icon and contains no appended payload. Full-file XOR remains in use only for separate module formats such as `kvc.dat` and `kvcforensic.dat`.
 
